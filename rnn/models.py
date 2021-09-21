@@ -147,7 +147,7 @@ class LeakyRNN(nn.Module):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.x2h = EILinear(input_size, hidden_size, remove_diag=False, e_prop=1)
+        self.x2h = PosWLinear(input_size, hidden_size, zero_rows_prop=0)
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, e_prop=e_prop)
         self.h2o = PosWLinear(hidden_size, output_size, zero_rows_prop=1-e_prop)
         self.num_layers = 1
@@ -173,7 +173,7 @@ class LeakyRNN(nn.Module):
                 assert(c_plasticity.shape==(6,))
                 self.c_plas = torch.from_numpy(c_plasticity)
             else:
-                self.c_plas = nn.Parameter([])
+                self.c_plas = nn.Parameter(torch.zeros(6))
 
         self.attention = attention
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer
@@ -200,7 +200,7 @@ class LeakyRNN(nn.Module):
             return (torch.zeros(batch_size, self.hidden_size).to(x.device),
                     torch.zeros(batch_size, self.hidden_size).to(x.device))
 
-    def recurrence(self, x, h):
+    def recurrence(self, x, h, R):
         if self.plastic:
             state, output, wx, wh = h
         else:
@@ -218,29 +218,31 @@ class LeakyRNN(nn.Module):
         new_output = self.activation(new_state)
         
         if self.plastic:
-            wx = wx * self.oneminusalpha_w + self.alpha_w*(
-                self.c_plas[0].exp()*torch.einsum('bj->bij', x) +
-                self.c_plas[1].exp()*torch.einsum('bi->bij', new_output) +
-                self.c_plas[2].exp()*torch.einsum('bi, bj->bij', new_output, x)) + \
+            wx = wx * self.oneminusalpha_w + self.alpha_w*R*(
+                self.c_plas[0].abs()*torch.einsum('bj->bij', x) +
+                self.c_plas[1].abs()*torch.einsum('bi->bij', new_output) +
+                self.c_plas[2].abs()*torch.einsum('bi, bj->bij', new_output, x)) + \
                 self._sigma_w * torch.randn_like(wx)
-            wh = wh * self.oneminusalpha_w + self.alpha_w*(
-                self.c_plas[3].exp()*torch.einsum('bj->bij', output) +
-                self.c_plas[4].exp()*torch.einsum('bi->bij', new_output) +
-                self.c_plas[5].exp()*torch.einsum('bi, bj->bij', new_output, output)) + \
+            wh = wh * self.oneminusalpha_w + self.alpha_w*R*(
+                self.c_plas[3].abs()*torch.einsum('bj->bij', output) +
+                self.c_plas[4].abs()*torch.einsum('bi->bij', new_output) +
+                self.c_plas[5].abs()*torch.einsum('bi, bj->bij', new_output, output)) + \
                 self._sigma_w * torch.randn_like(wh)
             return new_state, new_output, wx, wh
         else:
             return new_state, new_output
 
-    def forward(self, x, hidden=None):
+    def forward(self, x, Rs, hidden=None):
         if hidden is None:
             hidden = self.init_hidden(x)
 
-        output = []
+        hs = []
         steps = range(x[0].size(0))
         for i in steps:
-            hidden = self.recurrence(x[i], hidden)
-            output.append(hidden[1])
+            hidden = self.recurrence(x[i], hidden, Rs[i])
+            hs.append(hidden[1])
 
-        output = torch.stack(output, dim=0)
-        return output, hidden
+        hs = torch.stack(hs, dim=0)
+        output = self.h2o(hs)
+
+        return output, hs

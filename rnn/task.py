@@ -2,7 +2,7 @@ import numpy as np
 
 
 class MDPRL():
-    def __init__(self, times, N_s):
+    def __init__(self, times, N_s, input_type):
         prob_mdprl = np.zeros((3, 3, 3))
         prob_mdprl[:, :, 0] = ([0.92, 0.75, 0.43], [
                                0.50, 0.50, 0.50], [0.57, 0.25, 0.08])
@@ -27,18 +27,36 @@ class MDPRL():
         self.T_s = (T > times['stim_onset']*s) & (T <= times['stim_end']*s)
         # when dopamine is released
         self.T_da = (T > times['rwd_onset']*s) & (T <= times['rwd_end']*s)
+        self.T_da = np.tile(self.T_da, 27*N_s).reshape((-1, 1))
         # when choice is read (only used for making the target)
-        self.T_ch = (T > times['choice_onset']*s) & (T <= times['choice_end']*s)
+        self.T_ch = (T > times['choice_onset'] *
+                     s) & (T <= times['choice_end']*s)
+        self.T_ch = np.tile(self.T_ch, 27*N_s).reshape((-1, 1))
         # when choice is read (used for training the network)
         self.T_sch = times['end_time']*(T < times['stim_onset']*s) + self.T_ch
+        self.T_sch = np.tile(self.T_sch, 27*N_s).reshape((-1, 1))
 
         self.T = T
         self.N_s = N_s
 
-    def generate_rand_prob(self, batch_size):
+        assert(input_type in ['all', 'feat', 'conj', 'obj']), 'invalid input type'
+        if input_type=='all':
+            self.input_indexes = np.arange(0, 63)
+        elif input_type=='feat':
+            self.input_indexes = np.arange(0, 9)
+        elif input_type=='conj':
+            self.input_indexes = np.arange(9, 36)
+        elif input_type=='feat':
+            self.input_indexes = np.arange(36, 63)
+        else:
+            raise RuntimeError
+
+        self._generate_idx()
+
+    def _generate_rand_prob(self, batch_size):
         self.prob_rand = np.random.rand(batch_size, 3, 3, 3)
 
-    def generate_idx(self):
+    def _generate_idx(self):
         # -----------------------------------------------------------------------------------------
         # initialization
         # -----------------------------------------------------------------------------------------
@@ -62,8 +80,10 @@ class MDPRL():
             index_pttrn[:, :, d] = np.matrix([[0, 0, 0], [1, 1, 1], [2, 2, 2]])
             index_clr[:, :, d] = np.matrix([[1, 1, 1], [1, 1, 1], [1, 1, 1]])*d
 
-            index_shppttrn[:, :, d] = index_shp[:, :, d]*3 + index_pttrn[:, :, d]
-            index_pttrnclr[:, :, d] = index_pttrn[:, :, d]*3 + index_clr[:, :, d]
+            index_shppttrn[:, :, d] = index_shp[:, :, d] * \
+                3 + index_pttrn[:, :, d]
+            index_pttrnclr[:, :, d] = index_pttrn[:, :, d] * \
+                3 + index_clr[:, :, d]
             index_shpclr[:, :, d] = index_shp[:, :, d]*3 + index_clr[:, :, d]
 
         self.index_shp = index_shp.flatten().astype(int)
@@ -76,7 +96,7 @@ class MDPRL():
         # -----------------------------------------------------------------------------------------
         # generate input population activity
         # -----------------------------------------------------------------------------------------
-        index_s = np.repeat(np.arange(0, 27, 1), self.N_s)
+        index_s = np.arange(0, 27, 1)
         pop_o = np.zeros((len(self.T), len(index_s), 27))
         pop_s = np.zeros((len(self.T), len(index_s), 63))
         for n in range(len(index_s)):
@@ -94,23 +114,38 @@ class MDPRL():
         self.pop_s = pop_s
         self.pop_o = pop_o
 
-
-
-    def generateinput(self, batch_size, N_s, prob_index=None):
+    def generateinput(self, batch_size, prob_index=None):
         '''
         Generate random stimuli AND choice for learning
         '''
         if prob_index is not None:
-            assert(len(prob_index.shape)==4 and prob_index.shape[1:]==(3,3,3))
+            assert(len(prob_index.shape) ==4 and prob_index.shape[1:] == (3, 3, 3))
         else:
-            prob_index = self.generate_rand_prob(batch_size)
+            prob_index = self._generate_rand_prob(batch_size)
 
-        prob_index = np.reshape(prob_index, prob_index.shape[0], 27)
+        batch_size = prob_index.shape[0]
 
+        prob_index = np.reshape(prob_index, (batch_size, 27))
 
-        index_s = np.repeat(np.arange(0, 27, 1), self.N_s)
-        R = np.random.binomial(1, prob_index[index_s])
-        ch_s = self.filter_ch*prob_index[index_s]
-        DA_s = self.filter_da*R - self.filter_da*(1-R)
+        index_s = np.zeros((self.N_s, 27))
+        for i in range(self.N_s):
+            index_s[i] = np.random.permutation(27)
+        index_s = np.reshape(index_s, (self.N_s, 27))
+
+        pop_o = np.zeros((len(self.T), len(index_s), batch_size, 27))
+        pop_s = np.zeros((len(self.T), len(index_s), batch_size, 63))
+        ch_s = np.zeros((len(self.T), batch_size, 1))
+        DA_s = np.zeros((len(self.T), batch_size, 1))
+        R = np.zeros((len(self.T), batch_size, 1))
+
+        for i in range(batch_size):
+            pop_s[:,:,i,:] = self.pop_s[:,index_s,:]
+            pop_o[:,:,i,:] = self.pop_o[:,index_s,:]
+            R[:,i,:] = np.random.binomial(1, prob_index[i, index_s])
+            ch_s[:,i,:] = self.filter_ch*prob_index[i, index_s]
+            DA_s[:,i,:] = self.filter_da*(2*R-1)
+
+        pop_s = pop_s.reshape((len(self.T)*len(index_s), batch_size, 63))
+        pop_o = pop_o.reshape((len(self.T)*len(index_s), batch_size, 27))
 
         return DA_s, ch_s, pop_s, pop_o
