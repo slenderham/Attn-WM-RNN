@@ -142,7 +142,7 @@ class GroupedEILinear(nn.Module):
 class LeakyRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, 
                 attn_group_size=None, plastic=True, attention=True, activation='retanh',
-                dt=20, tau_x=100, tau_w=200, c_plasticity=None,
+                dt=20, tau_x=100, tau_w=200, c_plasticity=None, train_init_state=True,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, **kwargs):
         super().__init__()
         self.input_size = input_size
@@ -166,6 +166,11 @@ class LeakyRNN(nn.Module):
         self._sigma_rec = np.sqrt(2*alpha_x) * sigma_rec
         self._sigma_in = np.sqrt(2*alpha_x) * sigma_in
         self._sigma_w = np.sqrt(2*alpha_w) * sigma_w
+
+        if train_init_state:
+            self.x0 = nn.Parameter(torch.randn(1, hidden_size))
+        else:
+            self.x0 = torch.zeros(1, hidden_size)
         
         self.plastic = plastic
         if plastic:
@@ -178,6 +183,7 @@ class LeakyRNN(nn.Module):
         self.attention = attention
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer
         if attention:
+            assert(attn_group_size is not None)
             self.attn_func = nn.Sequential([
                 PosWLinear(hidden_size, len(attn_group_size), 1-e_prop, bias=True),
                 nn.Softmax(dim=-1)
@@ -191,14 +197,15 @@ class LeakyRNN(nn.Module):
 
     def init_hidden(self, x):
         batch_size = x.shape[1]
+        h_init = self.x0.to(x.device) + self._sigma_rec * torch.randn(batch_size, self.hidden_size)
         if self.plastic:
-            return (torch.zeros(batch_size, self.hidden_size).to(x.device),
-                    torch.zeros(batch_size, self.hidden_size).to(x.device),
+            return (h_init,
+                    h_init.relu(),
                     self.x2h.weight.to(x.device),
                     self.h2h.weight.to(x.device))
         else:
-            return (torch.zeros(batch_size, self.hidden_size).to(x.device),
-                    torch.zeros(batch_size, self.hidden_size).to(x.device))
+            return (h_init,
+                    h_init.relu())
 
     def recurrence(self, x, h, R):
         if self.plastic:

@@ -1,6 +1,7 @@
 import numpy as np
 
 
+## TODO: Add reversal functionality
 class MDPRL():
     def __init__(self, times, N_s, input_type):
         prob_mdprl = np.zeros((3, 3, 3))
@@ -54,7 +55,7 @@ class MDPRL():
         self._generate_idx()
 
     def _generate_rand_prob(self, batch_size):
-        self.prob_rand = np.random.rand(batch_size, 3, 3, 3)
+        return np.random.rand(batch_size, 3, 3, 3)
 
     def _generate_idx(self):
         # -----------------------------------------------------------------------------------------
@@ -130,20 +131,21 @@ class MDPRL():
         index_s = np.zeros((self.N_s, 27))
         for i in range(self.N_s):
             index_s[i] = np.random.permutation(27)
-        index_s = np.reshape(index_s, (self.N_s, 27))
+        index_s = np.reshape(index_s, (self.N_s*27)).astype(int)
 
         pop_o = np.zeros((len(self.T), len(index_s), batch_size, 27))
         pop_s = np.zeros((len(self.T), len(index_s), batch_size, 63))
-        ch_s = np.zeros((len(self.T), batch_size, 1))
-        DA_s = np.zeros((len(self.T), batch_size, 1))
-        R = np.zeros((len(self.T), batch_size, 1))
+        ch_s = np.zeros((len(index_s), batch_size))
+        DA_s = np.zeros((len(self.T), len(index_s), batch_size, 1))
+        R = np.zeros((len(index_s), batch_size))
 
         for i in range(batch_size):
             pop_s[:,:,i,:] = self.pop_s[:,index_s,:]
             pop_o[:,:,i,:] = self.pop_o[:,index_s,:]
-            R[:,i,:] = np.random.binomial(1, prob_index[i, index_s])
-            ch_s[:,i,:] = self.filter_ch*prob_index[i, index_s]
-            DA_s[:,i,:] = self.filter_da*(2*R-1)
+            R[:,i] = np.random.binomial(1, prob_index[i, index_s])
+            ch_s[:,i] = self.filter_ch*prob_index[i, index_s]
+        
+        DA_s = self.filter_da*(2*R.reshape((1, len(index_s), batch_size, 1))-1)
 
         pop_s = pop_s.reshape((len(self.T)*len(index_s), batch_size, 63))
         pop_o = pop_o.reshape((len(self.T)*len(index_s), batch_size, 27))

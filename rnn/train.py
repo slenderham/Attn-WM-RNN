@@ -35,6 +35,8 @@ if __name__ == "__main__":
     parser.add_argument('--exp_dir', type=str, help='Output directory')
     parser.add_argument('--iters', type=int, help='Training Iterations')
     parser.add_argument('--hidden_size', type=int, default=100, help='Size of recurrent layer')
+    parser.add_argument('--stim_dim', type=int, default=3, choices=[2, 3], help='Number of features')
+    parser.add_argument('--stim_val', type=int, default=3, help='Possible values of features')
     parser.add_argument('--e_prop', type=float, default=4/5, help='Proportion of E neurons')
     parser.add_argument('--batch_size', type=int, help='Batch size')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
@@ -43,12 +45,13 @@ if __name__ == "__main__":
     parser.add_argument('--sigma_w', type=float, default=0.0, help='Std for weight noise')
     parser.add_argument('--tau_x', type=float, default=100, help='Time constant for recurrent neurons')
     parser.add_argument('--tau_w', type=float, default=100, help='Time constant for weight modification')
-    parser.add_argument('--dt', type=float, default=20, help='Discretization time step (ms)')
+    parser.add_argument('--dt', type=float, default=0.02, help='Discretization time step (ms)')
     parser.add_argument('--l2r', type=float, default=0.01, help='Weight for L2 reg on firing rate')
     parser.add_argument('--l2w', type=float, default=0.0, help='Weight for L2 reg on weight')
     parser.add_argument('--l1r', type=float, default=0.0, help='Weight for L1 reg on firing rate')
     parser.add_argument('--l1w', type=float, default=0.0, help='Weight for L1 reg on weight')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
+    parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
     parser.add_argument('--add_attn', action='store_true', help='Whether to add attention')
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'retanh', 'sigmoid'], 
                         default='relu', help='Activation function for recurrent units')
@@ -81,9 +84,19 @@ if __name__ == "__main__":
 
     task_mdprl = MDPRL(exp_times, 10, 'all')
 
-    model = LeakyRNN(input_size=63, hidden_size=args.hidden_size, output_size=1, 
+    input_size = {
+        'feat': args.stim_dim*args.stim_val,
+        'feat+conj': args.stim_dim*args.stim_val+args.stim_dim*args.stim_val*args.stim_val+args.stim_val**args.stim_dim,
+        'feat+conj+obj': args.stim_dim*args.stim_val+args.stim_val**args.stim_dim
+    }[args.input_type]
+
+    if args.add_attn:
+        assert args.input_type=='feat', "Only support feature-based attention for now"
+        attn_group_size = [args.stim_val]*args.stim_dim
+    
+    model = LeakyRNN(input_size=input_size, hidden_size=args.hidden_size, output_size=1, 
                 plastic=args.plas_type=='all', attention=args.add_attn, activation=args.activ_func,
-                dt=args.dt, tau_x=args.tau_x, tau_w=args.tau_w, c_plasticity=None,
+                dt=args.dt, tau_x=args.tau_x, tau_w=args.tau_w, c_plasticity=None, attn_group_size=attn_group_size,
                 e_prop=args.e_prop, sigma_rec=args.sigma_rec, sigma_in=args.sigma_in, sigma_w=args.sigma_w)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
