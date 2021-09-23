@@ -18,17 +18,6 @@ from torch import optim
 from models import LeakyRNN
 from task import MDPRL
 
-exp_times = {
-    'start_time': -0.5,
-    'end_time': 1.5,
-    'stim_onset': 0.0,
-    'stim_end': 1.2,
-    'rwd_onset': 1.0,
-    'rwd_end': 1.2,
-    'choice_onset': 0.7,
-    'choice_end': 1.0}
-
-
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
@@ -37,6 +26,7 @@ if __name__ == "__main__":
     parser.add_argument('--hidden_size', type=int, default=100, help='Size of recurrent layer')
     parser.add_argument('--stim_dim', type=int, default=3, choices=[2, 3], help='Number of features')
     parser.add_argument('--stim_val', type=int, default=3, help='Possible values of features')
+    parser.add_argument('--N_s', type=int, default=10, help='Number of times to repeat the entire stim set')
     parser.add_argument('--e_prop', type=float, default=4/5, help='Proportion of E neurons')
     parser.add_argument('--batch_size', type=int, help='Batch size')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
@@ -46,7 +36,7 @@ if __name__ == "__main__":
     parser.add_argument('--tau_x', type=float, default=100, help='Time constant for recurrent neurons')
     parser.add_argument('--tau_w', type=float, default=100, help='Time constant for weight modification')
     parser.add_argument('--dt', type=float, default=0.02, help='Discretization time step (ms)')
-    parser.add_argument('--l2r', type=float, default=0.01, help='Weight for L2 reg on firing rate')
+    parser.add_argument('--l2r', type=float, default=0.001, help='Weight for L2 reg on firing rate')
     parser.add_argument('--l2w', type=float, default=0.0, help='Weight for L2 reg on weight')
     parser.add_argument('--l1r', type=float, default=0.0, help='Weight for L1 reg on firing rate')
     parser.add_argument('--l1w', type=float, default=0.0, help='Weight for L1 reg on weight')
@@ -65,13 +55,22 @@ if __name__ == "__main__":
     if args.plas_type=='half':
         raise NotImplementedError
 
-    assert args.l1w==0 and args.l2w==0, "Weight regularization not implemented due to unknown interaction with plasticity"
+    assert args.l1w==0 and args.l2w==0, \
+        "Weight regularization not implemented due to unknown interaction with plasticity"
 
     print(f"Parameters saved to {os.path.join(args.exp_dir, 'args.json')}")
     save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
+    exp_times = {
+        'start_time': -0.5,
+        'end_time': 1.5,
+        'stim_onset': 0.0,
+        'stim_end': 1.2,
+        'rwd_onset': 1.0,
+        'rwd_end': 1.2,
+        'choice_onset': 0.7,
+        'choice_end': 1.0}
     exp_times['dt'] = args.dt
-    N_s = 10
     log_interval = 100
 
     torch.manual_seed(args.seed)
@@ -83,8 +82,7 @@ if __name__ == "__main__":
     else:
         device = torch.device('cuda' if args.cuda else 'cpu')
 
-
-    task_mdprl = MDPRL(exp_times, 10, 'all')
+    task_mdprl = MDPRL(exp_times, args.N_s, args.input_type)
 
     input_size = {
         'feat': args.stim_dim*args.stim_val,
@@ -92,7 +90,7 @@ if __name__ == "__main__":
         'feat+conj+obj': args.stim_dim*args.stim_val+args.stim_val**args.stim_dim
     }[args.input_type]
 
-    assert args.input_type=='feat', "Only support feature-based input for now, since only feature-based attn is supported"
+    assert args.input_type=='feat', "Only support feature input for now, since only feature-based attn is supported"
     attn_group_size = [args.stim_val]*args.stim_dim
     
     model = LeakyRNN(input_size=input_size, hidden_size=args.hidden_size, output_size=1, 
@@ -106,7 +104,7 @@ if __name__ == "__main__":
 
         pbar = tqdm(total=iters)
         for batch_idx in range(iters):
-            DA_s, ch_s, pop_s, _ = task_mdprl.generateinput(args.batch_size)
+            DA_s, ch_s, pop_s, _, output_mask = task_mdprl.generateinput(args.batch_size)
             output, hs = model(pop_s, DA_s)
             loss = (output-ch_s).pow(2).mean() + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             optimizer.zero_grad()

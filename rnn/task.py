@@ -1,7 +1,9 @@
 import numpy as np
+import torch
 
+# TODO: Add reversal functionality
+# TODO: support different dimensions and stim values
 
-## TODO: Add reversal functionality
 class MDPRL():
     def __init__(self, times, N_s, input_type):
         prob_mdprl = np.zeros((3, 3, 3))
@@ -28,36 +30,25 @@ class MDPRL():
         self.T_s = (T > times['stim_onset']*s) & (T <= times['stim_end']*s)
         # when dopamine is released
         self.T_da = (T > times['rwd_onset']*s) & (T <= times['rwd_end']*s)
-        self.T_da = np.tile(self.T_da, 27*N_s).reshape((-1, 1))
         # when choice is read (only used for making the target)
-        self.T_ch = (T > times['choice_onset'] *
-                     s) & (T <= times['choice_end']*s)
-        self.T_ch = np.tile(self.T_ch, 27*N_s).reshape((-1, 1))
+        self.T_ch = (T > times['choice_onset']*s) & (T <= times['choice_end']*s)
         # when choice is read (used for training the network)
-        self.T_sch = times['end_time']*(T < times['stim_onset']*s) + self.T_ch
-        self.T_sch = np.tile(self.T_sch, 27*N_s).reshape((-1, 1))
+        # self.T_sch = 1.5*(T < times['stim_onset']*s) + self.T_ch
+        # self.T_sch = np.tile(self.T_sch, 27*N_s).reshape((-1, 1))
 
         self.T = T
         self.N_s = N_s
 
-        assert(input_type in ['all', 'feat', 'conj', 'obj']), 'invalid input type'
-        if input_type=='all':
-            self.input_indexes = np.arange(0, 63)
-        elif input_type=='feat':
+        assert(input_type in ['feat', 'feat+conj', 'feat+conj+obj']), 'invalid input type'
+        if input_type=='feat':
             self.input_indexes = np.arange(0, 9)
-        elif input_type=='conj':
-            self.input_indexes = np.arange(9, 36)
-        elif input_type=='feat':
-            self.input_indexes = np.arange(36, 63)
+        elif input_type=='feat+conj':
+            self.input_indexes = np.arange(0, 36)
+        elif input_type=='feat+conj+obj':
+            self.input_indexes = np.arange(0, 63)
         else:
             raise RuntimeError
 
-        self._generate_idx()
-
-    def _generate_rand_prob(self, batch_size):
-        return np.random.rand(batch_size, 3, 3, 3)
-
-    def _generate_idx(self):
         # -----------------------------------------------------------------------------------------
         # initialization
         # -----------------------------------------------------------------------------------------
@@ -115,6 +106,9 @@ class MDPRL():
         self.pop_s = pop_s
         self.pop_o = pop_o
 
+    def _generate_rand_prob(self, batch_size):
+        return np.random.rand(batch_size, 3, 3, 3)
+
     def generateinput(self, batch_size, prob_index=None):
         '''
         Generate random stimuli AND choice for learning
@@ -135,19 +129,21 @@ class MDPRL():
 
         pop_o = np.zeros((len(self.T), len(index_s), batch_size, 27))
         pop_s = np.zeros((len(self.T), len(index_s), batch_size, 63))
-        ch_s = np.zeros((len(index_s), batch_size))
+        ch_s = np.zeros((len(self.T), len(index_s), batch_size, 1))
         DA_s = np.zeros((len(self.T), len(index_s), batch_size, 1))
         R = np.zeros((len(index_s), batch_size))
 
         for i in range(batch_size):
             pop_s[:,:,i,:] = self.pop_s[:,index_s,:]
             pop_o[:,:,i,:] = self.pop_o[:,index_s,:]
-            R[:,i] = np.random.binomial(1, prob_index[i, index_s])
-            ch_s[:,i] = self.filter_ch*prob_index[i, index_s]
+            R[:,i] = np.random.binomial(1, prob_index[i, index_s]) 
+            ch_s[:,:,i,0] = self.filter_ch*prob_index[i, index_s].reshape((1, 270)) # 27270
         
         DA_s = self.filter_da*(2*R.reshape((1, len(index_s), batch_size, 1))-1)
-
+        DA_s = DA_s.reshape((len(self.T)*len(index_s), batch_size, 1))
         pop_s = pop_s.reshape((len(self.T)*len(index_s), batch_size, 63))
         pop_o = pop_o.reshape((len(self.T)*len(index_s), batch_size, 27))
 
-        return DA_s, ch_s, pop_s, pop_o
+        return torch.from_numpy(DA_s).float(), torch.from_numpy(ch_s).float(), \
+            torch.from_numpy(pop_s[:,:,self.input_indexes]).float(), torch.from_numpy(pop_o).float(), \
+            torch.from_numpy(np.tile(self.filter_ch, (27*self.N_s, 1))).float()
