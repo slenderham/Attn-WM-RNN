@@ -184,10 +184,10 @@ class LeakyRNN(nn.Module):
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer
         if attention:
             assert(attn_group_size is not None)
-            self.attn_func = nn.Sequential([
+            self.attn_func = nn.Sequential(
                 PosWLinear(hidden_size, len(attn_group_size), 1-e_prop, bias=True),
                 nn.Softmax(dim=-1)
-            ])
+            )
             self.attn_group_size = attn_group_size
         else:
             self.attn_func = None

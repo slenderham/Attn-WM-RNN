@@ -54,7 +54,7 @@ if __name__ == "__main__":
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
     parser.add_argument('--add_attn', action='store_true', help='Whether to add attention')
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'retanh', 'sigmoid'], 
-                        default='relu', help='Activation function for recurrent units')
+                        default='retanh', help='Activation function for recurrent units')
     parser.add_argument('--seed', type=int, default=1, help='Random seed')
     parser.add_argument('--save_checkpoint', action='store_true', help='Whether to save the trained model')
     parser.add_argument('--cuda', action='store_true', help='Enables CUDA training')
@@ -64,6 +64,8 @@ if __name__ == "__main__":
     # TODO: add all plasticity
     if args.plas_type=='half':
         raise NotImplementedError
+
+    assert args.l1w==0 and args.l2w==0, "Weight regularization not implemented due to unknown interaction with plasticity"
 
     print(f"Parameters saved to {os.path.join(args.exp_dir, 'args.json')}")
     save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
@@ -90,9 +92,8 @@ if __name__ == "__main__":
         'feat+conj+obj': args.stim_dim*args.stim_val+args.stim_val**args.stim_dim
     }[args.input_type]
 
-    if args.add_attn:
-        assert args.input_type=='feat', "Only support feature-based attention for now"
-        attn_group_size = [args.stim_val]*args.stim_dim
+    assert args.input_type=='feat', "Only support feature-based input for now, since only feature-based attn is supported"
+    attn_group_size = [args.stim_val]*args.stim_dim
     
     model = LeakyRNN(input_size=input_size, hidden_size=args.hidden_size, output_size=1, 
                 plastic=args.plas_type=='all', attention=args.add_attn, activation=args.activ_func,
@@ -107,7 +108,7 @@ if __name__ == "__main__":
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, _ = task_mdprl.generateinput(args.batch_size)
             output, hs = model(pop_s, DA_s)
-            loss = (output-ch_s).pow(2).mean() + args.l2r*hs.pow(2).mean()
+            loss = (output-ch_s).pow(2).mean() + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -123,7 +124,4 @@ if __name__ == "__main__":
     if args.save_checkpoint:
         save_checkpoint(model.state_dict(), folder=args.exp_dir, filename='checkpoint_finetuned.pth.tar')
     print('====> DONE')
-    
-
-
     
