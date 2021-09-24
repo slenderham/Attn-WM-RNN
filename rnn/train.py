@@ -111,9 +111,6 @@ if __name__ == "__main__":
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, _, output_mask = task_mdprl.generateinput(args.batch_size)
             output, hs = model(pop_s, DA_s)
-            plt.imshow(hs.squeeze().detach().t(), aspect='auto', vmax=2)
-            plt.colorbar()
-            plt.show()
             loss = (output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)*output_mask.unsqueeze(-1)-ch_s).pow(2).mean()/output_mask.mean() \
                     + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
 
