@@ -126,7 +126,7 @@ class LeakyRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, 
                 attn_group_size=None, plastic=True, attention=True, activation='retanh',
                 dt=0.02, tau_x=0.1, tau_w=0.2, c_plasticity=None, train_init_state=False,
-                e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, **kwargs):
+                e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, **kwargs):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -177,6 +177,7 @@ class LeakyRNN(nn.Module):
             self.attn_group_size = None
 
         self.activation = _get_activation_function(activation)
+        self.truncate_iter = truncate_iter
 
     def init_hidden(self, x):
         batch_size = x.shape[1]
@@ -229,6 +230,10 @@ class LeakyRNN(nn.Module):
         else:
             return new_state, new_output
 
+    def truncate(self, hidden):
+        hidden[0] = hidden[0].detach()
+        hidden[1] = hidden[1].detach()
+
     def forward(self, x, Rs, hidden=None):
         if hidden is None:
             hidden = self.init_hidden(x)
@@ -238,6 +243,8 @@ class LeakyRNN(nn.Module):
         for i in steps:
             hidden = self.recurrence(x[i], hidden, Rs[i])
             hs.append(hidden[1])
+            if self.truncate_iter is not None and i%self.truncate_iter==0:
+                self.truncate(hidden)
 
         hs = torch.stack(hs, dim=0)
         output = torch.sigmoid(self.h2o(hs))

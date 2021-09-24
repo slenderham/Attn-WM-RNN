@@ -49,6 +49,7 @@ if __name__ == "__main__":
                         default='retanh', help='Activation function for recurrent units')
     parser.add_argument('--seed', type=int, default=1, help='Random seed')
     parser.add_argument('--save_checkpoint', action='store_true', help='Whether to save the trained model')
+    parser.add_argument('--truncate', action='store_true', help='Truncate gradient for neuronal state (not weight) between trials')
     parser.add_argument('--cuda', action='store_true', help='Enables CUDA training')
 
     args = parser.parse_args()
@@ -98,7 +99,7 @@ if __name__ == "__main__":
     model = LeakyRNN(input_size=input_size, hidden_size=args.hidden_size, output_size=1, 
                 plastic=args.plas_type=='all', attention=args.add_attn, activation=args.activ_func,
                 dt=args.dt, tau_x=args.tau_x, tau_w=args.tau_w, c_plasticity=None, attn_group_size=attn_group_size,
-                e_prop=args.e_prop, sigma_rec=args.sigma_rec, sigma_in=args.sigma_in, sigma_w=args.sigma_w)
+                e_prop=args.e_prop, sigma_rec=args.sigma_rec, sigma_in=args.sigma_in, sigma_w=args.sigma_w, truncate_iter=1+2*int(1/exp_times['dt']))
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
     def train(iters):
