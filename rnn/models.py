@@ -136,7 +136,6 @@ class LeakyRNN(nn.Module):
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=False)
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, e_prop=e_prop, zero_cols_prop=0, bias=True, init_spectral=init_spectral)
         self.h2o = EILinear(hidden_size, output_size, remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop, bias=True)
-        self.num_layers = 1
         self.tau_x = tau_x
         self.tau_w = tau_w
         if dt is None:
@@ -218,12 +217,12 @@ class LeakyRNN(nn.Module):
         
         if self.plastic:
             R = R.unsqueeze(-1)
-            wx = wx * self.oneminusalpha_w + self.alpha_w*R*(
+            wx = wx * self.oneminusalpha_w + R*(
                 self.c_plas[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
                 self.c_plas[1]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
                 self.c_plas[2]*torch.einsum('bi, bj->bij', new_output, x)) + \
                 self._sigma_w * torch.randn_like(wx)
-            wh = wh * self.oneminusalpha_w + self.alpha_w*R*(
+            wh = wh * self.oneminusalpha_w + R*(
                 self.c_plas[3]*torch.reshape(output, (batch_size, 1, self.hidden_size)) +
                 self.c_plas[4]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
                 self.c_plas[5]*torch.einsum('bi, bj->bij', new_output, output)) + \
