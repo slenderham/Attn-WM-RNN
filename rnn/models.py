@@ -209,6 +209,7 @@ class LeakyRNN(nn.Module):
 
         
         if self.plastic:
+            print(x.shape, new_output.shape, output.shape)
             wx = wx * self.oneminusalpha_w + self.alpha_w*R*(
                 self.c_plas[0].abs()*torch.reshape(x, (batch_size, 1, self.input_size)) +
                 self.c_plas[1].abs()*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
