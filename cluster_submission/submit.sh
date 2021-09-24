@@ -18,6 +18,4 @@
 # Walltime (job duration)
 #SBATCH --time=02:00:00
 
-nvidia-smi
-echo $CUDA_VISIBLE_DEVICES
-hostname
+../run.sh
