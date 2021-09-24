@@ -120,6 +120,6 @@ if __name__ == "__main__":
 
     final_training_loss = train(args.iters)
     if args.save_checkpoint:
-        save_checkpoint(model.state_dict(), folder=args.exp_dir, filename='checkpoint_finetuned.pth.tar')
+        save_checkpoint(model.state_dict(), folder=args.exp_dir, filename='checkpoint.pth.tar')
     print('====> DONE')
     
