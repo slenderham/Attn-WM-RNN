@@ -70,7 +70,7 @@ class EILinear(nn.Module):
         if w is None:
             return self.pos_func(self.weight) * self.mask
         else:
-            return (self.pos_func(w)) * self.mask
+            return (self.pos_func(w)) * self.mask.unsqueeze(0)
 
     def forward(self, input, w=None):
         # weight is non-negative
@@ -179,8 +179,8 @@ class LeakyRNN(nn.Module):
         if self.plastic:
             return (h_init,
                     h_init.relu(),
-                    self.x2h.effective_weight().to(x.device),
-                    self.h2h.effective_weight().to(x.device))
+                    self.x2h.effective_weight().unsqueeze(0).to(x.device),
+                    self.h2h.effective_weight().unsqueeze(0).to(x.device))
         else:
             return (h_init,
                     h_init.relu())
