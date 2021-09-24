@@ -3,7 +3,7 @@
 python rnn/train.py --cuda\
         --save_checkpoint\
         --iters 10000\
-        --batch_size 32\
+        --batch_size 1\
         --stim_dim 3\
         --stim_val 3\
         --add_attn\

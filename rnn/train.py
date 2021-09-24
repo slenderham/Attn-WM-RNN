@@ -71,7 +71,7 @@ if __name__ == "__main__":
         'choice_onset': 0.7,
         'choice_end': 1.0}
     exp_times['dt'] = args.dt
-    log_interval = 100
+    log_interval = 1
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
