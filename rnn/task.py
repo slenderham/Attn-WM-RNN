@@ -143,10 +143,10 @@ class MDPRL():
         
         DA_s = self.filter_da.reshape((1,len(self.T),1,1))*(2*R.reshape((len(index_s), 1, batch_size, 1))-1)
         DA_s = DA_s.reshape((len(self.T)*len(index_s), batch_size, 1))
-        ch_s = ch_s.reshape((len(self.T)*len(index_s), batch_size, 1))
+        # ch_s = ch_s.reshape((len(self.T)*len(index_s), batch_size, 1))
         pop_s = pop_s.reshape((len(self.T)*len(index_s), batch_size, 63))
         pop_o = pop_o.reshape((len(self.T)*len(index_s), batch_size, 27))
 
         return torch.from_numpy(DA_s).float(), torch.from_numpy(ch_s).float(), \
             torch.from_numpy(pop_s[:,:,self.input_indexes]).float(), torch.from_numpy(pop_o).float(), \
-            torch.from_numpy(np.tile(self.filter_ch, (27*self.N_s, 1))).reshape((len(self.T)*len(index_s), 1, 1)).float()
+            torch.from_numpy(self.filter_ch.reshape(1, len(self.T), 1)).float()
