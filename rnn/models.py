@@ -59,18 +59,19 @@ class EILinear(nn.Module):
         self.reset_parameters(init_spectral)
 
     def reset_parameters(self, init_spectral):
-        nn.init.kaiming_normal_(self.weight, a=math.sqrt(5*self.input_size/(self.input_size-self.zero_cols)))
-        # Scale E weight by E-I ratio
-        if self.i_size!=0:
-            self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
+        with torch.no_grad():
+            nn.init.kaiming_normal_(self.weight, a=math.sqrt(5*self.input_size/(self.input_size-self.zero_cols)))
+            # Scale E weight by E-I ratio
+            if self.i_size!=0:
+                self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
 
-        if init_spectral is not None:
-            self.weight.data *= init_spectral / torch.linalg.eigvals(self.weight).real.max()
+            if init_spectral is not None:
+                self.weight.data *= init_spectral / torch.linalg.eigvals(self.effective_weight(self.weight)).real.max()
 
-        if self.bias is not None:
-            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
-            bound = 1 / math.sqrt(fan_in)
-            nn.init.uniform_(self.bias, -bound, bound)
+            if self.bias is not None:
+                fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
+                bound = 1 / math.sqrt(fan_in)
+                nn.init.uniform_(self.bias, -bound, bound)
     
     def effective_weight(self, w=None):
         if w is None:
