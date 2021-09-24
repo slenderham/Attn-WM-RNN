@@ -7,6 +7,7 @@ python rnn/train.py --cuda\
         --stim_dim 3\
         --stim_val 3\
         --N_s 10\
+        --init_spectral 1.5\
         --add_attn\
         --activ_func relu\
         --truncate\

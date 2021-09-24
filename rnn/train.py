@@ -35,6 +35,7 @@ if __name__ == "__main__":
     parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
     parser.add_argument('--sigma_rec', type=float, default=0.01, help='Std for recurrent noise')
     parser.add_argument('--sigma_w', type=float, default=0.0, help='Std for weight noise')
+    parser.add_argument('--init_spectral', type=float, default=1, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
     parser.add_argument('--tau_w', type=float, default=0.1, help='Time constant for weight modification')
     parser.add_argument('--dt', type=float, default=0.02, help='Discretization time step (ms)')
@@ -100,7 +101,7 @@ if __name__ == "__main__":
                 plastic=args.plas_type=='all', attention=args.add_attn, activation=args.activ_func,
                 dt=args.dt, tau_x=args.tau_x, tau_w=args.tau_w, c_plasticity=None, attn_group_size=attn_group_size,
                 e_prop=args.e_prop, sigma_rec=args.sigma_rec, sigma_in=args.sigma_in, sigma_w=args.sigma_w, 
-                truncate_iter=1+2*int(1/exp_times['dt']) if args.truncate else None)
+                truncate_iter=1+2*int(1/exp_times['dt']) if args.truncate else None, init_spectral=args.init_spectral)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
     def train(iters):
@@ -110,7 +111,8 @@ if __name__ == "__main__":
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, _, output_mask = task_mdprl.generateinput(args.batch_size)
             output, hs = model(pop_s, DA_s)
-            loss = (output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)*output_mask.unsqueeze(-1)-ch_s).pow(2).mean()/output_mask.mean() + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
+            loss = (output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)*output_mask.unsqueeze(-1)-ch_s).pow(2).mean()/output_mask.mean() \
+                    + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
 
             optimizer.zero_grad()
             loss.backward()
