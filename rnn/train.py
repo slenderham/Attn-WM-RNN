@@ -100,7 +100,7 @@ if __name__ == "__main__":
                 plastic=args.plas_type=='all', attention=args.add_attn, activation=args.activ_func,
                 dt=args.dt, tau_x=args.tau_x, tau_w=args.tau_w, c_plasticity=None, attn_group_size=attn_group_size,
                 e_prop=args.e_prop, sigma_rec=args.sigma_rec, sigma_in=args.sigma_in, sigma_w=args.sigma_w, 
-                truncate_iter=1+2*int(1/exp_times['dt'] if args.truncate else None))
+                truncate_iter=1+2*int(1/exp_times['dt']) if args.truncate else None)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
     def train(iters):
