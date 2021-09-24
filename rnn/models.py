@@ -163,7 +163,7 @@ class LeakyRNN(nn.Module):
                 assert(c_plasticity.shape==(6,))
                 self.c_plas = torch.from_numpy(c_plasticity)
             else:
-                self.c_plas = nn.Parameter(torch.zeros(6))
+                self.c_plas = nn.Parameter(torch.FloatTensor([0, 0, 1, 0, 0, 1]))
 
         self.attention = attention
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer
@@ -217,12 +217,12 @@ class LeakyRNN(nn.Module):
         
         if self.plastic:
             R = R.unsqueeze(-1)
-            wx = wx * self.oneminusalpha_w + R*(
+            wx = wx * self.oneminusalpha_w + self.alpha_w*R*(
                 self.c_plas[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
                 self.c_plas[1]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
                 self.c_plas[2]*torch.einsum('bi, bj->bij', new_output, x)) + \
                 self._sigma_w * torch.randn_like(wx)
-            wh = wh * self.oneminusalpha_w + R*(
+            wh = wh * self.oneminusalpha_w + self.alpha_w*R*(
                 self.c_plas[3]*torch.reshape(output, (batch_size, 1, self.hidden_size)) +
                 self.c_plas[4]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
                 self.c_plas[5]*torch.einsum('bi, bj->bij', new_output, output)) + \
