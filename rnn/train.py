@@ -64,14 +64,14 @@ if __name__ == "__main__":
     save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
     exp_times = {
-        'start_time': -0.5,
-        'end_time': 1.5,
+        'start_time': -0.25,
+        'end_time': 0.75,
         'stim_onset': 0.0,
-        'stim_end': 1.2,
-        'rwd_onset': 1.0,
-        'rwd_end': 1.2,
-        'choice_onset': 0.7,
-        'choice_end': 1.0}
+        'stim_end': 0.6,
+        'rwd_onset': 0.5,
+        'rwd_end': 0.6,
+        'choice_onset': 0.35,
+        'choice_end': 0.5}
     exp_times['dt'] = args.dt
     log_interval = 1
 
