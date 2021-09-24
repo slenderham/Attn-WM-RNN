@@ -108,7 +108,8 @@ if __name__ == "__main__":
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, _, output_mask = task_mdprl.generateinput(args.batch_size)
             output, hs = model(pop_s, DA_s)
-            loss = (output*output_mask-ch_s).pow(2).mean() + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
+            loss = (output*output_mask-ch_s).pow(2).mean()/output_mask.mean() + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()

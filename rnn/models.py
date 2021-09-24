@@ -4,6 +4,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import math
+from matplotlib import pyplot as plt
+
 
 def _get_activation_function(func_name):
     if func_name=='relu':
@@ -57,7 +59,7 @@ class EILinear(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(self.input_size/(self.input_size-self.zero_cols)))
+        nn.init.kaiming_normal_(self.weight, a=math.sqrt(5*self.input_size/(self.input_size-self.zero_cols)))
         # Scale E weight by E-I ratio
         if self.i_size!=0:
             self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -77,7 +79,10 @@ class EILinear(nn.Module):
         if w is None:
             return F.linear(input, self.effective_weight(), self.bias)
         else:
-            return torch.matmul(self.effective_weight(w), input.unsqueeze(2)).squeeze(2) + self.bias
+            result = torch.matmul(self.effective_weight(w), input.unsqueeze(2)).squeeze(2) 
+            if self.bias is not None:
+                result += self.bias
+            return result
 
 class GroupedEILinear(nn.Module):
     def __init__(self, input_size, output_size, group_size, remove_diag, e_prop=0.8, bias=True):
@@ -102,7 +107,7 @@ class GroupedEILinear(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        nn.init.kaiming_normal_(self.weight, a=math.sqrt(5))
         # Scale E weight by E-I ratio
         self.weight.data[:, :, :self.e_size] /= (self.e_size/self.i_size)
         if self.bias is not None:
@@ -125,9 +130,9 @@ class LeakyRNN(nn.Module):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.x2h = EILinear(input_size, hidden_size, remove_diag=False, e_prop=1, zero_cols_prop=0)
-        self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, e_prop=e_prop, zero_cols_prop=0)
-        self.h2o = EILinear(hidden_size, output_size, remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop)
+        self.x2h = EILinear(input_size, hidden_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=False)
+        self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, e_prop=e_prop, zero_cols_prop=0, bias=True)
+        self.h2o = EILinear(hidden_size, output_size, remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop, bias=True)
         self.num_layers = 1
         self.tau_x = tau_x
         self.tau_w = tau_w
@@ -195,9 +200,9 @@ class LeakyRNN(nn.Module):
         
         if self.attention:
             attn_weights = torch.repeat_interleave(self.attn_func(output), self.attn_group_size, dim=-1)
-            x = x * attn_weights
+            x = x * attn_weights * len(self.attn_group_size)
         else:
-            x = x / len(self.attn_group_size)
+            x = x
 
         x += self._sigma_in * torch.randn_like(x)
         if self.plastic:

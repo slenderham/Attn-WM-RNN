@@ -61,8 +61,8 @@ class MDPRL():
         index_shpclr = np.zeros((3, 3, 3))
 
         self.filter_s = self.T_s.astype(int)
-        self.filter_da = self.T_da.astype(int).reshape((-1, 1))
-        self.filter_ch = self.T_ch.astype(int).reshape((-1, 1))
+        self.filter_da = self.T_da.astype(int).reshape((1, -1))
+        self.filter_ch = self.T_ch.astype(int).reshape((1, -1))
 
         # -----------------------------------------------------------------------------------------
         # indexing features
@@ -89,19 +89,19 @@ class MDPRL():
         # generate input population activity
         # -----------------------------------------------------------------------------------------
         index_s = np.arange(0, 27, 1)
-        pop_o = np.zeros((len(self.T), len(index_s), 27))
-        pop_s = np.zeros((len(self.T), len(index_s), 63))
+        pop_o = np.zeros((len(index_s), len(self.T), 27))
+        pop_s = np.zeros((len(index_s), len(self.T), 63))
         for n in range(len(index_s)):
-            pop_s[:, n, self.index_shp[index_s[n]]] = self.filter_s*1
-            pop_s[:, n, 3+self.index_pttrn[index_s[n]]] = self.filter_s*1
-            pop_s[:, n, 6+self.index_clr[index_s[n]]] = self.filter_s*1
+            pop_s[n, :, self.index_shp[index_s[n]]] = self.filter_s*1
+            pop_s[n, :, 3+self.index_pttrn[index_s[n]]] = self.filter_s*1
+            pop_s[n, :, 6+self.index_clr[index_s[n]]] = self.filter_s*1
 
-            pop_s[:, n, 9+self.index_shppttrn[index_s[n]]] = self.filter_s*1
-            pop_s[:, n, 18+self.index_pttrnclr[index_s[n]]] = self.filter_s*1
-            pop_s[:, n, 27+self.index_shpclr[index_s[n]]] = self.filter_s*1
+            pop_s[n, :, 9+self.index_shppttrn[index_s[n]]] = self.filter_s*1
+            pop_s[n, :, 18+self.index_pttrnclr[index_s[n]]] = self.filter_s*1
+            pop_s[n, :, 27+self.index_shpclr[index_s[n]]] = self.filter_s*1
 
-            pop_s[:, n, 36+index_s[n]] = self.filter_s*1
-            pop_o[:, n, index_s[n]] = self.filter_s*1
+            pop_s[n, :, 36+index_s[n]] = self.filter_s*1
+            pop_o[n, :, index_s[n]] = self.filter_s*1
 
         self.pop_s = pop_s
         self.pop_o = pop_o
@@ -127,19 +127,21 @@ class MDPRL():
             index_s[i] = np.random.permutation(27)
         index_s = np.reshape(index_s, (self.N_s*27)).astype(int)
 
-        pop_o = np.zeros((len(self.T), len(index_s), batch_size, 27))
-        pop_s = np.zeros((len(self.T), len(index_s), batch_size, 63))
-        ch_s = np.zeros((len(self.T), len(index_s), batch_size, 1))
-        DA_s = np.zeros((len(self.T), len(index_s), batch_size, 1))
+        ## TODO: check order of reshape is correct
+
+        pop_o = np.zeros((len(index_s), len(self.T), batch_size, 27))
+        pop_s = np.zeros((len(index_s), len(self.T), batch_size, 63))
+        ch_s = np.zeros((len(index_s), len(self.T), batch_size, 1))
+        DA_s = np.zeros((len(index_s), len(self.T), batch_size, 1))
         R = np.zeros((len(index_s), batch_size))
 
         for i in range(batch_size):
-            pop_s[:,:,i,:] = self.pop_s[:,index_s,:]
-            pop_o[:,:,i,:] = self.pop_o[:,index_s,:]
+            pop_s[:,:,i,:] = self.pop_s[index_s,:,:]
+            pop_o[:,:,i,:] = self.pop_o[index_s,:,:]
             R[:,i] = np.random.binomial(1, prob_index[i, index_s]) 
-            ch_s[:,:,i,0] = self.filter_ch*prob_index[i, index_s].reshape((1, 27*self.N_s)) # 27270
+            ch_s[:,:,i,0] = self.filter_ch*prob_index[i, index_s].reshape((27*self.N_s,1)) # 27270
         
-        DA_s = self.filter_da.reshape((len(self.T),1,1,1))*(2*R.reshape((1, len(index_s), batch_size, 1))-1)
+        DA_s = self.filter_da.reshape((1,len(self.T),1,1))*(2*R.reshape((len(index_s), 1, batch_size, 1))-1)
         DA_s = DA_s.reshape((len(self.T)*len(index_s), batch_size, 1))
         ch_s = ch_s.reshape((len(self.T)*len(index_s), batch_size, 1))
         pop_s = pop_s.reshape((len(self.T)*len(index_s), batch_size, 63))
@@ -147,4 +149,4 @@ class MDPRL():
 
         return torch.from_numpy(DA_s).float(), torch.from_numpy(ch_s).float(), \
             torch.from_numpy(pop_s[:,:,self.input_indexes]).float(), torch.from_numpy(pop_o).float(), \
-            torch.from_numpy(np.tile(self.filter_ch, (27*self.N_s, 1))).float()
+            torch.from_numpy(np.tile(self.filter_ch, (27*self.N_s, 1))).reshape((len(self.T)*len(index_s), 1, 1)).float()
