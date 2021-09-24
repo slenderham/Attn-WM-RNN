@@ -231,8 +231,10 @@ class LeakyRNN(nn.Module):
             return new_state, new_output
 
     def truncate(self, hidden):
-        hidden[0] = hidden[0].detach()
-        hidden[1] = hidden[1].detach()
+        if self.plastic:
+            return (hidden[0].detach(), hidden[1].detach(), hidden[2], hidden[3])
+        else:
+            return (hidden[0].detach(), hidden[1].detach())
 
     def forward(self, x, Rs, hidden=None):
         if hidden is None:
@@ -243,7 +245,7 @@ class LeakyRNN(nn.Module):
         for i in steps:
             hidden = self.recurrence(x[i], hidden, Rs[i])
             hs.append(hidden[1])
-            if self.truncate_iter is not None and i%self.truncate_iter==0:
+            if self.truncate_iter is not None and i!=0 and i%self.truncate_iter==0:
                 self.truncate(hidden)
 
         hs = torch.stack(hs, dim=0)
