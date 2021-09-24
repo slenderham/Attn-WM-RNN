@@ -6,8 +6,8 @@ python rnn/train.py --cuda\
         --batch_size 1\
         --stim_dim 3\
         --stim_val 3\
-        --N_s 10\
-        --init_spectral 1.5\
+        --N_s 6\
+        --init_spectral 1\
         --add_attn\
         --activ_func relu\
         --truncate\

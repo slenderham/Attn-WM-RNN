@@ -37,7 +37,7 @@ if __name__ == "__main__":
     parser.add_argument('--sigma_w', type=float, default=0.0, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=1, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
-    parser.add_argument('--tau_w', type=float, default=0.1, help='Time constant for weight modification')
+    parser.add_argument('--tau_w', type=float, default=1.0, help='Time constant for weight modification')
     parser.add_argument('--dt', type=float, default=0.02, help='Discretization time step (ms)')
     parser.add_argument('--l2r', type=float, default=0.001, help='Weight for L2 reg on firing rate')
     parser.add_argument('--l2w', type=float, default=0.0, help='Weight for L2 reg on weight')
@@ -111,8 +111,6 @@ if __name__ == "__main__":
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, _, output_mask = task_mdprl.generateinput(args.batch_size)
             output, hs = model(pop_s, DA_s)
-            plt.imshow(hs.squeeze().detach(), aspect='auto')
-            plt.show()
             loss = (output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)*output_mask.unsqueeze(-1)-ch_s).pow(2).mean()/output_mask.mean() \
                     + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
 

@@ -60,7 +60,7 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral):
         with torch.no_grad():
-            nn.init.kaiming_normal_(self.weight, a=math.sqrt(5*self.input_size/(self.input_size-self.zero_cols)))
+            nn.init.kaiming_normal_(self.weight, a=math.sqrt(self.input_size/(self.input_size-self.zero_cols)))
             # Scale E weight by E-I ratio
             if self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -69,15 +69,13 @@ class EILinear(nn.Module):
                 self.weight.data *= init_spectral / torch.linalg.eigvals(self.effective_weight(self.weight)).real.max()
 
             if self.bias is not None:
-                fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
-                bound = 1 / math.sqrt(fan_in)
-                nn.init.uniform_(self.bias, -bound, bound)
+                nn.init.zeros_(self.bias)
     
     def effective_weight(self, w=None):
         if w is None:
             return self.pos_func(self.weight) * self.mask
         else:
-            return (self.pos_func(w)) * self.mask.unsqueeze(0)
+            return (self.pos_func(self.weight)+w) * self.mask.unsqueeze(0)
 
     def forward(self, input, w=None):
         # weight is non-negative
@@ -130,7 +128,7 @@ class GroupedEILinear(nn.Module):
 class LeakyRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, 
                 attn_group_size=None, plastic=True, attention=True, activation='retanh',
-                dt=0.02, tau_x=0.1, tau_w=0.2, c_plasticity=None, train_init_state=False,
+                dt=0.02, tau_x=0.1, tau_w=1.0, c_plasticity=None, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=1, **kwargs):
         super().__init__()
         self.input_size = input_size
@@ -173,7 +171,7 @@ class LeakyRNN(nn.Module):
         if attention:
             assert(attn_group_size is not None)
             self.attn_func = nn.Sequential(
-                EILinear(hidden_size, len(attn_group_size), remove_diag=False, zero_cols_prop=1-e_prop),
+                EILinear(hidden_size, len(attn_group_size), remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop),
                 nn.Softmax(dim=-1)
             )
             self.attn_group_size = torch.LongTensor(attn_group_size)
@@ -190,8 +188,8 @@ class LeakyRNN(nn.Module):
         if self.plastic:
             return (h_init,
                     h_init.relu(),
-                    self.x2h.effective_weight().unsqueeze(0).to(x.device),
-                    self.h2h.effective_weight().unsqueeze(0).to(x.device))
+                    torch.zeros(batch_size, self.hidden_size, self.input_size).to(x.device),
+                    torch.zeros(batch_size, self.hidden_size, self.hidden_size).to(x.device))
         else:
             return (h_init,
                     h_init.relu())
@@ -210,26 +208,25 @@ class LeakyRNN(nn.Module):
         else:
             x = x
 
-        x += self._sigma_in * torch.randn_like(x)
+        x = torch.relu(x+self._sigma_in * torch.randn_like(x))
         if self.plastic:
             total_input = self.x2h(x, wx) + self.h2h(output, wh)
         else:
             total_input = self.x2h(x) + self.h2h(output)
         new_state = state * self.oneminusalpha_x + total_input * self.alpha_x + self._sigma_rec * torch.randn_like(state)
         new_output = self.activation(new_state)
-
         
         if self.plastic:
             R = R.unsqueeze(-1)
             wx = wx * self.oneminusalpha_w + self.alpha_w*R*(
-                self.c_plas[0].abs()*torch.reshape(x, (batch_size, 1, self.input_size)) +
-                self.c_plas[1].abs()*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
-                self.c_plas[2].abs()*torch.einsum('bi, bj->bij', new_output, x)) + \
+                self.c_plas[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
+                self.c_plas[1]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
+                self.c_plas[2]*torch.einsum('bi, bj->bij', new_output, x)) + \
                 self._sigma_w * torch.randn_like(wx)
             wh = wh * self.oneminusalpha_w + self.alpha_w*R*(
-                self.c_plas[3].abs()*torch.reshape(output, (batch_size, 1, self.hidden_size)) +
-                self.c_plas[4].abs()*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
-                self.c_plas[5].abs()*torch.einsum('bi, bj->bij', new_output, output)) + \
+                self.c_plas[3]*torch.reshape(output, (batch_size, 1, self.hidden_size)) +
+                self.c_plas[4]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
+                self.c_plas[5]*torch.einsum('bi, bj->bij', new_output, output)) + \
                 self._sigma_w * torch.randn_like(wh)
             return new_state, new_output, wx, wh
         else:
