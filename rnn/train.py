@@ -18,6 +18,8 @@ from torch import optim
 from models import LeakyRNN
 from task import MDPRL
 
+from matplotlib import pyplot as plt
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
@@ -33,8 +35,8 @@ if __name__ == "__main__":
     parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
     parser.add_argument('--sigma_rec', type=float, default=0.01, help='Std for recurrent noise')
     parser.add_argument('--sigma_w', type=float, default=0.0, help='Std for weight noise')
-    parser.add_argument('--tau_x', type=float, default=100, help='Time constant for recurrent neurons')
-    parser.add_argument('--tau_w', type=float, default=100, help='Time constant for weight modification')
+    parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
+    parser.add_argument('--tau_w', type=float, default=0.1, help='Time constant for weight modification')
     parser.add_argument('--dt', type=float, default=0.02, help='Discretization time step (ms)')
     parser.add_argument('--l2r', type=float, default=0.001, help='Weight for L2 reg on firing rate')
     parser.add_argument('--l2w', type=float, default=0.0, help='Weight for L2 reg on weight')
@@ -106,7 +108,7 @@ if __name__ == "__main__":
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, _, output_mask = task_mdprl.generateinput(args.batch_size)
             output, hs = model(pop_s, DA_s)
-            loss = (output-ch_s).pow(2).mean() + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
+            loss = (output*output_mask-ch_s).pow(2).mean() + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -115,7 +117,8 @@ if __name__ == "__main__":
                 pbar.set_description('Iteration {} Loss: {:.6f}'.format(
                     batch_idx, loss.item()))
                 pbar.refresh()
-        
+            pbar.update()
+        pbar.close()
         return loss.item()
 
     final_training_loss = train(args.iters)

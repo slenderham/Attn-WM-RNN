@@ -120,7 +120,7 @@ class GroupedEILinear(nn.Module):
 class LeakyRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, 
                 attn_group_size=None, plastic=True, attention=True, activation='retanh',
-                dt=20, tau_x=100, tau_w=200, c_plasticity=None, train_init_state=False,
+                dt=0.02, tau_x=0.1, tau_w=0.2, c_plasticity=None, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, **kwargs):
         super().__init__()
         self.input_size = input_size
