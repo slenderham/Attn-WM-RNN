@@ -1,0 +1,11 @@
+Parameters saved to exp/test/args.json
+No CUDA available so not using it
+  0%|          | 0/10000 [00:00<?, ?it/s]Traceback (most recent call last):
+  File "rnn/train.py", line 140, in <module>
+    final_training_loss = train(args.iters)
+  File "rnn/train.py", line 123, in train
+    torch.nn.utils.clip_grad_norm_(model.parameters, max_norm=args.max_norm)
+  File "/dartfs-hpc/rc/home/d/f005d7d/.conda/envs/attn-rnn/lib/python3.7/site-packages/torch/nn/utils/clip_grad.py", line 32, in clip_grad_norm_
+    parameters = [p for p in parameters if p.grad is not None]
+TypeError: 'method' object is not iterable
+  0%|          | 0/10000 [00:33<?, ?it/s]
