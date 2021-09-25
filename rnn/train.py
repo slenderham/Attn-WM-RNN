@@ -120,7 +120,7 @@ if __name__ == "__main__":
             loss.backward()
 
             if (batch_idx+1) % grad_accumulation_step==0:
-                torch.nn.utils.clip_grad_norm_(model.parameters, max_norm=args.max_norm)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
                 optimizer.step()
                 optimizer.zero_grad()
 
