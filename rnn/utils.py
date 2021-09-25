@@ -52,7 +52,6 @@ def merge_args_with_dict(args, dic):
     for k, v in list(dic.items()):
         setattr(args, k, v)
 
-
 def make_output_and_sample_dir(out_dir):
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
@@ -62,7 +61,6 @@ def make_output_and_sample_dir(out_dir):
         os.makedirs(sample_dir)
 
     return out_dir, sample_dir
-
 
 def save_defaultdict_to_fs(d, out_path):
     d = dict(d)
@@ -74,3 +72,8 @@ def save_list_to_fs(l, out_path):
     with open(out_path, 'w') as fp:
         for n in l:
             fp.write(str(n)+'\n')
+
+def load_list_from_fs(outpath):
+    with open(outpath, 'r') as fp:
+        l = fp.read().split('\n')[:-1]
+        return [float(n) for n in l]
