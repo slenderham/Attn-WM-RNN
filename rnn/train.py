@@ -120,6 +120,8 @@ if __name__ == "__main__":
             optimizer.step()
 
             if batch_idx % log_interval == 0:
+                if torch.isnan(loss):
+                    quit()
                 losses.append(loss.item())
                 save_list_to_fs(losses, os.path.join(args.exp_dir, 'metrics.txt'))
                 pbar.set_description('Iteration {} Loss: {:.6f}'.format(
