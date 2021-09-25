@@ -133,4 +133,3 @@ if __name__ == "__main__":
     if args.save_checkpoint:
         save_checkpoint(model.state_dict(), folder=args.exp_dir, filename='checkpoint.pth.tar')
     print('====> DONE')
-    
