@@ -8,7 +8,7 @@ python rnn/train.py --cuda\
         --stim_val 3\
         --N_s 6\
         --init_spectral 1\
+	--learning_rate 1e-4\
         --add_attn\
-        --activ_func relu\
-        --truncate\
+        --activ_func retanh\
         --exp_dir exp/test
