@@ -13,7 +13,7 @@ def _get_activation_function(func_name):
     elif func_name=='softplus':
         return F.softplus
     elif func_name=='retanh':
-        return lambda x: F.tanh(F.relu(x))
+        return lambda x: torch.tanh(F.relu(x))
     elif func_name=='sigmoid':
         return torch.sigmoid
     else:
