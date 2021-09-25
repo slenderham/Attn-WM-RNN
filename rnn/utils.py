@@ -13,6 +13,9 @@ import torch
 
 random_counter = [0]
 
+# TODO: add read list from file function
+# TODO: add load model function
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
 
@@ -42,6 +45,8 @@ def save_checkpoint(state, folder='./', filename='checkpoint.pth.tar'):
         os.mkdir(folder)
     torch.save(state, os.path.join(folder, filename))
 
+def load_checkpoint(model, device, folder='./', filename='checkpoint.pth.tar'):
+    model.load_state_dict(torch.load(os.path.join(folder, filename), map_location=device))
 
 def merge_args_with_dict(args, dic):
     for k, v in list(dic.items()):
