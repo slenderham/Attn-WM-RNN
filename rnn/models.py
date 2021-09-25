@@ -199,9 +199,9 @@ class LeakyRNN(nn.Module):
         
         if self.attention:
             attn_weights = torch.repeat_interleave(self.attn_func(output), self.attn_group_size, dim=-1)
-            x = x * attn_weights * len(self.attn_group_size)
+            x = x * attn_weights
         else:
-            x = x
+            x = x / len(self.attn_group_size)
 
         x = torch.relu(x+self._sigma_in * torch.randn_like(x))
         if self.plastic:
