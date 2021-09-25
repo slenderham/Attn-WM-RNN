@@ -7,4 +7,5 @@
 #SBATCH --mem=8GB
 #SBATCH --mail-type=BEGIN,END,FAIL
 
+cd /dartfs-hpc/rc/home/d/f005d7d/attn-rnn/Attn-WM-RNN
 ../run.sh
