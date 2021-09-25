@@ -5,6 +5,7 @@ Utilities
 from collections import Counter, OrderedDict
 import json
 import os
+import pickle
 import shutil
 
 import numpy as np
@@ -63,3 +64,8 @@ def save_defaultdict_to_fs(d, out_path):
     with open(out_path, 'w') as fp:
         d_str = json.dumps(d, ensure_ascii=True)
         fp.write(d_str)
+
+def save_list_to_fs(l, out_path):
+    with open(out_path, 'w') as fp:
+        for n in l:
+            fp.write(str(n)+'\n')

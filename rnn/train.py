@@ -7,6 +7,7 @@ from sklearn.metrics import accuracy_score
 from utils import (
     AverageMeter,
     save_defaultdict_to_fs,
+    save_list_to_fs,
     save_checkpoint
 )
 
@@ -105,8 +106,8 @@ if __name__ == "__main__":
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
     def train(iters):
+        losses = []
         model.train()
-
         pbar = tqdm(total=iters)
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, _, output_mask = task_mdprl.generateinput(args.batch_size)
@@ -119,6 +120,8 @@ if __name__ == "__main__":
             optimizer.step()
 
             if batch_idx % log_interval == 0:
+                losses.append(loss.item())
+                save_list_to_fs(losses, os.path.join(args.exp_dir, 'metrics.txt'))
                 pbar.set_description('Iteration {} Loss: {:.6f}'.format(
                     batch_idx, loss.item()))
                 pbar.refresh()
