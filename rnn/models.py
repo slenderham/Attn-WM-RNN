@@ -123,7 +123,7 @@ class GroupedEILinear(nn.Module):
 
 class LeakyRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, 
-                attn_group_size=None, plastic=True, attention=True, activation='retanh',
+                attn_group_size=None, plastic=True, attention=True, activation='retanh', rpe=True,
                 dt=0.02, tau_x=0.1, tau_w=1.0, c_plasticity=None, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=1, **kwargs):
         super().__init__()
@@ -132,7 +132,6 @@ class LeakyRNN(nn.Module):
         self.output_size =  output_size
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=False)
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, e_prop=e_prop, zero_cols_prop=0, bias=True, init_spectral=init_spectral)
-        self.h2o = EILinear(hidden_size, output_size*2, remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop, bias=True)
         self.tau_x = tau_x
         self.tau_w = tau_w
         if dt is None:
@@ -175,6 +174,8 @@ class LeakyRNN(nn.Module):
             self.attn_func = None
             self.attn_group_size = None
 
+        self.rpe = rpe
+
         self.activation = _get_activation_function(activation)
         self.truncate_iter = truncate_iter
 
@@ -185,7 +186,8 @@ class LeakyRNN(nn.Module):
             return (h_init,
                     h_init.relu(),
                     torch.zeros(batch_size, self.hidden_size, self.input_size).to(x.device),
-                    torch.zeros(batch_size, self.hidden_size, self.hidden_size).to(x.device))
+                    torch.zeros(batch_size, self.hidden_size, self.hidden_size).to(x.device),
+                    torch.zeros(batch_size, self.output_size, self.h2h.e_size).to(x.device))
         else:
             return (h_init,
                     h_init.relu())
@@ -194,7 +196,7 @@ class LeakyRNN(nn.Module):
         batch_size = x.shape[0]
         
         if self.plastic:
-            state, output, wx, wh = h
+            state, output, wx, wh, wo = h
         else:
             state, output = h
         
@@ -211,9 +213,15 @@ class LeakyRNN(nn.Module):
             total_input = self.x2h(x) + self.h2h(output)
         new_state = state * self.oneminusalpha_x + total_input * self.alpha_x + self._sigma_rec * torch.randn_like(state)
         new_output = self.activation(new_state)
-        
+
+        value = torch.sigmoid(torch.matmul(wo, new_output[:,:self.h2h.e_size].unsqueeze(-1)))
+
         if self.plastic:
-            R = R.unsqueeze(-1)
+            if self.rpe:
+                R = R.unsqueeze(-1)-value
+            else:
+                R = 2*R.unsqueeze(-1)-1
+
             wx = wx * self.oneminusalpha_w + self.alpha_w*R*(
                 self.c_plas[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
                 self.c_plas[1]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
@@ -226,9 +234,10 @@ class LeakyRNN(nn.Module):
                 self.c_plas[5]*torch.einsum('bi, bj->bij', new_output, output)) + \
                 self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
-            return new_state, new_output, wx, wh
+            wo = wo * self.oneminusalpha_w + self.alpha_w*R*new_output[:,:self.h2h.e_size].unsqueeze(1) + self._sigma_w * torch.randn_like(wo)
+            return value, (new_state, new_output, wx, wh, wo)
         else:
-            return new_state, new_output
+            return value, (new_state, new_output)
 
     def truncate(self, hidden):
         if self.plastic:
@@ -241,15 +250,14 @@ class LeakyRNN(nn.Module):
             hidden = self.init_hidden(x)
 
         hs = []
+        os = []
         steps = range(x.size(0))
         for i in steps:
-            hidden = self.recurrence(x[i], hidden, Rs[i])
+            out, hidden = self.recurrence(x[i], hidden, Rs[i])
             hs.append(hidden[1])
-            if self.truncate_iter is not None and i!=0 and i%self.truncate_iter==0:
-                self.truncate(hidden)
+            os.append(out)
 
         hs = torch.stack(hs, dim=0)
-        output = self.h2o(hs)
-        output = torch.sigmoid(output[:,:,:self.output_size]-output[:,:,self.output_size:])
+        os = torch.stack(os, dim=0)
 
-        return output, hs
+        return os, hs

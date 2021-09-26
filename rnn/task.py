@@ -141,7 +141,7 @@ class MDPRL():
             R[:,i] = np.random.binomial(1, prob_index[i, index_s]) 
             ch_s[:,:,i,0] = self.filter_ch*prob_index[i, index_s].reshape((27*self.N_s,1)) # 27270
         
-        DA_s = self.filter_da.reshape((1,len(self.T),1,1))*(2*R.reshape((len(index_s), 1, batch_size, 1))-1)
+        DA_s = self.filter_da.reshape((1,len(self.T),1,1))*(R.reshape((len(index_s), 1, batch_size, 1)))
         DA_s = DA_s.reshape((len(self.T)*len(index_s), batch_size, 1))
         # ch_s = ch_s.reshape((len(self.T)*len(index_s), batch_size, 1))
         pop_s = pop_s.reshape((len(self.T)*len(index_s), batch_size, 63))
