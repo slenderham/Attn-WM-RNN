@@ -218,10 +218,9 @@ class LeakyRNN(nn.Module):
 
         if self.plastic:
             if self.rpe:
-                R = R.unsqueeze(-1)-value
+                R = R.unsqueeze(-1).abs()*((1+R.unsqueeze(-1))/2-value)
             else:
-                R = 2*R.unsqueeze(-1)-1
-
+                R = R.unsqueeze(-1)
             wx = wx * self.oneminusalpha_w + self.alpha_w*R*(
                 self.c_plas[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
                 self.c_plas[1]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
@@ -234,7 +233,8 @@ class LeakyRNN(nn.Module):
                 self.c_plas[5]*torch.einsum('bi, bj->bij', new_output, output)) + \
                 self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
-            wo = wo * self.oneminusalpha_w + self.alpha_w*R*new_output[:,:self.h2h.e_size].unsqueeze(1) + self._sigma_w * torch.randn_like(wo)
+            wo = wo * self.oneminusalpha_w + self.alpha_w*R*new_output[:,:self.h2h.e_size].unsqueeze(1) \
+                + self._sigma_w * torch.randn_like(wo)
             return value, (new_state, new_output, wx, wh, wo)
         else:
             return value, (new_state, new_output)

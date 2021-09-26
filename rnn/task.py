@@ -33,8 +33,6 @@ class MDPRL():
         # when choice is read (only used for making the target)
         self.T_ch = (T > times['choice_onset']*s) & (T <= times['choice_end']*s)
         # when choice is read (used for training the network)
-        # self.T_sch = 1.5*(T < times['stim_onset']*s) + self.T_ch
-        # self.T_sch = np.tile(self.T_sch, 27*N_s).reshape((-1, 1))
 
         self.T = T
         self.N_s = N_s
@@ -141,7 +139,7 @@ class MDPRL():
             R[:,i] = np.random.binomial(1, prob_index[i, index_s]) 
             ch_s[:,:,i,0] = self.filter_ch*prob_index[i, index_s].reshape((27*self.N_s,1)) # 27270
         
-        DA_s = self.filter_da.reshape((1,len(self.T),1,1))*(R.reshape((len(index_s), 1, batch_size, 1)))
+        DA_s = self.filter_da.reshape((1,len(self.T),1,1))*(2*R.reshape((len(index_s), 1, batch_size, 1))-1)
         DA_s = DA_s.reshape((len(self.T)*len(index_s), batch_size, 1))
         # ch_s = ch_s.reshape((len(self.T)*len(index_s), batch_size, 1))
         pop_s = pop_s.reshape((len(self.T)*len(index_s), batch_size, 63))
