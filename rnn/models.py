@@ -119,10 +119,10 @@ class LeakyRNN(nn.Module):
         self.plastic = plastic
         if plastic:
             if c_plasticity is not None:
-                assert(c_plasticity.shape==(6,))
-                self.c_plas = torch.from_numpy(c_plasticity)
+                assert(c_plasticity.shape==(3,))
+                self.c_plas = torch.FloatTensor(c_plasticity)
             else:
-                self.c_plas = nn.Parameter(torch.zeros(6))
+                self.c_plas = nn.Parameter(torch.zeros(3))
 
         self.attention = attention
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer
@@ -184,19 +184,16 @@ class LeakyRNN(nn.Module):
                 R = (R!=0).unsqueeze(-1)*((R.unsqueeze(-1)+1)/2-value)
             else:
                 R = R.unsqueeze(-1)
-            wx = wx * self.oneminusalpha_w + self.alpha_w*R*(
-                self.c_plas[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
-                self.c_plas[1]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
-                self.c_plas[2]*torch.einsum('bi, bj->bij', new_output, x)) + \
-                self._sigma_w * torch.randn_like(wx)
+            wx = wx * self.oneminusalpha_w \
+                + self.alpha_w*self.c_plas[0].exp()*R*torch.einsum('bi, bj->bij', new_output, x) \
+                + self._sigma_w * torch.randn_like(wx)
             wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
-            wh = wh * self.oneminusalpha_w + self.alpha_w*R*(
-                self.c_plas[3]*torch.reshape(output, (batch_size, 1, self.hidden_size)) +
-                self.c_plas[4]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
-                self.c_plas[5]*torch.einsum('bi, bj->bij', new_output, output)) + \
-                self._sigma_w * torch.randn_like(wh)
+            wh = wh * self.oneminusalpha_w \
+                + self.alpha_w*self.c_plas[1].exp()*R*torch.einsum('bi, bj->bij', new_output, output) \
+                + self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
-            wo = wo * self.oneminusalpha_w + self.alpha_w*R*new_output.unsqueeze(1) \
+            wo = wo * self.oneminusalpha_w \
+                + self.alpha_w*self.c_plas[2].exp()*R*new_output.unsqueeze(1) \
                 + self._sigma_w * torch.randn_like(wo)
             wh = torch.maximum(wo, -self.h2o.pos_func(self.h2h.weight).detach().unsqueeze(0))
             return value, (new_state, new_output, wx, wh, wo)
