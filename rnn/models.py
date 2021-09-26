@@ -129,9 +129,10 @@ class LeakyRNN(nn.Module):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
+        self.output_size =  output_size
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=False)
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, e_prop=e_prop, zero_cols_prop=0, bias=True, init_spectral=init_spectral)
-        self.h2o = EILinear(hidden_size, output_size, remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop, bias=True)
+        self.h2o = EILinear(hidden_size, output_size*2, remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop, bias=True)
         self.tau_x = tau_x
         self.tau_w = tau_w
         if dt is None:
@@ -248,6 +249,7 @@ class LeakyRNN(nn.Module):
                 self.truncate(hidden)
 
         hs = torch.stack(hs, dim=0)
-        output = torch.sigmoid(self.h2o(hs)-3)
+        output = self.h2o(hs)
+        output = torch.sigmoid(output[:,:,:self.output_size]-output[:,:,self.output_size:])
 
         return output, hs
