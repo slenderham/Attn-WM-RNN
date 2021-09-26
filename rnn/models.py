@@ -202,7 +202,7 @@ class LeakyRNN(nn.Module):
 
     def truncate(self, hidden):
         if self.plastic:
-            return (hidden[0].detach(), hidden[1].detach(), hidden[2], hidden[3])
+            return (hidden[0].detach(), hidden[1].detach(), hidden[2].detach(), hidden[3].detach(), hidden[4].detach())
         else:
             return (hidden[0].detach(), hidden[1].detach())
 
@@ -217,6 +217,8 @@ class LeakyRNN(nn.Module):
             out, hidden = self.recurrence(x[i], hidden, Rs[i])
             hs.append(hidden[1])
             os.append(out)
+            if self.truncate_iter is not None and (i+1)%self.truncate_iter==0:
+                hidden = self.truncate(hidden)
 
         hs = torch.stack(hs, dim=0)
         os = torch.stack(os, dim=0)
