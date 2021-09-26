@@ -39,7 +39,7 @@ class EILinear(nn.Module):
         self.zero_cols = int(zero_cols_prop*input_size)
 
         self.weight = nn.Parameter(torch.Tensor(output_size, input_size))
-        sign_mask = torch.FloatTensor([1]*self.e_size+[-1]*self.i_size).reshape(1, input_size);
+        sign_mask = torch.FloatTensor([1]*self.e_size+[-1]*self.i_size).reshape(1, input_size)
         exist_mask = torch.cat([torch.ones(input_size-self.zero_cols), torch.zeros(self.zero_cols)]).reshape([1, input_size])
 
         self.mask = (sign_mask*exist_mask).repeat([output_size, 1])
@@ -83,44 +83,6 @@ class EILinear(nn.Module):
                 result += self.bias
             return result
 
-class GroupedEILinear(nn.Module):
-    def __init__(self, input_size, output_size, group_size, remove_diag, e_prop=0.8, bias=True):
-        super().__init__()
-        self.input_size = input_size
-        self.output_size = output_size
-        self.group_size = group_size
-        assert(e_prop<=1 and e_prop>=0)
-        self.e_prop = e_prop
-        self.e_size = int(e_prop * input_size)
-        self.i_size = input_size - self.e_size
-        self.weight = nn.Parameter(torch.Tensor(group_size, output_size, input_size))
-        mask = torch.tensor([1]*self.e_size+[-1]*self.i_size, dtype=torch.float32).reshape(1, 1, input_size);
-        self.mask = mask.repeat([group_size, output_size, 1])
-        if remove_diag:
-            assert(input_size==output_size)
-            self.mask[torch.eye(input_size)>0.5]=0.0
-        if bias:
-            self.bias = nn.Parameter(torch.Tensor(group_size, output_size))
-        else:
-            self.register_parameter('bias', None)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        nn.init.kaiming_normal_(self.weight, a=math.sqrt(5))
-        # Scale E weight by E-I ratio
-        self.weight.data[:, :, :self.e_size] /= (self.e_size/self.i_size)
-        if self.bias is not None:
-            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
-            bound = 1 / math.sqrt(fan_in)
-            nn.init.uniform_(self.bias, -bound, bound)
-    
-    def effective_weight(self):
-        return torch.abs(self.weight) * self.mask
-
-    def forward(self, input):
-        # weight is non-negative
-        return torch.einsum('gij, bj->bgi', self.effective_weight(), input) + self.bias
-
 class LeakyRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, 
                 attn_group_size=None, plastic=True, attention=True, activation='retanh', rpe=True,
@@ -132,6 +94,7 @@ class LeakyRNN(nn.Module):
         self.output_size =  output_size
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=False)
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, e_prop=e_prop, zero_cols_prop=0, bias=True, init_spectral=init_spectral)
+        self.h2o = EILinear(hidden_size, output_size, remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop, bias=True)
         self.tau_x = tau_x
         self.tau_w = tau_w
         if dt is None:
@@ -215,11 +178,11 @@ class LeakyRNN(nn.Module):
         new_state = state * self.oneminusalpha_x + total_input * self.alpha_x + self._sigma_rec * torch.randn_like(state)
         new_output = self.activation(new_state)
 
-        value = torch.sigmoid(torch.matmul(wo, new_output[:,:self.h2h.e_size].unsqueeze(-1)))
+        value = torch.tanh(F.relu(self.h2o(new_output, wo)))
 
         if self.plastic:
             if self.rpe:
-                R = R.unsqueeze(-1).abs()*((1+R.unsqueeze(-1))/2-value)
+                R = (R!=0).unsqueeze(-1)*((R.unsqueeze(-1)+1)/2-value)
             else:
                 R = R.unsqueeze(-1)
             wx = wx * self.oneminusalpha_w + self.alpha_w*R*(
@@ -234,8 +197,9 @@ class LeakyRNN(nn.Module):
                 self.c_plas[5]*torch.einsum('bi, bj->bij', new_output, output)) + \
                 self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
-            wo = wo * self.oneminusalpha_w + self.kappa_w*R*new_output[:,:self.h2h.e_size].unsqueeze(1) \
+            wo = wo * self.oneminusalpha_w + self.alpha_w*R*new_output[:,:self.h2h.e_size].unsqueeze(1) \
                 + self._sigma_w * torch.randn_like(wo)
+            wh = torch.maximum(wo, -self.h2o.pos_func(self.h2h.weight).detach().unsqueeze(0))
             return value, (new_state, new_output, wx, wh, wo)
         else:
             return value, (new_state, new_output)
