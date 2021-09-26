@@ -82,6 +82,7 @@ if __name__ == "__main__":
     exp_times['dt'] = args.dt
     log_interval = 1
     grad_accumulation_step = 1
+    save_interval = 10
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -134,11 +135,14 @@ if __name__ == "__main__":
                 if torch.isnan(loss):
                     quit()
                 losses.append(loss.item())
-                save_checkpoint(model.state_dict(), folder=args.exp_dir, filename='checkpoint.pth.tar')
-                save_list_to_fs(losses, os.path.join(args.exp_dir, 'metrics.txt'))
                 pbar.set_description('Iteration {} Loss: {:.6f}'.format(
                     batch_idx, loss.item()))
                 pbar.refresh()
+                
+            if (batch_idx+1) % log_interval == 0:
+                save_checkpoint(model.state_dict(), folder=args.exp_dir, filename='checkpoint.pth.tar')
+                save_list_to_fs(losses, os.path.join(args.exp_dir, 'metrics.txt'))
+                
             pbar.update()
         pbar.close()
         return loss.item()
