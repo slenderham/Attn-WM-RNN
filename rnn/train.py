@@ -138,8 +138,8 @@ if __name__ == "__main__":
                 pbar.set_description('Iteration {} Loss: {:.6f}'.format(
                     batch_idx, loss.item()))
                 pbar.refresh()
-                
-            if (batch_idx+1) % log_interval == 0:
+
+            if (batch_idx+1) % save_interval == 0:
                 save_checkpoint(model.state_dict(), folder=args.exp_dir, filename='checkpoint.pth.tar')
                 save_list_to_fs(losses, os.path.join(args.exp_dir, 'metrics.txt'))
                 
