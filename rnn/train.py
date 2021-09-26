@@ -42,6 +42,7 @@ if __name__ == "__main__":
     parser.add_argument('--init_spectral', type=float, default=1, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
     parser.add_argument('--tau_w', type=float, default=20, help='Time constant for weight modification')
+    parser.add_argument('--kappa_w', type=float, default=0.1, help='Learning rate for output weight modification')
     parser.add_argument('--dt', type=float, default=0.02, help='Discretization time step (ms)')
     parser.add_argument('--l2r', type=float, default=0.0, help='Weight for L2 reg on firing rate')
     parser.add_argument('--l2w', type=float, default=0.0, help='Weight for L2 reg on weight')
@@ -105,7 +106,7 @@ if __name__ == "__main__":
     
     model = LeakyRNN(input_size=input_size, hidden_size=args.hidden_size, output_size=1, 
                 plastic=args.plas_type=='all', attention=args.add_attn, activation=args.activ_func,
-                dt=args.dt, tau_x=args.tau_x, tau_w=args.tau_w, c_plasticity=np.array([0,0,1,0,0,1]), attn_group_size=attn_group_size,
+                dt=args.dt, tau_x=args.tau_x, tau_w=args.tau_w, kappa_w=args.kappa_w, c_plasticity=np.array([0,0,1,0,0,1]), attn_group_size=attn_group_size,
                 e_prop=args.e_prop, sigma_rec=args.sigma_rec, sigma_in=args.sigma_in, sigma_w=args.sigma_w, 
                 truncate_iter=1+2*int(1/exp_times['dt']) if args.truncate else None, init_spectral=args.init_spectral)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)

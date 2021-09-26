@@ -124,7 +124,7 @@ class GroupedEILinear(nn.Module):
 class LeakyRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, 
                 attn_group_size=None, plastic=True, attention=True, activation='retanh', rpe=True,
-                dt=0.02, tau_x=0.1, tau_w=1.0, c_plasticity=None, train_init_state=False,
+                dt=0.02, tau_x=0.1, tau_w=1.0, kappa_w=0.1, c_plasticity=None, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=1, **kwargs):
         super().__init__()
         self.input_size = input_size
@@ -142,6 +142,7 @@ class LeakyRNN(nn.Module):
             alpha_w = dt / self.tau_w
         self.alpha_x = alpha_x
         self.alpha_w = alpha_w
+        self.kappa_w = kappa_w
         self.oneminusalpha_x = 1 - alpha_x
         self.oneminusalpha_w = 1 - alpha_w
         self._sigma_rec = np.sqrt(2*alpha_x) * sigma_rec
@@ -233,7 +234,7 @@ class LeakyRNN(nn.Module):
                 self.c_plas[5]*torch.einsum('bi, bj->bij', new_output, output)) + \
                 self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
-            wo = wo * self.oneminusalpha_w + self.alpha_w*R*new_output[:,:self.h2h.e_size].unsqueeze(1) \
+            wo = wo * self.oneminusalpha_w + self.kappa_w*R*new_output[:,:self.h2h.e_size].unsqueeze(1) \
                 + self._sigma_w * torch.randn_like(wo)
             return value, (new_state, new_output, wx, wh, wo)
         else:
