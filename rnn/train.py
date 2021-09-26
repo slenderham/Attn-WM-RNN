@@ -8,7 +8,9 @@ from utils import (
     AverageMeter,
     save_defaultdict_to_fs,
     save_list_to_fs,
-    save_checkpoint
+    save_checkpoint,
+    load_checkpoint,
+    load_list_from_fs
 )
 
 import torch
@@ -52,6 +54,7 @@ if __name__ == "__main__":
                         default='retanh', help='Activation function for recurrent units')
     parser.add_argument('--seed', type=int, default=1, help='Random seed')
     parser.add_argument('--save_checkpoint', action='store_true', help='Whether to save the trained model')
+    parser.add_argument('--load_checkpoint', action='store_true', help='Whether to load the trained model')
     parser.add_argument('--truncate', action='store_true', help='Truncate gradient for neuronal state (not weight) between trials')
     parser.add_argument('--cuda', action='store_true', help='Enables CUDA training')
 
@@ -106,6 +109,9 @@ if __name__ == "__main__":
                 e_prop=args.e_prop, sigma_rec=args.sigma_rec, sigma_in=args.sigma_in, sigma_w=args.sigma_w, 
                 truncate_iter=1+2*int(1/exp_times['dt']) if args.truncate else None, init_spectral=args.init_spectral)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+
+    if args.load_checkpoint:
+        load_checkpoint(model, device, folder=args.exp_dir, filename='checkpoint.pth.tar')
 
     def train(iters):
         losses = []
