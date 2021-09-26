@@ -248,6 +248,6 @@ class LeakyRNN(nn.Module):
                 self.truncate(hidden)
 
         hs = torch.stack(hs, dim=0)
-        output = self.h2o(hs)
+        output = torch.sigmoid(self.h2o(hs)-3)
 
         return output, hs
