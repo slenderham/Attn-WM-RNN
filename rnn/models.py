@@ -150,7 +150,7 @@ class LeakyRNN(nn.Module):
                     h_init.relu(),
                     torch.zeros(batch_size, self.hidden_size, self.input_size).to(x.device),
                     torch.zeros(batch_size, self.hidden_size, self.hidden_size).to(x.device),
-                    torch.zeros(batch_size, self.output_size, self.h2h.e_size).to(x.device))
+                    torch.zeros(batch_size, self.output_size, self.hidden_size).to(x.device))
         else:
             return (h_init,
                     h_init.relu())
@@ -196,7 +196,7 @@ class LeakyRNN(nn.Module):
                 self.c_plas[5]*torch.einsum('bi, bj->bij', new_output, output)) + \
                 self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
-            wo = wo * self.oneminusalpha_w + self.alpha_w*R*new_output[:,:self.h2h.e_size].unsqueeze(1) \
+            wo = wo * self.oneminusalpha_w + self.alpha_w*R*new_output.unsqueeze(1) \
                 + self._sigma_w * torch.randn_like(wo)
             wh = torch.maximum(wo, -self.h2o.pos_func(self.h2h.weight).detach().unsqueeze(0))
             return value, (new_state, new_output, wx, wh, wo)
