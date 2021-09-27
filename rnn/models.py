@@ -185,15 +185,15 @@ class LeakyRNN(nn.Module):
             else:
                 R = R.unsqueeze(-1)
             wx = wx * self.oneminusalpha_w \
-                + self.alpha_w*self.c_plas[0].exp()*R*torch.einsum('bi, bj->bij', new_output, x) \
+                + self.c_plas[0].abs()*R*torch.einsum('bi, bj->bij', new_output, x) \
                 + self._sigma_w * torch.randn_like(wx)
             wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
             wh = wh * self.oneminusalpha_w \
-                + self.alpha_w*self.c_plas[1].exp()*R*torch.einsum('bi, bj->bij', new_output, output) \
+                + self.c_plas[1].abs()*R*torch.einsum('bi, bj->bij', new_output, output) \
                 + self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
             wo = wo * self.oneminusalpha_w \
-                + self.alpha_w*self.c_plas[2].exp()*R*new_output.unsqueeze(1) \
+                + self.c_plas[2].abs()*R*new_output.unsqueeze(1) \
                 + self._sigma_w * torch.randn_like(wo)
             wo = torch.maximum(wo, -self.h2o.pos_func(self.h2o.weight).detach().unsqueeze(0))
             return value, (new_state, new_output, wx, wh, wo)

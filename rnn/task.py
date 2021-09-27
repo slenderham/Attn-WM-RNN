@@ -123,10 +123,8 @@ class MDPRL():
 
         prob_index = np.reshape(prob_index, (batch_size, 27))
 
-        index_s = np.zeros((self.N_s, 27))
-        for i in range(self.N_s):
-            index_s[i] = np.random.permutation(27)
-        index_s = np.reshape(index_s, (self.N_s*27)).astype(int)
+        index_s = np.repeat(np.arange(0,27,1), self.N_s)
+        index_s = np.random.permutation(index_s)
 
         ## TODO: check order of reshape is correct
 
