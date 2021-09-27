@@ -181,9 +181,8 @@ class LeakyRNN(nn.Module):
 
         if self.plastic:
             if self.rpe:
-                R = (R!=0).unsqueeze(-1)*((R.unsqueeze(-1)+1)/2-value)
-            else:
-                R = R.unsqueeze(-1)
+                R = (R!=0)*((R+1)/2-value)
+            R = R.unsqueeze(-1)
             wx = wx * self.oneminusalpha_w \
                 + self.kappa_w[0].exp()*R*torch.einsum('bi, bj->bij', new_output, x) \
                 + self._sigma_w * torch.randn_like(wx)
