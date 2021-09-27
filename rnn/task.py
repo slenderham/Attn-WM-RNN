@@ -28,7 +28,7 @@ class MDPRL():
 
         s = 1
         T = np.linspace(times['start_time']*s, times['end_time']
-                        * s, 1+2*int(s/times['dt']))
+                        * s, 1+int(s/times['dt']))
         # when stimuli is present on the screen
         self.T_s = (T > times['stim_onset']*s) & (T <= times['stim_end']*s)
         # when dopamine is released

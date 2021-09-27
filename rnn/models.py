@@ -122,10 +122,10 @@ class LeakyRNN(nn.Module):
                 assert(c_plasticity.shape==(3,))
                 self.c_plas = torch.FloatTensor(c_plasticity)
             else:
-                self.c_plas = nn.Parameter(torch.ones(3)*math.log(0.01))
+                self.c_plas = nn.Parameter(torch.zeros(3))
 
         self.attention = attention
-        # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer
+        # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer?
         if attention:
             assert(attn_group_size is not None)
             self.attn_func = nn.Sequential(
@@ -185,15 +185,15 @@ class LeakyRNN(nn.Module):
             else:
                 R = R.unsqueeze(-1)
             wx = wx * self.oneminusalpha_w \
-                + self.c_plas[0].exp()*R*torch.einsum('bi, bj->bij', new_output, x) \
+                + self.alpha_w*self.c_plas[0].exp()*R*torch.einsum('bi, bj->bij', new_output, x) \
                 + self._sigma_w * torch.randn_like(wx)
             wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
             wh = wh * self.oneminusalpha_w \
-                + self.c_plas[1].exp()*R*torch.einsum('bi, bj->bij', new_output, output) \
+                + self.alpha_w*self.c_plas[1].exp()*R*torch.einsum('bi, bj->bij', new_output, output) \
                 + self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
             wo = wo * self.oneminusalpha_w \
-                + self.c_plas[2].exp()*R*new_output.unsqueeze(1) \
+                + self.alpha_w*self.c_plas[2].exp()*R*new_output.unsqueeze(1) \
                 + self._sigma_w * torch.randn_like(wo)
             wo = torch.maximum(wo, -self.h2o.pos_func(self.h2o.weight).detach().unsqueeze(0))
             return value, (new_state, new_output, wx, wh, wo)
@@ -220,9 +220,6 @@ class LeakyRNN(nn.Module):
             if self.truncate_iter is not None and (i+1)%self.truncate_iter==0:
                 hidden = self.truncate(hidden)
                 
-        plt.imshow(hidden[3].squeeze().detach(), vmax=0.01, vmin=-0.01, cmap='seismic')
-        plt.colorbar()
-        plt.show()
         hs = torch.stack(hs, dim=0)
         os = torch.stack(os, dim=0)
 
