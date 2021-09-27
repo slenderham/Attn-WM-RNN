@@ -122,7 +122,7 @@ class LeakyRNN(nn.Module):
                 assert(c_plasticity.shape==(3,))
                 self.c_plas = torch.FloatTensor(c_plasticity)
             else:
-                self.c_plas = nn.Parameter(torch.ones(3)*math.log(0.1))
+                self.c_plas = nn.Parameter(torch.ones(3)*math.log(0.01))
 
         self.attention = attention
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer
@@ -219,7 +219,10 @@ class LeakyRNN(nn.Module):
             os.append(out)
             if self.truncate_iter is not None and (i+1)%self.truncate_iter==0:
                 hidden = self.truncate(hidden)
-
+                
+        plt.imshow(hidden[3].squeeze().detach(), vmax=0.01, vmin=-0.01, cmap='seismic')
+        plt.colorbar()
+        plt.show()
         hs = torch.stack(hs, dim=0)
         os = torch.stack(os, dim=0)
 
