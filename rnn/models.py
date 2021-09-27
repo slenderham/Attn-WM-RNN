@@ -120,7 +120,7 @@ class LeakyRNN(nn.Module):
         if plastic:
             if c_plasticity is not None:
                 assert(c_plasticity.shape==(3,))
-                self.c_plas = torch.FloatTensor(c_plasticity)
+                self.c_plas = torch.FloatTensor(c_plasticity).log()
             else:
                 self.c_plas = nn.Parameter(torch.zeros(3))
 

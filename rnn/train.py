@@ -106,9 +106,9 @@ if __name__ == "__main__":
     
     model = LeakyRNN(input_size=input_size, hidden_size=args.hidden_size, output_size=1, 
                 plastic=args.plas_type=='all', attention=args.add_attn, activation=args.activ_func,
-                dt=args.dt, tau_x=args.tau_x, tau_w=args.tau_w, c_plasticity=None, attn_group_size=attn_group_size,
+                dt=args.dt, tau_x=args.tau_x, tau_w=args.tau_w, c_plasticity=[1,1,1], attn_group_size=attn_group_size,
                 e_prop=args.e_prop, sigma_rec=args.sigma_rec, sigma_in=args.sigma_in, sigma_w=args.sigma_w, 
-                truncate_iter=1+2*int(1/exp_times['dt']) if args.truncate else None, init_spectral=args.init_spectral)
+                truncate_iter=1+int(1/exp_times['dt']) if args.truncate else None, init_spectral=args.init_spectral)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
     if args.load_checkpoint:
@@ -146,6 +146,10 @@ if __name__ == "__main__":
             pbar.update()
         pbar.close()
         return loss.item()
+
+    def eval():
+        # TODO: add eval by having longer episodes and using prob_mdpl, plot error throughout the episode
+        pass
 
     final_training_loss = train(args.iters)
     if args.save_checkpoint:
