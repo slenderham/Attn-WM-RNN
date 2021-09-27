@@ -195,7 +195,7 @@ class LeakyRNN(nn.Module):
             wo = wo * self.oneminusalpha_w \
                 + self.alpha_w*self.c_plas[2].exp()*R*new_output.unsqueeze(1) \
                 + self._sigma_w * torch.randn_like(wo)
-            wh = torch.maximum(wo, -self.h2o.pos_func(self.h2h.weight).detach().unsqueeze(0))
+            wo = torch.maximum(wo, -self.h2o.pos_func(self.h2o.weight).detach().unsqueeze(0))
             return value, (new_state, new_output, wx, wh, wo)
         else:
             return value, (new_state, new_output)
