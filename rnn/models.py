@@ -36,7 +36,7 @@ class EILinear(nn.Module):
         self.e_prop = e_prop
         self.e_size = int(e_prop * input_size)
         self.i_size = input_size - self.e_size
-        self.zero_cols = int(zero_cols_prop*input_size)
+        self.zero_cols = round(zero_cols_prop * input_size)
 
         self.weight = nn.Parameter(torch.Tensor(output_size, input_size))
         sign_mask = torch.FloatTensor([1]*self.e_size+[-1]*self.i_size).reshape(1, input_size)
@@ -71,7 +71,7 @@ class EILinear(nn.Module):
         if w is None:
             return self.pos_func(self.weight) * self.mask
         else:
-            return (self.pos_func(self.weight)+w) * self.mask.unsqueeze(0)
+            return (self.pos_func(self.weight).unsqueeze(0)+w) * self.mask.unsqueeze(0)
 
     def forward(self, input, w=None):
         # weight is non-negative
@@ -219,7 +219,7 @@ class LeakyRNN(nn.Module):
             os.append(out)
             if self.truncate_iter is not None and (i+1)%self.truncate_iter==0:
                 hidden = self.truncate(hidden)
-                
+    
         hs = torch.stack(hs, dim=0)
         os = torch.stack(os, dim=0)
 
