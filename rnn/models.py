@@ -56,7 +56,7 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral):
         with torch.no_grad():
-            nn.init.uniform_(self.weight, a=0, b=2/math.sqrt(self.input_size-self.zero_cols))
+            nn.init.uniform_(self.weight, a=0, b=math.sqrt(5)/math.sqrt(self.input_size-self.zero_cols))
             # Scale E weight by E-I ratio
             if self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -120,10 +120,10 @@ class LeakyRNN(nn.Module):
         self.plastic = plastic
         if plastic:
             if c_plasticity is not None:
-                assert(len(c_plasticity)==3)
+                assert(len(c_plasticity)==2)
                 self.kappa_w = (torch.FloatTensor(c_plasticity)+1e-8).log()
             else:
-                self.kappa_w = nn.Parameter(torch.zeros(3))
+                self.kappa_w = nn.Parameter(torch.zeros(2))
 
         self.attention = attention
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer?
