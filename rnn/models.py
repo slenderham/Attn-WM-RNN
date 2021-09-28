@@ -93,7 +93,7 @@ class LeakyRNN(nn.Module):
         self.hidden_size = hidden_size
         self.output_size =  output_size
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=False)
-        self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, e_prop=e_prop, zero_cols_prop=0, bias=True)
+        self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, e_prop=e_prop, zero_cols_prop=0, bias=True, init_spectral=init_spectral)
         self.h2o = EILinear(hidden_size, output_size, remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop, bias=False)
         self.tau_x = tau_x
         self.tau_w = tau_w
@@ -187,6 +187,7 @@ class LeakyRNN(nn.Module):
             wo = wo * self.oneminusalpha_w \
                 + self.kappa_w[2].exp()*((R+1)/2-value)*new_output.unsqueeze(1) \
                 + self._sigma_w * torch.randn_like(wo)
+            wo = torch.maximum(wo, -self.h2o.pos_func(self.h2o.weight).detach().unsqueeze(0))
             return value, (new_state, new_output, wx, wh, wo)
         else:
             return value, (new_state, new_output)
