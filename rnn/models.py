@@ -56,7 +56,7 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral):
         with torch.no_grad():
-            nn.init.kaiming_uniform_(self.weight, a=math.sqrt(2*self.input_size/(self.input_size-self.zero_cols)))
+            nn.init.uniform_(self.weight, a=0, b=1/math.sqrt(self.input_size-self.zero_cols))
             # Scale E weight by E-I ratio
             if self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
