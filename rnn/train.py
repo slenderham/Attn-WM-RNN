@@ -115,7 +115,7 @@ if __name__ == "__main__":
     model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1, 
                 'plastic': args.plas_type=='all', 'attention': args.add_attn, 'activation': args.activ_func,
                 'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
-                'c_plasticity': [args.kappa_w*math.sqrt(args.hidden_size/input_size),args.kappa_w,args.kappa_w], 
+                'c_plasticity': [args.kappa_w*math.sqrt(args.hidden_size/input_size),args.kappa_w,0], 
                 'e_prop': args.e_prop, 'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 
                 'init_spectral': args.init_spectral}
     
@@ -140,6 +140,8 @@ if __name__ == "__main__":
 
             if (batch_idx+1) % grad_accumulation_step==0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
+                for n, p in model.named_parameters():
+                    print(n, p.grad.pow(2).sum())
                 optimizer.step()
                 optimizer.zero_grad()
 

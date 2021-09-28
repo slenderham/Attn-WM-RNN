@@ -120,7 +120,7 @@ class LeakyRNN(nn.Module):
         if plastic:
             if c_plasticity is not None:
                 assert(len(c_plasticity)==3)
-                self.kappa_w = torch.FloatTensor(c_plasticity).log()
+                self.kappa_w = (torch.FloatTensor(c_plasticity)+1e-8).log()
             else:
                 self.kappa_w = nn.Parameter(torch.zeros(3))
 
@@ -158,7 +158,7 @@ class LeakyRNN(nn.Module):
         
         if self.attention:
             attn_weights = self.attn_func(output)
-            attn_weights = F.softmax(attn_weights, -1)
+            attn_weights = F.softmax(attn_weights, -1);
             attn_weights = torch.repeat_interleave(attn_weights, self.attn_group_size, dim=-1)
             x = x * attn_weights
         else:
