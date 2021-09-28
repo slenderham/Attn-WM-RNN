@@ -93,7 +93,7 @@ class LeakyRNN(nn.Module):
         self.hidden_size = hidden_size
         self.output_size =  output_size
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=False)
-        self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, e_prop=e_prop, zero_cols_prop=0, bias=True, init_spectral=init_spectral)
+        self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, e_prop=e_prop, zero_cols_prop=0, bias=True)
         self.h2o = EILinear(hidden_size, output_size, remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop, bias=False)
         self.tau_x = tau_x
         self.tau_w = tau_w
@@ -172,7 +172,7 @@ class LeakyRNN(nn.Module):
         new_state = state * self.oneminusalpha_x + total_input * self.alpha_x + self._sigma_rec * torch.randn_like(state)
         new_output = self.activation(new_state)
 
-        value = torch.tanh(F.relu(self.h2o(new_output, wo)))
+        value = self.h2o(new_output, wo)
 
         if self.plastic:
             R = R.unsqueeze(-1)
