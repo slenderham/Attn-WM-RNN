@@ -102,8 +102,8 @@ if __name__ == "__main__":
 
     input_size = {
         'feat': args.stim_dim*args.stim_val,
-        'feat+conj': args.stim_dim*args.stim_val+args.stim_dim*args.stim_val*args.stim_val+args.stim_val**args.stim_dim,
-        'feat+conj+obj': args.stim_dim*args.stim_val+args.stim_val**args.stim_dim
+        'feat+conj': args.stim_dim*args.stim_val+args.stim_val**args.stim_dim, 
+        'feat+conj+obj': args.stim_dim*args.stim_val+args.stim_dim*args.stim_val*args.stim_val+args.stim_val**args.stim_dim,
     }[args.input_type]
 
     if args.add_attn:
