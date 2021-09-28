@@ -161,7 +161,7 @@ class LeakyRNN(nn.Module):
         if self.attention:
             attn_weights = self.attn_func(output)
             attn_weights = F.softmax(attn_weights, -1)
-            attn_weights = torch.repeat_interleave(self.attn_func(output), self.attn_group_size, dim=-1)
+            attn_weights = torch.repeat_interleave(attn_weights, self.attn_group_size, dim=-1)
             x = x * attn_weights
         else:
             x = x / len(self.attn_group_size)
