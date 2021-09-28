@@ -56,7 +56,7 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral):
         with torch.no_grad():
-            nn.init.kaiming_normal_(self.weight, a=math.sqrt(2*self.input_size/(self.input_size-self.zero_cols)))
+            nn.init.kaiming_uniform_(self.weight, a=math.sqrt(2*self.input_size/(self.input_size-self.zero_cols)))
             # Scale E weight by E-I ratio
             if self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -128,10 +128,7 @@ class LeakyRNN(nn.Module):
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer?
         if attention:
             assert(attn_group_size is not None)
-            self.attn_func = nn.Sequential(
-                EILinear(hidden_size, len(attn_group_size), remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop),
-                nn.Softmax(dim=-1)
-            )
+            self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop)
             self.attn_group_size = torch.LongTensor(attn_group_size)
         else:
             self.attn_func = None
@@ -146,14 +143,12 @@ class LeakyRNN(nn.Module):
         batch_size = x.shape[1]
         h_init = self.x0.to(x.device) + self._sigma_rec * torch.randn(batch_size, self.hidden_size)
         if self.plastic:
-            return (h_init,
-                    h_init.relu(),
+            return (h_init, h_init.relu(),
                     torch.zeros(batch_size, self.hidden_size, self.input_size).to(x.device),
                     torch.zeros(batch_size, self.hidden_size, self.hidden_size).to(x.device),
                     torch.zeros(batch_size, self.output_size, self.hidden_size).to(x.device))
         else:
-            return (h_init,
-                    h_init.relu())
+            return (h_init, h_init.relu())
 
     def recurrence(self, x, h, R):
         batch_size = x.shape[0]
@@ -164,6 +159,8 @@ class LeakyRNN(nn.Module):
             state, output = h
         
         if self.attention:
+            attn_weights = self.attn_func(output)
+            attn_weights = F.softmax(attn_weights, -1)
             attn_weights = torch.repeat_interleave(self.attn_func(output), self.attn_group_size, dim=-1)
             x = x * attn_weights
         else:
