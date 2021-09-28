@@ -108,7 +108,9 @@ if __name__ == "__main__":
 
     if args.add_attn:
         assert args.input_type=='feat', "Only support feature input for now, since only feature-based attn is supported"
-    attn_group_size = [args.stim_val]*args.stim_dim
+        attn_group_size = [args.stim_val]*args.stim_dim
+    else:
+        attn_group_size = [input_size]
 
     model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1, 
                 'plastic': args.plas_type=='all', 'attention': args.add_attn, 'activation': args.activ_func,
