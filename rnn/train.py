@@ -28,13 +28,15 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_dir', type=str, help='Output directory')
-    parser.add_argument('--iters', type=int, help='Training Iterations')
-    parser.add_argument('--hidden_size', type=int, default=100, help='Size of recurrent layer')
+    parser.add_argument('--iters', type=int, help='Training iterations')
+    parser.add_argument('--epochs', type=int, default=1, help='Training epochs')
+    parser.add_argument('--hidden_size', type=int, default=150, help='Size of recurrent layer')
     parser.add_argument('--stim_dim', type=int, default=3, choices=[2, 3], help='Number of features')
     parser.add_argument('--stim_val', type=int, default=3, help='Possible values of features')
     parser.add_argument('--N_s', type=int, default=10, help='Number of times to repeat the entire stim set')
     parser.add_argument('--e_prop', type=float, default=4/5, help='Proportion of E neurons')
     parser.add_argument('--batch_size', type=int, help='Batch size')
+    parser.add_argument('--eval_batch_size', type=int, default=60, help='Batch size')
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
@@ -80,7 +82,8 @@ if __name__ == "__main__":
         'rwd_onset': 0.5,
         'rwd_end': 0.6,
         'choice_onset': 0.35,
-        'choice_end': 0.5}
+        'choice_end': 0.5,
+        'total_time': 1}
     exp_times['dt'] = args.dt
     log_interval = 1
     grad_accumulation_step = 1
@@ -103,19 +106,23 @@ if __name__ == "__main__":
         'feat+conj+obj': args.stim_dim*args.stim_val+args.stim_val**args.stim_dim
     }[args.input_type]
 
-    assert args.input_type=='feat', "Only support feature input for now, since only feature-based attn is supported"
+    if args.add_attn:
+        assert args.input_type=='feat', "Only support feature input for now, since only feature-based attn is supported"
     attn_group_size = [args.stim_val]*args.stim_dim
+
+    model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1, 
+                'plastic': args.plas_type=='all', 'attention': args.add_attn, 'activation': args.activ_func,
+                'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
+                'c_plasticity': [args.kappa_w*math.sqrt(args.hidden_size/input_size),args.kappa_w,args.kappa_w], 
+                'e_prop': args.e_prop, 'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 
+                'init_spectral': args.init_spectral}
     
-    model = LeakyRNN(input_size=input_size, hidden_size=args.hidden_size, output_size=1, 
-                plastic=args.plas_type=='all', attention=args.add_attn, activation=args.activ_func,
-                dt=args.dt, tau_x=args.tau_x, tau_w=args.tau_w, attn_group_size=attn_group_size,
-                c_plasticity=[args.kappa_w*math.sqrt(args.hidden_size/input_size),args.kappa_w,args.kappa_w], 
-                e_prop=args.e_prop, sigma_rec=args.sigma_rec, sigma_in=args.sigma_in, sigma_w=args.sigma_w, 
-                truncate_iter=1+int(1/exp_times['dt']) if args.truncate else None, init_spectral=args.init_spectral)
+    model = LeakyRNN(**model_specs)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
     if args.load_checkpoint:
         load_checkpoint(model, device, folder=args.exp_dir, filename='checkpoint.pth.tar')
+        print('Model loaded successfully')
 
     def train(iters):
         losses = []
@@ -151,10 +158,24 @@ if __name__ == "__main__":
         return loss.item()
 
     def eval():
-        # TODO: add eval by having longer episodes and using prob_mdpl, plot error throughout the episode
+        model.eval()
+        losses = []
+        for i in range(args.eval_batch_size):
+            DA_s, ch_s, pop_s, _, output_mask = task_mdprl.generateinputfromexp()
+            output, hs = model(pop_s, DA_s)
+            output = output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1])
+            output = (output[:, output_mask]-ch_s[:, output_mask]).pow(2).mean(0)
+            losses.append(output)
         pass
+        losses = torch.stack(losses, dim=0).mean(0)
+        return losses
 
-    final_training_loss = train(args.iters)
+    # eval_losses
+
+    
+    for _ in range(args.epochs):
+        final_training_loss = train(args.iters)
+
     if args.save_checkpoint:
         save_checkpoint(model.state_dict(), folder=args.exp_dir, filename='checkpoint.pth.tar')
     print('====> DONE')
