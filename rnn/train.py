@@ -140,8 +140,6 @@ if __name__ == "__main__":
 
             if (batch_idx+1) % grad_accumulation_step==0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
-                for n, p in model.named_parameters():
-                    print(n, p.grad.pow(2).sum())
                 optimizer.step()
                 optimizer.zero_grad()
 
