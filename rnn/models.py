@@ -56,7 +56,7 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral):
         with torch.no_grad():
-            nn.init.uniform_(self.weight, a=0, b=1/math.sqrt(self.input_size-self.zero_cols))
+            nn.init.uniform_(self.weight, a=0, b=2/math.sqrt(self.input_size-self.zero_cols))
             # Scale E weight by E-I ratio
             if self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -172,8 +172,6 @@ class LeakyRNN(nn.Module):
         new_state = state * self.oneminusalpha_x + total_input * self.alpha_x + self._sigma_rec * torch.randn_like(state)
         new_output = self.activation(new_state)
 
-        value = torch.sigmoid(self.h2o(new_output[:,:self.h2h.e_size]))
-
         if self.plastic:
             R = R.unsqueeze(-1)
             wx = wx * self.oneminusalpha_w \
@@ -184,9 +182,9 @@ class LeakyRNN(nn.Module):
                 + self.kappa_w[1].exp()*R*torch.einsum('bi, bj->bij', new_output, output) \
                 + self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
-            return value, (new_state, new_output, wx, wh)
+            return (new_state, new_output, wx, wh)
         else:
-            return value, (new_state, new_output)
+            return (new_state, new_output)
 
     def truncate(self, hidden):
         if self.plastic:
@@ -199,12 +197,10 @@ class LeakyRNN(nn.Module):
             hidden = self.init_hidden(x)
 
         hs = []
-        os = []
         steps = range(x.size(0))
         for i in steps:
-            out, hidden = self.recurrence(x[i], hidden, Rs[i])
+            hidden = self.recurrence(x[i], hidden, Rs[i])
             hs.append(hidden[1])
-            os.append(out)
             if self.truncate_iter is not None and (i+1)%self.truncate_iter==0:
                 hidden = self.truncate(hidden)
     
