@@ -26,7 +26,7 @@ def _get_pos_function(func_name):
         raise RuntimeError(F"{func_name} is an invalid function enforcing positive weight.")
 
 class EILinear(nn.Module):
-    def __init__(self, input_size, output_size, remove_diag, zero_cols_prop,
+    def __init__(self, input_size, output_size, remove_diag, zero_cols_prop, zero_rows_prop, 
                      e_prop=0.8, bias=True, pos_function='relu', init_spectral=None):
         super().__init__()
         self.input_size = input_size
@@ -37,12 +37,14 @@ class EILinear(nn.Module):
         self.e_size = int(e_prop * input_size)
         self.i_size = input_size - self.e_size
         self.zero_cols = round(zero_cols_prop * input_size)
+        self.zero_rows = round(zero_rows_prop * output_size)
 
         self.weight = nn.Parameter(torch.Tensor(output_size, input_size))
         sign_mask = torch.FloatTensor([1]*self.e_size+[-1]*self.i_size).reshape(1, input_size)
-        exist_mask = torch.cat([torch.ones(input_size-self.zero_cols), torch.zeros(self.zero_cols)]).reshape([1, input_size])
+        exist_mask = torch.cat([torch.ones(input_size-self.zero_cols), torch.zeros(self.zero_cols)]).reshape([1, input_size])\
+                    * torch.cat([torch.ones(output_size-self.zero_rows), torch.zeros(self.zero_rows)]).reshape([output_size, 1])
 
-        self.mask = (sign_mask*exist_mask).repeat([output_size, 1])
+        self.mask = sign_mask.repeat([output_size, 1])*exist_mask
         self.pos_func = _get_pos_function(pos_function)
         if remove_diag:
             assert(input_size==output_size)
@@ -92,8 +94,8 @@ class LeakyRNN(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size =  output_size
-        self.x2h = EILinear(input_size, hidden_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=False)
-        self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, e_prop=e_prop, zero_cols_prop=0, bias=True, init_spectral=init_spectral)
+        self.x2h = EILinear(input_size, hidden_size, remove_diag=False, e_prop=1, zero_cols_prop=0, zero_rows_prop=1-e_prop, bias=False)
+        self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, e_prop=e_prop, zero_cols_prop=0, zero_rows_prop=0, bias=True, init_spectral=init_spectral)
         # self.h2o = EILinear(hidden_size, output_size, remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop, bias=False)
         self.h2o = nn.Linear(self.h2h.e_size, output_size)
         self.tau_x = tau_x
@@ -129,7 +131,7 @@ class LeakyRNN(nn.Module):
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer?
         if attention:
             assert(attn_group_size is not None)
-            self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop)
+            self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop, zero_rows_prop=0)
             self.attn_group_size = torch.LongTensor(attn_group_size)
         else:
             self.attn_func = None
