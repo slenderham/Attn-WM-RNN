@@ -120,7 +120,7 @@ if __name__ == "__main__":
                 'init_spectral': args.init_spectral}
     
     model = LeakyRNN(**model_specs)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
 
     if args.load_checkpoint:
         load_checkpoint(model, device, folder=args.exp_dir, filename='checkpoint.pth.tar')
