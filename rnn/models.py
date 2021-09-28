@@ -56,7 +56,7 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral):
         with torch.no_grad():
-            nn.init.kaiming_uniform_(self.weight, a=math.sqrt(8*self.input_size/(self.input_size-self.zero_cols)))
+            nn.init.kaiming_uniform_(self.weight, a=math.sqrt(4*self.input_size/(self.input_size-self.zero_cols)))
             # Scale E weight by E-I ratio
             if self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -85,7 +85,7 @@ class EILinear(nn.Module):
 
 class LeakyRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, 
-                attn_group_size=None, plastic=True, attention=True, activation='retanh', rpe=True,
+                attn_group_size=None, plastic=True, attention=True, activation='retanh',
                 dt=0.02, tau_x=0.1, tau_w=1.0, c_plasticity=None, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=1, **kwargs):
         super().__init__()
@@ -134,8 +134,6 @@ class LeakyRNN(nn.Module):
             self.attn_func = None
             self.attn_group_size = None
 
-        self.rpe = rpe
-
         self.activation = _get_activation_function(activation)
         self.truncate_iter = truncate_iter
 
@@ -177,8 +175,6 @@ class LeakyRNN(nn.Module):
         value = torch.tanh(F.relu(self.h2o(new_output, wo)))
 
         if self.plastic:
-            if self.rpe:
-                R = (R!=0)*((R+1)/2-value)
             R = R.unsqueeze(-1)
             wx = wx * self.oneminusalpha_w \
                 + self.kappa_w[0].exp()*R*torch.einsum('bi, bj->bij', new_output, x) \
@@ -189,9 +185,8 @@ class LeakyRNN(nn.Module):
                 + self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
             wo = wo * self.oneminusalpha_w \
-                + self.kappa_w[2].exp()*R*new_output.unsqueeze(1) \
+                + self.kappa_w[2].exp()*(R-wo)*new_output.unsqueeze(1) \
                 + self._sigma_w * torch.randn_like(wo)
-            wo = torch.maximum(wo, -self.h2o.pos_func(self.h2o.weight).detach().unsqueeze(0))
             return value, (new_state, new_output, wx, wh, wo)
         else:
             return value, (new_state, new_output)
