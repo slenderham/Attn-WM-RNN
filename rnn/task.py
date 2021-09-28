@@ -6,14 +6,14 @@ import torch
 
 class MDPRL():
     def __init__(self, times, N_s, input_type):
-        prob_mdprl = np.zeros((3, 3, 3))
-        prob_mdprl[:, :, 0] = ([0.92, 0.75, 0.43], 
+        self.prob_mdprl = np.zeros((3, 3, 3))
+        self.prob_mdprl[:, :, 0] = ([0.92, 0.75, 0.43], 
                                [0.50, 0.50, 0.50], 
                                [0.57, 0.25, 0.08])
-        prob_mdprl[:, :, 1] = ([0.16, 0.75, 0.98], 
+        self.prob_mdprl[:, :, 1] = ([0.16, 0.75, 0.98], 
                                [0.50, 0.50, 0.50], 
                                [0.02, 0.25, 0.84])
-        prob_mdprl[:, :, 2] = ([0.92, 0.75, 0.43], 
+        self.prob_mdprl[:, :, 2] = ([0.92, 0.75, 0.43], 
                                [0.50, 0.50, 0.50], 
                                [0.57, 0.25, 0.08])
 
@@ -149,3 +149,6 @@ class MDPRL():
         return torch.from_numpy(DA_s).float(), torch.from_numpy(ch_s).float(), \
             torch.from_numpy(pop_s[:,:,self.input_indexes]).float(), torch.from_numpy(pop_o).float(), \
             torch.from_numpy(self.filter_ch.reshape(1, len(self.T), 1)).float()
+
+    def generateinputfromexp(self):
+        return self.generateinput(1, self.prob_mdprl)
