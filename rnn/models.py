@@ -185,7 +185,7 @@ class LeakyRNN(nn.Module):
                 + self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
             wo = wo * self.oneminusalpha_w \
-                + self.kappa_w[2].exp()*(R-wo)*new_output.unsqueeze(1) \
+                + self.kappa_w[2].exp()*(R-value)*new_output.unsqueeze(1) \
                 + self._sigma_w * torch.randn_like(wo)
             return value, (new_state, new_output, wx, wh, wo)
         else:
