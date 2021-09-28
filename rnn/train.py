@@ -115,7 +115,7 @@ if __name__ == "__main__":
     model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1, 
                 'plastic': args.plas_type=='all', 'attention': args.add_attn, 'activation': args.activ_func,
                 'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
-                'c_plasticity': [args.kappa_w*math.sqrt(args.hidden_size/input_size),args.kappa_w,0], 
+                'c_plasticity': [args.kappa_w*5,args.kappa_w], 
                 'e_prop': args.e_prop, 'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 
                 'init_spectral': args.init_spectral}
     
