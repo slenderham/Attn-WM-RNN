@@ -144,8 +144,7 @@ class LeakyRNN(nn.Module):
         if self.plastic:
             return (h_init, h_init.relu(),
                     torch.zeros(batch_size, self.hidden_size, self.input_size).to(x.device),
-                    torch.zeros(batch_size, self.hidden_size, self.hidden_size).to(x.device),
-                    torch.zeros(batch_size, self.output_size, self.hidden_size).to(x.device))
+                    torch.zeros(batch_size, self.hidden_size, self.hidden_size).to(x.device))
         else:
             return (h_init, h_init.relu())
 
@@ -153,7 +152,7 @@ class LeakyRNN(nn.Module):
         batch_size = x.shape[0]
         
         if self.plastic:
-            state, output, wx, wh, wo = h
+            state, output, wx, wh = h
         else:
             state, output = h
         
@@ -173,7 +172,7 @@ class LeakyRNN(nn.Module):
         new_state = state * self.oneminusalpha_x + total_input * self.alpha_x + self._sigma_rec * torch.randn_like(state)
         new_output = self.activation(new_state)
 
-        value = torch.sigmoid(self.h2o(new_output[:,:self.h2h.e_size], wo))
+        value = torch.sigmoid(self.h2o(new_output[:,:self.h2h.e_size]))
 
         if self.plastic:
             R = R.unsqueeze(-1)
@@ -185,17 +184,13 @@ class LeakyRNN(nn.Module):
                 + self.kappa_w[1].exp()*R*torch.einsum('bi, bj->bij', new_output, output) \
                 + self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
-            wo = wo * self.oneminusalpha_w \
-                + self.kappa_w[2].exp()*((R+1)/2-value)*new_output.unsqueeze(1) \
-                + self._sigma_w * torch.randn_like(wo)
-            wo = torch.maximum(wo, -self.h2o.pos_func(self.h2o.weight).detach().unsqueeze(0))
-            return value, (new_state, new_output, wx, wh, wo)
+            return value, (new_state, new_output, wx, wh)
         else:
             return value, (new_state, new_output)
 
     def truncate(self, hidden):
         if self.plastic:
-            return (hidden[0].detach(), hidden[1].detach(), hidden[2].detach(), hidden[3].detach(), hidden[4].detach())
+            return (hidden[0].detach(), hidden[1].detach(), hidden[2].detach(), hidden[3].detach())
         else:
             return (hidden[0].detach(), hidden[1].detach())
 
@@ -214,6 +209,6 @@ class LeakyRNN(nn.Module):
                 hidden = self.truncate(hidden)
     
         hs = torch.stack(hs, dim=0)
-        os = torch.stack(os, dim=0)
+        os = torch.sigmoid(self.h2o(hs))
 
         return os, hs
