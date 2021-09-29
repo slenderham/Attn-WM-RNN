@@ -44,7 +44,7 @@ if __name__ == "__main__":
     parser.add_argument('--sigma_w', type=float, default=0.0, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=1, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
-    parser.add_argument('--tau_w', type=float, default=600, help='Time constant for weight modification')
+    parser.add_argument('--tau_w', type=float, default=20, help='Time constant for weight modification')
     parser.add_argument('--kappa_w', type=float, default=0.001, help='Learning rate for weight modification')
     parser.add_argument('--dt', type=float, default=0.02, help='Discretization time step (ms)')
     parser.add_argument('--l2r', type=float, default=0.0, help='Weight for L2 reg on firing rate')
@@ -75,15 +75,15 @@ if __name__ == "__main__":
     save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
     exp_times = {
-        'start_time': -0.25,
-        'end_time': 0.75,
+        'start_time': -0.5,
+        'end_time': 1.5,
         'stim_onset': 0.0,
-        'stim_end': 0.6,
-        'rwd_onset': 0.5,
-        'rwd_end': 0.6,
-        'choice_onset': 0.35,
-        'choice_end': 0.5,
-        'total_time': 1}
+        'stim_end': 1.2,
+        'rwd_onset': 1.0,
+        'rwd_end': 1.2,
+        'choice_onset': 0.7,
+        'choice_end': 1.0,
+        'total_time': 2}
     exp_times['dt'] = args.dt
     log_interval = 1
     grad_accumulation_step = 1
@@ -134,6 +134,11 @@ if __name__ == "__main__":
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, _, output_mask = task_mdprl.generateinput(args.batch_size)
             output, hs = model(pop_s, DA_s)
+            plt.imshow(hs.detach().squeeze().t(), aspect='auto')
+            plt.colorbar()
+            plt.show()
+            plt.plot(output.detach().squeeze())
+            plt.show()
             loss = (output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)*output_mask.unsqueeze(-1)-ch_s).pow(2).mean()\
                     + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             loss.backward()
