@@ -127,7 +127,7 @@ class LeakyRNN(nn.Module):
                 assert(len(c_plasticity)==6)
                 self.kappa_w = torch.FloatTensor(c_plasticity)
             else:
-                self.kappa_w = nn.Parameter(torch.zeros(2))
+                self.kappa_w = nn.Parameter(torch.zeros(6))
 
         self.attention = attention
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer?
