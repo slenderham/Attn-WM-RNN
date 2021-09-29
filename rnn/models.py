@@ -102,6 +102,7 @@ class LeakyRNN(nn.Module):
         
         self.tau_x = tau_x
         self.tau_w = tau_w
+        self.dt = dt
         if dt is None:
             alpha_x = 1
             alpha_w = 1
