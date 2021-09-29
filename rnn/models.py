@@ -56,7 +56,7 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral):
         with torch.no_grad():
-            nn.init.uniform_(self.weight, a=0, b=math.sqrt(5/(self.input_size-self.zero_cols)))
+            nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
             # Scale E weight by E-I ratio
             if self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -124,10 +124,10 @@ class LeakyRNN(nn.Module):
         self.plastic = plastic
         if plastic:
             if c_plasticity is not None:
-                assert(len(c_plasticity)==2)
-                self.kappa_w = (torch.FloatTensor(c_plasticity)+1e-8).log()
+                assert(len(c_plasticity)==6)
+                self.kappa_w = torch.FloatTensor(c_plasticity)
             else:
-                self.kappa_w = nn.Parameter((torch.ones(2)*1e-3).log())
+                self.kappa_w = nn.Parameter(torch.zeros(2))
 
         self.attention = attention
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer?
@@ -166,7 +166,7 @@ class LeakyRNN(nn.Module):
             attn_weights = torch.repeat_interleave(attn_weights, self.attn_group_size, dim=-1)
             x = torch.relu(x + self._sigma_in * torch.randn_like(x)) * attn_weights 
         else:
-            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) / len(self.attn_group_size)
+            x = torch.relu(x + self._sigma_in * torch.randn_like(x))
 
         if self.plastic:
             total_input = self.x2h(x, wx) + self.h2h(output, wh)
@@ -177,13 +177,17 @@ class LeakyRNN(nn.Module):
 
         if self.plastic:
             R = R.unsqueeze(-1)
-            wx = wx * self.oneminusalpha_w \
-                + self.kappa_w[0].exp()*R*torch.einsum('bi, bj->bij', new_output, x) \
-                + self._sigma_w * torch.randn_like(wx)
+            wx = wx * self.oneminusalpha_w + self.alpha_w*R*(
+                self.kappa_w[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
+                self.kappa_w[1]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
+                self.kappa_w[2]*torch.einsum('bi, bj->bij', new_output, x)) + \
+                self._sigma_w * torch.randn_like(wx)
             wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
-            wh = wh * self.oneminusalpha_w \
-                + self.kappa_w[1].exp()*R*torch.einsum('bi, bj->bij', new_output, output) \
-                + self._sigma_w * torch.randn_like(wh)
+            wh = wh * self.oneminusalpha_w + self.alpha_w*R*(
+                self.kappa_w[3]*torch.reshape(output, (batch_size, 1, self.hidden_size)) +
+                self.kappa_w[4]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
+                self.kappa_w[5]*torch.einsum('bi, bj->bij', new_output, output)) + \
+                self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
             return (new_state, new_output, wx, wh)
         else:
