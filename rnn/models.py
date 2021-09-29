@@ -56,7 +56,7 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral):
         with torch.no_grad():
-            nn.init.uniform_(self.weight, a=0, b=math.sqrt(5)/math.sqrt(self.input_size-self.zero_cols))
+            nn.init.uniform_(self.weight, a=0, b=math.sqrt(5/(self.input_size-self.zero_cols)))
             # Scale E weight by E-I ratio
             if self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -95,7 +95,11 @@ class LeakyRNN(nn.Module):
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=False)
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, e_prop=e_prop, zero_cols_prop=0, bias=True, init_spectral=init_spectral)
         # self.h2o = EILinear(hidden_size, output_size, remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop, bias=False)
+        
         self.h2o = nn.Linear(self.h2h.e_size, output_size)
+        nn.init.kaiming_normal_(self.h2o.weight)
+        nn.init.zeros_(self.h2o.bias)
+        
         self.tau_x = tau_x
         self.tau_w = tau_w
         if dt is None:
@@ -160,11 +164,10 @@ class LeakyRNN(nn.Module):
             attn_weights = self.attn_func(output)
             attn_weights = F.softmax(attn_weights, -1);
             attn_weights = torch.repeat_interleave(attn_weights, self.attn_group_size, dim=-1)
-            x = x * attn_weights 
+            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) * attn_weights 
         else:
-            x = x / len(self.attn_group_size)
+            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) / len(self.attn_group_size)
 
-        x = torch.relu(x+self._sigma_in * torch.randn_like(x))
         if self.plastic:
             total_input = self.x2h(x, wx) + self.h2h(output, wh)
         else:
