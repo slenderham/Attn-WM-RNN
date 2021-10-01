@@ -27,7 +27,7 @@ def _get_pos_function(func_name):
 
 class EILinear(nn.Module):
     def __init__(self, input_size, output_size, remove_diag, zero_cols_prop,
-                     e_prop=0.8, bias=True, pos_function='relu', init_spectral=None):
+                     e_prop=0.8, bias=True, pos_function='relu', init_spectral=None, init_gain=None):
         super().__init__()
         self.input_size = input_size
         self.output_size = output_size
@@ -52,15 +52,17 @@ class EILinear(nn.Module):
         else:
             self.register_parameter('bias', None)
         
-        self.reset_parameters(init_spectral)
+        self.reset_parameters(init_spectral, init_gain)
 
-    def reset_parameters(self, init_spectral):
+    def reset_parameters(self, init_spectral, init_gain):
         with torch.no_grad():
-            nn.init.uniform_(self.weight, a=0, b=math.sqrt(4/(self.input_size-self.zero_cols)))
+            nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
             # Scale E weight by E-I ratio
             if self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
 
+            if init_gain is not None:
+                self.weight.data *= init_gain
             if init_spectral is not None:
                 self.weight.data *= init_spectral / torch.linalg.eigvals(self.effective_weight(self.weight)).real.max()
 
@@ -92,9 +94,12 @@ class LeakyRNN(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size =  output_size
-        self.x2h = EILinear(input_size, hidden_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=False)
-        self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, e_prop=e_prop, zero_cols_prop=0, bias=True, init_spectral=init_spectral)
-        self.h2o = EILinear(hidden_size, output_size, remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop, bias=False)
+        self.x2h = EILinear(input_size, hidden_size, remove_diag=False,
+                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=math.sqrt(4))
+        self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, 
+                            e_prop=e_prop, zero_cols_prop=0, bias=True, init_spectral=init_spectral)
+        self.h2o = EILinear(hidden_size, output_size, remove_diag=False,
+                            e_prop=e_prop, zero_cols_prop=1-e_prop, bias=False, init_gain=math.sqrt(2))
         
         self.tau_x = tau_x
         self.tau_w = tau_w
