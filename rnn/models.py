@@ -56,7 +56,7 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral):
         with torch.no_grad():
-            nn.init.uniform_(self.weight, a=0, b=math.sqrt(2/(self.input_size-self.zero_cols)))
+            nn.init.uniform_(self.weight, a=0, b=math.sqrt(4/(self.input_size-self.zero_cols)))
             # Scale E weight by E-I ratio
             if self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -175,15 +175,15 @@ class LeakyRNN(nn.Module):
         if self.plastic:
             R = R.unsqueeze(-1)
             wx = wx * self.oneminusalpha_w + self.dt*R*(
-                self.kappa_w[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
-                self.kappa_w[1]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
-                self.kappa_w[2]*torch.einsum('bi, bj->bij', new_output, x)) + \
+                self.kappa_w[0].abs()*torch.reshape(x, (batch_size, 1, self.input_size)) -
+                self.kappa_w[1].abs()*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
+                self.kappa_w[2].abs()*torch.einsum('bi, bj->bij', new_output, x)) + \
                 self._sigma_w * torch.randn_like(wx)
             wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
             wh = wh * self.oneminusalpha_w + self.dt*R*(
-                self.kappa_w[3]*torch.reshape(output, (batch_size, 1, self.hidden_size)) +
-                self.kappa_w[4]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
-                self.kappa_w[5]*torch.einsum('bi, bj->bij', new_output, output)) + \
+                self.kappa_w[3].abs()*torch.reshape(output, (batch_size, 1, self.hidden_size)) -
+                self.kappa_w[4].abs()*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
+                self.kappa_w[5].abs()*torch.einsum('bi, bj->bij', new_output, output)) + \
                 self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
             return (new_state, new_output, wx, wh)
