@@ -172,7 +172,7 @@ if __name__ == "__main__":
         losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
         return losses_means, losses_stds
 
-    metrics = defaultdict([])
+    metrics = defaultdict(list)
     for _ in range(args.epochs):
         training_loss = train(args.iters)
         eval_loss_means, eval_loss_stds = eval()
