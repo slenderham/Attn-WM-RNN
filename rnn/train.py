@@ -99,7 +99,7 @@ if __name__ == "__main__":
     else:
         device = torch.device('cuda' if args.cuda else 'cpu')
 
-    task_mdprl = MDPRL(exp_times, args.N_s, args.input_type)
+    task_mdprl = MDPRL(exp_times, args.input_type)
 
     input_size = {
         'feat': args.stim_dim*args.stim_val,
