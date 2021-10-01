@@ -171,7 +171,7 @@ if __name__ == "__main__":
         losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
         losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
 
-        print('====> {:>12}\Eval: \tAccuracy: {:.4f}'.format(losses_means.mean()))
+        print('====> Eval Loss: {:.4f}'.format(losses_means.mean()))
         return losses_means, losses_stds
 
     metrics = defaultdict(list)
