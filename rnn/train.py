@@ -170,6 +170,8 @@ if __name__ == "__main__":
             losses.append(loss)
         losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
         losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
+
+        print('====> {:>12}\Eval: \tAccuracy: {:.4f}'.format(losses_means.mean()))
         return losses_means, losses_stds
 
     metrics = defaultdict(list)
@@ -179,7 +181,7 @@ if __name__ == "__main__":
         metrics['eval_losses_mean'].append(eval_loss_means.tolist())
         metrics['eval_losses_std'].append(eval_loss_means.tolist())
         
-        save_defaultdict_to_fs(metrics, 'metrics.json')
+        save_defaultdict_to_fs(metrics, os.path.join(args.exp_dir, 'metrics.json'))
         if args.save_checkpoint:
             save_checkpoint(model.state_dict(), folder=args.exp_dir, filename='checkpoint.pth.tar')
     
