@@ -88,7 +88,6 @@ if __name__ == "__main__":
     exp_times['dt'] = args.dt
     log_interval = 1
     grad_accumulation_step = 1
-    save_interval = 10
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -131,18 +130,18 @@ if __name__ == "__main__":
         losses = []
         model.train()
         pbar = tqdm(total=iters)
-        optimizer.zero_grad()
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, _, output_mask = task_mdprl.generateinput(args.batch_size, args.N_s)
             output, hs = model(pop_s, DA_s)
+            plt.imshow(hs.squeeze().detach().t(), aspect='auto')
+            plt.show()
             loss = (output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)*output_mask.unsqueeze(-1)-ch_s).pow(2).mean()\
                     + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
-            loss.backward()
 
-            if (batch_idx+1) % grad_accumulation_step==0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
-                optimizer.step()
-                optimizer.zero_grad()
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
+            optimizer.step()
 
             if (batch_idx+1) % log_interval == 0:
                 if torch.isnan(loss):
@@ -151,9 +150,6 @@ if __name__ == "__main__":
                 pbar.set_description('Iteration {} Loss: {:.6f}'.format(
                     batch_idx, loss.item()))
                 pbar.refresh()
-
-            if (batch_idx+1) % save_interval == 0:
-                save_checkpoint(model.state_dict(), folder=args.exp_dir, filename='checkpoint.pth.tar')
                 
             pbar.update()
         pbar.close()
