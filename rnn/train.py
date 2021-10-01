@@ -33,10 +33,11 @@ if __name__ == "__main__":
     parser.add_argument('--hidden_size', type=int, default=150, help='Size of recurrent layer')
     parser.add_argument('--stim_dim', type=int, default=3, choices=[2, 3], help='Number of features')
     parser.add_argument('--stim_val', type=int, default=3, help='Possible values of features')
-    parser.add_argument('--N_s', type=int, default=10, help='Number of times to repeat the entire stim set')
+    parser.add_argument('--N_s', type=int, default=6, help='Number of times to repeat the entire stim set')
+    parser.add_argument('--test_N_s', type=int, default=10, help='Number of times to repeat the entire stim set during eval')
     parser.add_argument('--e_prop', type=float, default=4/5, help='Proportion of E neurons')
     parser.add_argument('--batch_size', type=int, help='Batch size')
-    parser.add_argument('--eval_batch_size', type=int, default=60, help='Batch size')
+    parser.add_argument('--eval_samples', type=int, default=60, help='Batch size')
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
@@ -132,7 +133,7 @@ if __name__ == "__main__":
         pbar = tqdm(total=iters)
         optimizer.zero_grad()
         for batch_idx in range(iters):
-            DA_s, ch_s, pop_s, _, output_mask = task_mdprl.generateinput(args.batch_size)
+            DA_s, ch_s, pop_s, _, output_mask = task_mdprl.generateinput(args.batch_size, args.N_s)
             output, hs = model(pop_s, DA_s)
             loss = (output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)*output_mask.unsqueeze(-1)-ch_s).pow(2).mean()\
                     + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
@@ -147,7 +148,6 @@ if __name__ == "__main__":
                 if torch.isnan(loss):
                     quit()
                 losses.append(loss.item())
-                save_list_to_fs(losses, os.path.join(args.exp_dir, 'metrics.txt'))
                 pbar.set_description('Iteration {} Loss: {:.6f}'.format(
                     batch_idx, loss.item()))
                 pbar.refresh()
@@ -162,22 +162,25 @@ if __name__ == "__main__":
     def eval():
         model.eval()
         losses = []
-        for i in range(args.eval_batch_size):
-            DA_s, ch_s, pop_s, _, output_mask = task_mdprl.generateinputfromexp()
-            output, hs = model(pop_s, DA_s)
-            output = output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1])
-            output = (output[:, output_mask]-ch_s[:, output_mask]).pow(2).mean(0)
-            losses.append(output)
-        pass
-        losses = torch.stack(losses, dim=0).mean(0)
-        return losses
+        for i in range(args.eval_samples):
+            DA_s, ch_s, pop_s, _, output_mask = task_mdprl.generateinputfromexp(args.batch_size, args.test_N_s)
+            output, _ = model(pop_s, DA_s)
+            output = output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size) # trial X T X batch size
+            loss = (output[:, output_mask==1]-ch_s[:, output_mask==1]).pow(2).mean(1) # trial X batch size
+            losses.append(loss)
+        losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
+        losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
+        return losses_means, losses_stds
 
-    # eval_losses
-
-    
+    metrics = defaultdict([])
     for _ in range(args.epochs):
-        final_training_loss = train(args.iters)
-
-    if args.save_checkpoint:
-        save_checkpoint(model.state_dict(), folder=args.exp_dir, filename='checkpoint.pth.tar')
+        training_loss = train(args.iters)
+        eval_loss_means, eval_loss_stds = eval()
+        metrics['eval_losses_mean'].append(eval_loss_means.tolist())
+        metrics['eval_losses_std'].append(eval_loss_means.tolist())
+        
+        save_defaultdict_to_fs(metrics, 'metrics.json')
+        if args.save_checkpoint:
+            save_checkpoint(model.state_dict(), folder=args.exp_dir, filename='checkpoint.pth.tar')
+    
     print('====> DONE')
