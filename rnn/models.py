@@ -67,7 +67,9 @@ class EILinear(nn.Module):
                 self.weight.data *= init_spectral / torch.linalg.eigvals(self.effective_weight(self.weight)).real.max()
 
             if self.bias is not None:
-                nn.init.zeros_(self.bias)
+                fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
+                bound = 1 / math.sqrt(fan_in)
+                nn.init.uniform_(self.bias, -bound, bound)
     
     def effective_weight(self, w=None):
         if w is None:
