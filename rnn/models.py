@@ -129,7 +129,7 @@ class LeakyRNN(nn.Module):
                 assert(len(c_plasticity)==6)
                 self.kappa_w = torch.FloatTensor(c_plasticity)
             else:
-                self.kappa_w = nn.Parameter(torch.zeros(6)+1e-8)
+                self.kappa_w = nn.Parameter(torch.ones(6))
 
         self.attention = attention
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer?
@@ -179,13 +179,13 @@ class LeakyRNN(nn.Module):
 
         if self.plastic:
             R = R.unsqueeze(-1)
-            wx = wx * self.oneminusalpha_w + self.dt*R*(
+            wx = wx * self.oneminusalpha_w + self.dt*self.alpha_w*(
                 self.kappa_w[0].abs()*torch.reshape(x, (batch_size, 1, self.input_size)) -
                 self.kappa_w[1].abs()*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
                 self.kappa_w[2].abs()*torch.einsum('bi, bj->bij', new_output, x)) + \
                 self._sigma_w * torch.randn_like(wx)
             wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
-            wh = wh * self.oneminusalpha_w + self.dt*R*(
+            wh = wh * self.oneminusalpha_w + self.dt*self.alpha_w*(
                 self.kappa_w[3].abs()*torch.reshape(output, (batch_size, 1, self.hidden_size)) -
                 self.kappa_w[4].abs()*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
                 self.kappa_w[5].abs()*torch.einsum('bi, bj->bij', new_output, output)) + \
