@@ -166,7 +166,7 @@ if __name__ == "__main__":
             DA_s, ch_s, pop_s, _, output_mask = task_mdprl.generateinputfromexp(args.batch_size, args.test_N_s)
             output, _ = model(pop_s, DA_s)
             output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], args.batch_size) # trial X T X batch size
-            loss = (output[:, output_mask==1]-ch_s[:, output_mask==1]).pow(2).mean(1) # trial X batch size
+            loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1]).pow(2).mean(1) # trial X batch size
             losses.append(loss)
         losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
         losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
