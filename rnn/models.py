@@ -146,9 +146,6 @@ class LeakyRNN(nn.Module):
         self.activation = _get_activation_function(activation)
         self.truncate_iter = truncate_iter
 
-        plt.imshow(self.h2h.effective_weight().detach(), cmap='seismic', vmin=-0.5, vmax=0.5)
-        plt.show()
-
     def init_hidden(self, x):
         batch_size = x.shape[1]
         h_init = self.x0.to(x.device) + self._sigma_rec * torch.randn(batch_size, self.hidden_size)
