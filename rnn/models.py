@@ -56,7 +56,7 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral, init_gain):
         with torch.no_grad():
-            nn.init.uniform_(self.weight, a=0, b=math.sqrt(2/(self.output_size+self.input_size-self.zero_cols)))
+            nn.init.uniform_(self.weight, a=0, b=math.sqrt(12/(self.output_size+self.input_size-self.zero_cols)))
             # Scale E weight by E-I ratio
             if self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -91,17 +91,17 @@ class LeakyRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, 
                 attn_group_size=None, plastic=True, attention=True, activation='retanh',
                 dt=0.02, tau_x=0.1, tau_w=1.0, c_plasticity=None, train_init_state=False,
-                e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=1, **kwargs):
+                e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=None, **kwargs):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size =  output_size
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False,
-                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=math.sqrt(2))
+                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=1)
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, 
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_spectral=init_spectral)
         self.h2o = EILinear(hidden_size, output_size, remove_diag=False,
-                            e_prop=e_prop, zero_cols_prop=1-e_prop, bias=False, init_gain=math.sqrt(2))
+                            e_prop=e_prop, zero_cols_prop=1-e_prop, bias=False, init_gain=1)
         
         self.tau_x = tau_x
         self.tau_w = tau_w
@@ -145,6 +145,9 @@ class LeakyRNN(nn.Module):
 
         self.activation = _get_activation_function(activation)
         self.truncate_iter = truncate_iter
+
+        plt.imshow(self.h2h.effective_weight().detach(), cmap='seismic', vmin=-0.5, vmax=0.5)
+        plt.show()
 
     def init_hidden(self, x):
         batch_size = x.shape[1]
