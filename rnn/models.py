@@ -56,7 +56,7 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral, init_gain):
         with torch.no_grad():
-            nn.init.uniform_(self.weight, a=0, b=math.sqrt(12/(self.output_size+self.input_size-self.zero_cols)))
+            nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.output_size+self.input_size-self.zero_cols)))
             # Scale E weight by E-I ratio
             if self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -99,7 +99,7 @@ class LeakyRNN(nn.Module):
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False,
                             e_prop=1, zero_cols_prop=0, bias=False, init_gain=1)
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, 
-                            e_prop=e_prop, zero_cols_prop=0, bias=True, init_spectral=init_spectral)
+                            e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=math.sqrt(12))
         self.h2o = EILinear(hidden_size, output_size, remove_diag=False,
                             e_prop=e_prop, zero_cols_prop=1-e_prop, bias=False, init_gain=1)
         
