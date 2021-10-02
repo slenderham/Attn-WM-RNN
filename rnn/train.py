@@ -57,7 +57,7 @@ if __name__ == "__main__":
     parser.add_argument('--add_attn', action='store_true', help='Whether to add attention')
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
-    parser.add_argument('--seed', type=int, default=1, help='Random seed')
+    parser.add_argument('--seed', type=int, help='Random seed')
     parser.add_argument('--save_checkpoint', action='store_true', help='Whether to save the trained model')
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to load the trained model')
     parser.add_argument('--truncate', action='store_true', help='Truncate gradient for neuronal state (not weight) between trials')
@@ -89,8 +89,9 @@ if __name__ == "__main__":
     log_interval = 1
     grad_accumulation_step = 1
 
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
+    if args.seed is not None:
+        torch.manual_seed(args.seed)
+        np.random.seed(args.seed)
 
     if (not torch.cuda.is_available()):
         print("No CUDA available so not using it")
@@ -115,9 +116,8 @@ if __name__ == "__main__":
     model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1, 
                 'plastic': args.plas_type=='all', 'attention': args.add_attn, 'activation': args.activ_func,
                 'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
-                'c_plasticity': None, 
-                'e_prop': args.e_prop, 'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 
-                'init_spectral': args.init_spectral}
+                'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral,
+                'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w}
     
     model = LeakyRNN(**model_specs)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
@@ -131,7 +131,7 @@ if __name__ == "__main__":
         model.train()
         pbar = tqdm(total=iters)
         for batch_idx in range(iters):
-            DA_s, ch_s, pop_s, _, output_mask = task_mdprl.generateinput(args.batch_size, args.N_s)
+            DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinput(args.batch_size, args.N_s)
             output, hs = model(pop_s, DA_s)
             loss = (output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)*output_mask.unsqueeze(-1)-ch_s).pow(2).mean()\
                     + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
