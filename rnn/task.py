@@ -103,7 +103,7 @@ class MDPRL():
     def _generate_rand_prob(self, batch_size):
         return np.random.rand(batch_size, 3, 3, 3)
 
-    def generateinput(self, batch_size, N_s, prob_index=None):
+    def generateinput(self, batch_size, N_s, prob_index=None, scramble=True):
         '''
         Generate random stimuli AND choice for learning
         '''
@@ -116,8 +116,11 @@ class MDPRL():
 
         prob_index = np.reshape(prob_index, (batch_size, 27))
 
-        index_s = np.repeat(np.arange(0,27,1), N_s)
-        index_s = np.random.permutation(index_s)
+        if scramble:
+            index_s = np.repeat(np.arange(0,27,1), N_s)
+            index_s = np.random.permutation(index_s)
+        else:
+            index_s = np.tile(np.arange(0,27,1), N_s)
 
         ## TODO: check order of reshape is correct
 
@@ -144,4 +147,4 @@ class MDPRL():
             torch.from_numpy(1.5*(self.T<0.0*self.s) + self.T_ch).reshape(1, len(self.T), 1)
 
     def generateinputfromexp(self, batch_size, test_N_s):
-        return self.generateinput(batch_size, test_N_s, self.prob_mdprl)
+        return self.generateinput(batch_size, test_N_s, self.prob_mdprl, scramble=False)
