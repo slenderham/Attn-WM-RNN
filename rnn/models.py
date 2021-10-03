@@ -56,7 +56,7 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral, init_gain):
         with torch.no_grad():
-            nn.init.uniform_(self.weight, a=0, b=math.sqrt(6/(self.output_size+self.input_size-self.zero_cols)))
+            nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
             # Scale E weight by E-I ratio
             if self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -68,7 +68,7 @@ class EILinear(nn.Module):
 
             if self.bias is not None:
                 nn.init.zeros_(self.bias)
-    
+
     def effective_weight(self, w=None):
         if w is None:
             return self.pos_func(self.weight) * self.mask
@@ -95,11 +95,11 @@ class LeakyRNN(nn.Module):
         self.hidden_size = hidden_size
         self.output_size =  output_size
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False,
-                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=1)
+                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.5)
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, 
-                            e_prop=e_prop, zero_cols_prop=0, bias=True, init_spectral=init_spectral)
+                            e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1)
         self.h2o = EILinear(hidden_size, output_size, remove_diag=False,
-                            e_prop=e_prop, zero_cols_prop=1-e_prop, bias=False, init_gain=1)
+                            e_prop=e_prop, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
         
         self.tau_x = tau_x
         self.tau_w = tau_w
@@ -142,7 +142,8 @@ class LeakyRNN(nn.Module):
             self.attn_group_size = None
 
         self.activation = _get_activation_function(activation)
-        self.truncate_iter = truncate_iter
+        if truncate_iter is not None:
+            raise NotImplementedError
 
     def init_hidden(self, x):
         batch_size = x.shape[1]
@@ -180,15 +181,15 @@ class LeakyRNN(nn.Module):
         if self.plastic:
             R = R.unsqueeze(-1)
             wx = wx * self.oneminusalpha_w + self.dt*R*(
-                self.kappa_w[0].abs()*torch.reshape(x, (batch_size, 1, self.input_size)) -
-                self.kappa_w[1].abs()*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
-                self.kappa_w[2].abs()*torch.einsum('bi, bj->bij', new_output, x)) + \
+                self.kappa_w[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
+                self.kappa_w[1]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
+                self.kappa_w[2]*torch.einsum('bi, bj->bij', new_output, x)) + \
                 self._sigma_w * torch.randn_like(wx)
             wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
             wh = wh * self.oneminusalpha_w + self.dt*R*(
-                self.kappa_w[3].abs()*torch.reshape(output, (batch_size, 1, self.hidden_size)) -
-                self.kappa_w[4].abs()*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
-                self.kappa_w[5].abs()*torch.einsum('bi, bj->bij', new_output, output)) + \
+                self.kappa_w[3]*torch.reshape(output, (batch_size, 1, self.hidden_size)) +
+                self.kappa_w[4]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
+                self.kappa_w[5]*torch.einsum('bi, bj->bij', new_output, output)) + \
                 self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
             return (new_state, new_output, wx, wh)
@@ -210,9 +211,7 @@ class LeakyRNN(nn.Module):
         for i in steps:
             hidden = self.recurrence(x[i], hidden, Rs[i])
             hs.append(hidden[1])
-            if self.truncate_iter is not None and (i+1)%self.truncate_iter==0:
-                hidden = self.truncate(hidden)
-    
+
         hs = torch.stack(hs, dim=0)
         os = self.h2o(hs)
 
