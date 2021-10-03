@@ -164,7 +164,9 @@ if __name__ == "__main__":
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
             losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
-            print('====> Eval Loss: {:.4f}'.format(losses_means[-args.stim_val**args.stim_dim:].mean()))
+            print('====> Eval Loss: {:.4f}'.format((
+                output[:, output_mask.squeeze()==1].mean((1,2))[-args.stim_val**args.stim_dim]
+                -task_mdprl.prob_mdprl.flatten()).pow(2).mean()))
             return losses_means, losses_stds
 
     metrics = defaultdict(list)
