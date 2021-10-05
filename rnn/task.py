@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from matplotlib import pyplot as plt
 
 # TODO: Add reversal functionality
 # TODO: support different dimensions and stim values
@@ -21,7 +22,7 @@ class MDPRL():
         prob_noinf = 0.5*np.ones((3, 3, 3))
 
         s = 1
-        T = np.linspace(times['start_time']*s, times['end_time']*s, 1+times['total_time']*int(s/times['dt']))
+        T = np.linspace(times['start_time']*s, times['end_time']*s, 1+int(times['total_time']*s/times['dt']))
         # when stimuli is present on the screen
         self.T_s = (T > times['stim_onset']*s) & (T <= times['stim_end']*s)
         # when dopamine is released
@@ -40,6 +41,8 @@ class MDPRL():
             self.input_indexes = np.arange(0, 36)
         elif input_type=='feat+conj+obj':
             self.input_indexes = np.arange(0, 63)
+        elif input_type=='feat+obj':
+            self.input_indexes = np.concat([np.arange(0, 9), np.arange(36, 63)])
         else:
             raise RuntimeError
 
@@ -66,10 +69,8 @@ class MDPRL():
             index_pttrn[:, :, d] = np.matrix([[0, 0, 0], [1, 1, 1], [2, 2, 2]])
             index_clr[:, :, d] = np.matrix([[1, 1, 1], [1, 1, 1], [1, 1, 1]])*d
 
-            index_shppttrn[:, :, d] = index_shp[:, :, d] * \
-                3 + index_pttrn[:, :, d]
-            index_pttrnclr[:, :, d] = index_pttrn[:, :, d] * \
-                3 + index_clr[:, :, d]
+            index_shppttrn[:, :, d] = index_shp[:, :, d] * 3 + index_pttrn[:, :, d]
+            index_pttrnclr[:, :, d] = index_pttrn[:, :, d] * 3 + index_clr[:, :, d]
             index_shpclr[:, :, d] = index_shp[:, :, d]*3 + index_clr[:, :, d]
 
         self.index_shp = index_shp.flatten().astype(int)
