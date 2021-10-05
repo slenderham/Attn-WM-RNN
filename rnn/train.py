@@ -121,6 +121,10 @@ if __name__ == "__main__":
     
     model = LeakyRNN(**model_specs)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    print(model)
+    for n, p in model.named_parameters():
+        print(n, p.numel())
+    print(optimizer)
 
     if args.load_checkpoint:
         load_checkpoint(model, device, folder=args.exp_dir, filename='checkpoint.pth.tar')
@@ -133,7 +137,7 @@ if __name__ == "__main__":
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinput(args.batch_size, args.N_s)
             output, hs = model(pop_s, DA_s)
-            loss = (output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)*output_mask.unsqueeze(-1)-ch_s).pow(2).mean()\
+            loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean()\
                     + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             optimizer.zero_grad()
             loss.backward()
@@ -158,14 +162,14 @@ if __name__ == "__main__":
         with torch.no_grad():
             for i in range(args.eval_samples):
                 DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinputfromexp(args.batch_size, args.test_N_s)
-                output, _ = model(pop_s, DA_s)
+                output, hs = model(pop_s, DA_s)
                 output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], args.batch_size) # trial X T X batch size
                 loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
             losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
             print('====> Eval Loss: {:.4f}'.format((
-                output[:, output_mask.squeeze()==1].mean((1,2))[-args.stim_val**args.stim_dim]
+                output[:, output_mask.squeeze()==1].mean((1,2))[-args.stim_val**args.stim_dim:]
                 -task_mdprl.prob_mdprl.flatten()).pow(2).mean()))
             return losses_means, losses_stds
 
