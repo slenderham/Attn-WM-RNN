@@ -95,7 +95,7 @@ class LeakyRNN(nn.Module):
         self.hidden_size = hidden_size
         self.output_size =  output_size
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
-                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.5)
+                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=1)
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='relu',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1, init_spectral=init_spectral)
         self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
