@@ -27,7 +27,8 @@ def _get_pos_function(func_name):
 
 class EILinear(nn.Module):
     def __init__(self, input_size, output_size, remove_diag, zero_cols_prop,
-                     e_prop=0.8, bias=True, pos_function='relu', init_spectral=None, init_gain=None):
+                     e_prop=0.8, bias=True, pos_function='relu', init_spectral=None, 
+                     init_gain=None, balance_ei=False):
         super().__init__()
         self.input_size = input_size
         self.output_size = output_size
@@ -52,14 +53,14 @@ class EILinear(nn.Module):
         else:
             self.register_parameter('bias', None)
         
-        self.reset_parameters(init_spectral, init_gain)
+        self.reset_parameters(init_spectral, init_gain, balance_ei)
 
-    def reset_parameters(self, init_spectral, init_gain):
+    def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
             nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
             # Scale E weight by E-I ratio
-            # if self.i_size!=0:
-            #     self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
+            if balance_ei and self.i_size!=0:
+                self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
 
             if init_gain is not None:
                 self.weight.data *= init_gain
@@ -89,15 +90,17 @@ class LeakyRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, 
                 attn_group_size=None, plastic=True, attention=True, activation='retanh',
                 dt=0.02, tau_x=0.1, tau_w=1.0, c_plasticity=None, train_init_state=False,
-                e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=None, **kwargs):
+                e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=None, 
+                balance_ei=False, **kwargs):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size =  output_size
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
-                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=1)
+                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.5)
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='relu',
-                            e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1, init_spectral=init_spectral)
+                            e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1, 
+                            init_spectral=init_spectral, balance_ei=balance_ei)
         self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
                             e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
 

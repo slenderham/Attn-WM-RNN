@@ -44,6 +44,7 @@ if __name__ == "__main__":
     parser.add_argument('--sigma_rec', type=float, default=0.01, help='Std for recurrent noise')
     parser.add_argument('--sigma_w', type=float, default=0.0, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=1, help='Initial spectral radius for the recurrent weights')
+    parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
     parser.add_argument('--tau_w', type=float, default=600, help='Time constant for weight modification')
     parser.add_argument('--kappa_w', type=float, default=0.001, help='Learning rate for weight modification')
@@ -116,7 +117,7 @@ if __name__ == "__main__":
     model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1, 
                 'plastic': args.plas_type=='all', 'attention': args.add_attn, 'activation': args.activ_func,
                 'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
-                'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral,
+                'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
                 'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w}
     
     model = LeakyRNN(**model_specs)
