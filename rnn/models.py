@@ -388,7 +388,7 @@ class HierarchicalRNN(nn.Module):
         steps = range(x.size(0))
         for i in steps:
             hidden = self.recurrence(x[i], hidden, Rs[i])
-            hs.append(hidden[1])
+            hs.append(hidden[3])
 
         hs = torch.stack(hs, dim=0)
         os = self.h2o(hs)
