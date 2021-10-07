@@ -55,7 +55,7 @@ if __name__ == "__main__":
     parser.add_argument('--l1w', type=float, default=0.0, help='Weight for L1 reg on weight')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
-    parser.add_argument('--rnn_type', type=str, choices=['single, hierarchical'], default='single', help='Type of RNN, one layer or two')
+    parser.add_argument('--rnn_type', type=str, choices=['single', 'hierarchical'], default='single', help='Type of RNN, one layer or two')
     parser.add_argument('--add_attn', action='store_true', help='Whether to add attention')
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
