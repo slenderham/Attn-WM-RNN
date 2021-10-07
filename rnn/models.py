@@ -281,7 +281,7 @@ class HierarchicalRNN(nn.Module):
         if attention_type!='none':
             assert(attn_group_size is not None)
             self.attn_func = EILinear(hidden_size, hidden_size, remove_diag=False, \
-                                      e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.05)
+                                      e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.01)
             self.attn_group_size = torch.LongTensor(attn_group_size)
         else:
             self.attn_func = None
