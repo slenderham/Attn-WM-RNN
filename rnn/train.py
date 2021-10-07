@@ -105,15 +105,20 @@ if __name__ == "__main__":
 
     input_size = {
         'feat': args.stim_dim*args.stim_val,
-        'feat+conj': args.stim_dim*args.stim_val+args.stim_val**args.stim_dim, 
+        'feat+obj': args.stim_dim*args.stim_val+args.stim_val**args.stim_dim, 
         'feat+conj+obj': args.stim_dim*args.stim_val+args.stim_dim*args.stim_val*args.stim_val+args.stim_val**args.stim_dim,
     }[args.input_type]
 
     if args.add_attn:
-        assert args.input_type=='feat', "Only support feature input for now, since only feature-based attn is supported"
-        attn_group_size = [args.stim_val]*args.stim_dim
+        if args.input_type=='feat':
+            attn_group_size = [args.stim_val]*args.stim_dim
+        elif args.input_type=='feat+obj':
+            attn_group_size = [args.stim_val]*args.stim_dim + [args.stim_val**args.stim_dim]
+        elif args.input_type=='feat+conj+obj':
+            attn_group_size = [args.stim_val]*args.stim_dim + [args.stim_val*args.stim_val]*args.tim_dim + [args.stim_val**args.stim_dim]
     else:
         attn_group_size = [input_size]
+    assert(sum(attn_group_size)==input_size)
 
     model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1, 
                 'plastic': args.plas_type=='all', 'attention': args.add_attn, 'activation': args.activ_func,
