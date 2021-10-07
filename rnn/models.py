@@ -97,7 +97,7 @@ class SimpleRNN(nn.Module):
         self.hidden_size = hidden_size
         self.output_size =  output_size
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
-                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=1)
+                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.5)
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='relu',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1, 
                             init_spectral=init_spectral, balance_ei=balance_ei)
@@ -170,7 +170,7 @@ class SimpleRNN(nn.Module):
             attn_weights = self.attn_func(output)
             attn_weights = F.softmax(attn_weights, -1)
             attn_weights = torch.repeat_interleave(attn_weights, self.attn_group_size, dim=-1)
-            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) * attn_weights
+            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) * attn_weights * len(self.attn_group_size)
         else:
             x = torch.relu(x + self._sigma_in * torch.randn_like(x))
 
