@@ -236,7 +236,7 @@ class HierarchicalRNN(nn.Module):
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1, 
                             init_spectral=init_spectral, balance_ei=balance_ei)
         self.c2h = EILinear(hidden_size, hidden_size, remove_diag=False, pos_function='relu', 
-                            e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=1)
+                            e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='relu',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1, 
                             init_spectral=init_spectral, balance_ei=balance_ei)
@@ -281,7 +281,7 @@ class HierarchicalRNN(nn.Module):
         if attention_type!='none':
             assert(attn_group_size is not None)
             self.attn_func = EILinear(hidden_size, hidden_size, remove_diag=False, \
-                                      e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.)
+                                      e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.05)
             self.attn_group_size = torch.LongTensor(attn_group_size)
         else:
             self.attn_func = None
