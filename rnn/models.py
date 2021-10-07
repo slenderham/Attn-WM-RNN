@@ -366,8 +366,8 @@ class HierarchicalRNN(nn.Module):
     def plasticity_func(self, w, R, pre, post, kappa, lb, ub):
         batch_size = w.shape[0]
         new_w = w * self.oneminusalpha_w + self.dt*R*(
-                kappa[0]*torch.reshape(pre, (batch_size, 1, self.input_size)) +
-                kappa[1]*torch.reshape(post, (batch_size, self.hidden_size, 1)) +
+                kappa[0]*pre.unsqueeze(1) +
+                kappa[1]*post.unsqueeze(2) +
                 kappa[2]*torch.einsum('bi, bj->bij', post, pre)) + \
                 self._sigma_w * torch.randn_like(w)
         if lb is not None:
