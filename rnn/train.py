@@ -179,7 +179,6 @@ if __name__ == "__main__":
             return losses_means, losses_stds
 
     metrics = defaultdict(list)
-    eval()
     for _ in range(args.epochs):
         training_loss = train(args.iters)
         eval_loss_means, eval_loss_stds = eval()
