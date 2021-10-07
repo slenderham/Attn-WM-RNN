@@ -280,7 +280,8 @@ class HierarchicalRNN(nn.Module):
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer?
         if attention_type!='none':
             assert(attn_group_size is not None)
-            self.attn_func = EILinear(hidden_size, hidden_size, remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop)
+            self.attn_func = EILinear(hidden_size, hidden_size, remove_diag=False, \
+                                      e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.1)
             self.attn_group_size = torch.LongTensor(attn_group_size)
         else:
             self.attn_func = None
