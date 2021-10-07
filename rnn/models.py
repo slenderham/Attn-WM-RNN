@@ -170,7 +170,7 @@ class SimpleRNN(nn.Module):
             attn_weights = self.attn_func(output)
             attn_weights = F.softmax(attn_weights, -1)
             attn_weights = torch.repeat_interleave(attn_weights, self.attn_group_size, dim=-1)
-            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) * attn_weights 
+            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) * attn_weights * len(self.attn_group_size)
         else:
             x = torch.relu(x + self._sigma_in * torch.randn_like(x))
 
