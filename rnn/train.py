@@ -168,10 +168,6 @@ if __name__ == "__main__":
             for i in range(args.eval_samples):
                 DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinputfromexp(args.batch_size, args.test_N_s)
                 output, hs = model(pop_s, DA_s)
-                plt.plot(output.squeeze().detach().t())
-                # plt.colorbar()
-                plt.xticks(range(0, len(pop_s), len(task_mdprl.T)), index_s.tolist())
-                plt.show()
                 output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], args.batch_size) # trial X T X batch size
                 loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
                 losses.append(loss)
