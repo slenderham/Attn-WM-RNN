@@ -298,7 +298,7 @@ class HierarchicalRNN(nn.Module):
             return (c_init, c_init.relu(), h_init, h_init.relu(),
                     torch.zeros(batch_size, self.hidden_size, self.input_size).to(x.device),
                     torch.zeros(batch_size, self.hidden_size, self.hidden_size).to(x.device),
-                    torch.zeros(batch_size, self.hidden_size, self.input_size).to(x.device),
+                    torch.zeros(batch_size, self.hidden_size, self.hidden_size).to(x.device),
                     torch.zeros(batch_size, self.hidden_size, self.hidden_size).to(x.device))
         else:
             return (h_init, h_init.relu())

@@ -19,7 +19,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
 
-from models import LeakyRNN
+from models import SimpleRNN, HierarchicalRNN
 from task import MDPRL
 
 from matplotlib import pyplot as plt
@@ -55,6 +55,7 @@ if __name__ == "__main__":
     parser.add_argument('--l1w', type=float, default=0.0, help='Weight for L1 reg on weight')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
+    parser.add_argument('--rnn_type', type=str, choices=['single, hierarchical'], default=)
     parser.add_argument('--add_attn', action='store_true', help='Whether to add attention')
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
@@ -120,7 +121,10 @@ if __name__ == "__main__":
                 'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
                 'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w}
     
-    model = LeakyRNN(**model_specs)
+    model = {
+        'simple': SimpleRNN,
+        'hierarchical': HierarchicalRNN
+    }[args.rnn_type](**model_specs)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     print(model)
     for n, p in model.named_parameters():
@@ -164,6 +168,10 @@ if __name__ == "__main__":
             for i in range(args.eval_samples):
                 DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinputfromexp(args.batch_size, args.test_N_s)
                 output, hs = model(pop_s, DA_s)
+                plt.plot(output.squeeze().detach().t())
+                # plt.colorbar()
+                plt.xticks(range(0, len(pop_s), len(task_mdprl.T)), index_s.tolist())
+                plt.show()
                 output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], args.batch_size) # trial X T X batch size
                 loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
                 losses.append(loss)
@@ -175,6 +183,7 @@ if __name__ == "__main__":
             return losses_means, losses_stds
 
     metrics = defaultdict(list)
+    eval()
     for _ in range(args.epochs):
         training_loss = train(args.iters)
         eval_loss_means, eval_loss_stds = eval()
