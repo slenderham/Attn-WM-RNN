@@ -221,7 +221,7 @@ class SimpleRNN(nn.Module):
         return os, hs
 
 class HierarchicalRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, attention_type='bias',
+    def __init__(self, input_size, hidden_size, output_size, attention_type='weight',
             attn_group_size=None, plastic=True, activation='retanh',
             dt=0.02, tau_x=0.1, tau_w=1.0, c_plasticity=None, train_init_state=False,
             e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=None, 
@@ -280,8 +280,12 @@ class HierarchicalRNN(nn.Module):
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer?
         if attention_type!='none':
             assert(attn_group_size is not None)
-            self.attn_func = EILinear(hidden_size, hidden_size, remove_diag=False, \
-                                      e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.01)
+            if attention_type=='bias':
+                self.attn_func = EILinear(hidden_size, hidden_size, remove_diag=False, \
+                                          e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.01)
+            elif attention_type=='weight':
+                self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, \
+                                          e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.5)
             self.attn_group_size = torch.LongTensor(attn_group_size)
         else:
             self.attn_func = None
@@ -319,6 +323,11 @@ class HierarchicalRNN(nn.Module):
             attn = self.activation(self.attn_func(output_h))
         elif self.attention_type=='weight':
             attn = F.softmax(self.attn_func(output_h), -1)
+            attn = torch.repeat_interleave(attn, self.attn_group_size, dim=-1)
+        
+        # if use multiplicative feedback, modulated firing rate
+        if self.attention_type=='weight':
+            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) * attn * len(self.attn_group_size)
 
         # calculate state for c
         if self.plastic:
@@ -334,10 +343,6 @@ class HierarchicalRNN(nn.Module):
                       + total_input_c * self.alpha_x \
                       + self._sigma_rec * torch.randn_like(state_c)
         new_output_c = self.activation(new_state_c)
-
-        # if use multiplicative feedback, modulated firing rate
-        if self.attention_type=='weight':
-            new_output_c *= attn
 
         # calculate state for h
         if self.plastic:
