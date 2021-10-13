@@ -101,7 +101,7 @@ if __name__=='__main__':
     }[args['input_type']]
 
 
-    if args['attn_type']!='none':
+    if args['add_attn']:
         if args['input_type']=='feat':
             attn_group_size = [args['stim_val']]*args['stim_dim']
         elif args['input_type']=='feat+obj':
@@ -112,7 +112,7 @@ if __name__=='__main__':
         attn_group_size = [input_size]
     assert(sum(attn_group_size)==input_size)
     model_specs = {'input_size': input_size, 'hidden_size': args['hidden_size'], 'output_size': 1, 
-            'plastic': args['plas_type']=='all', 'attention_type': args['attn_type'], 'activation': args['activ_func'],
+            'plastic': args['plas_type']=='all', 'attention_type': args['add_attn'], 'activation': args['activ_func'],
             'dt': args['dt'], 'tau_x': args['tau_x'], 'tau_w': args['tau_w'], 'attn_group_size': attn_group_size,
             'c_plasticity': None, 'e_prop': args['e_prop'], 'init_spectral': args['init_spectral'], 'balance_ei': args['balance_ei'],
             'sigma_rec': args['sigma_rec'], 'sigma_in': args['sigma_in'], 'sigma_w': args['sigma_w']}
