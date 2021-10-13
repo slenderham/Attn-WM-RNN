@@ -1,5 +1,6 @@
 from collections import defaultdict
 from matplotlib import pyplot as plt
+from torch.nn.functional import interpolate
 from torch.serialization import save
 from utils import load_checkpoint
 from models import SimpleRNN
@@ -44,7 +45,7 @@ def plot_attn_entropy(attns):
 def plot_attn_distribution(attns):
     fig, ax = plt.subplots()
     mean_attns = attns.mean(1)
-    im = ax.imshow(mean_attns, aspect='auto')
+    im = ax.imshow(mean_attns.t(), aspect='auto', interpolation='nearest')
     fig.colorbar(im)
     ax.set_xlabel('Time step')
     ax.set_ylabel('Attention Distribution')
