@@ -170,9 +170,9 @@ class SimpleRNN(nn.Module):
         batch_size = x.shape[0]
         
         if self.plastic:
-            state, output, wx, wh, _ = h
+            state, output, wx, wh = h
         else:
-            state, output, _ = h
+            state, output = h
         
         if self.attention_type=='weight':
             attn = F.softmax(self.attn_func(output), -1)
@@ -233,7 +233,7 @@ class SimpleRNN(nn.Module):
 
         steps = range(x.size(0))
         for i in steps:
-            hidden = self.recurrence(x[i], hidden, Rs[i])
+            hidden = self.recurrence(x[i], hidden[:-1], Rs[i])
             hs.append(hidden[1])
             if save_weight:
                 wxs.append(hidden[2])
