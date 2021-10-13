@@ -82,8 +82,22 @@ if __name__=='__main__':
     # load training config
     f = open(os.path.join(plot_args.exp_dir, 'args.json'), 'r')
     args = json.load(f)
+    print('loaded args')
     # load model
     task_mdprl = MDPRL(exp_times, args['input_type'])
+    print('loaded_task')
+
+    exp_times = {
+        'start_time': -0.25,
+        'end_time': 0.75,
+        'stim_onset': 0.0,
+        'stim_end': 0.6,
+        'rwd_onset': 0.5,
+        'rwd_end': 0.6,
+        'choice_onset': 0.35,
+        'choice_end': 0.5,
+        'total_time': 1}
+    exp_times['dt'] = args.dt
 
     input_size = {
         'feat': args['stim_dim']*args['stim_val'],
@@ -112,7 +126,11 @@ if __name__=='__main__':
     model = SimpleRNN(args)
     state_dict = torch.load(os.path.join(plot_args.exp_dir, 'checkpoint.pth.tar'), map_location=torch.device('cpu'))
     model.load_state_dict(state_dict)
+    print('loaded model')
+
     losses_means, losses_stds, all_saved_states = run_model(args, model, task_mdprl)
+    print('simulation complete')
+    
     # load metrics
     metrics = json.load(open(os.path.join(plot_args.exp_dir, 'metrics.json'), 'r'))
 
