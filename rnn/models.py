@@ -170,9 +170,9 @@ class SimpleRNN(nn.Module):
         batch_size = x.shape[0]
         
         if self.plastic:
-            state, output, wx, wh = h
+            state, output, wx, wh, _ = h
         else:
-            state, output = h
+            state, output, _ = h
         
         if self.attention_type=='weight':
             attn = F.softmax(self.attn_func(output), -1)
