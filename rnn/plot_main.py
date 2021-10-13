@@ -3,7 +3,6 @@ from matplotlib import pyplot as plt
 from torch.serialization import save
 from utils import load_checkpoint
 from models import SimpleRNN
-from train import exp_times
 from task import MDPRL
 import torch
 import os
