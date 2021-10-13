@@ -93,7 +93,7 @@ if __name__=='__main__':
         'choice_onset': 0.35,
         'choice_end': 0.5,
         'total_time': 1}
-    exp_times['dt'] = args.dt
+    exp_times['dt'] = args['dt']
     task_mdprl = MDPRL(exp_times, args['input_type'])
     print('loaded_task')
 
