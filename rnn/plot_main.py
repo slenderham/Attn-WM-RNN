@@ -83,9 +83,6 @@ if __name__=='__main__':
     args = json.load(f)
     print('loaded args')
     # load model
-    task_mdprl = MDPRL(exp_times, args['input_type'])
-    print('loaded_task')
-
     exp_times = {
         'start_time': -0.25,
         'end_time': 0.75,
@@ -97,6 +94,8 @@ if __name__=='__main__':
         'choice_end': 0.5,
         'total_time': 1}
     exp_times['dt'] = args.dt
+    task_mdprl = MDPRL(exp_times, args['input_type'])
+    print('loaded_task')
 
     input_size = {
         'feat': args['stim_dim']*args['stim_val'],
