@@ -31,7 +31,7 @@ def plot_learning_curve(lm, lsd):
 
 def plot_attn_entropy(attns):
     log_attns = np.log(attns+1e-6)
-    ents = np.sum(attns*log_attns, axis=-1)
+    ents = (attns*log_attns).sum(axis=-1)
     ents_mean = ents.mean(1)
     ents_std = ents.std(1)
     fig, ax = plt.subplots()
