@@ -25,7 +25,7 @@ def plot_learning_curve(lm, lsd):
     fig, ax = plt.subplots()
     plot_mean_and_std(ax, lm, lsd)
     ax.set_xlabel('Trials')
-    ax.set_xlabel('Loss')
+    ax.set_ylabel('Loss')
     plt.tight_layout()
     plt.savefig('plots/learning_curve')
 
@@ -47,14 +47,14 @@ def run_model(args, model, task_mdprl):
     all_saved_states = defaultdict(list)
     with torch.no_grad():
         for i in range(args['eval_samples']):
-            DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinputfromexp(args['batch_size'], args['test_N_s'])
+            DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinputfromexp(args['batch_size'], 10)
             total_input = pop_s
             output, hs, saved_states = model(total_input, DA_s, save_attn=True)
             for k, v in saved_states.items():
                 all_saved_states[k].append(v)
             all_saved_states['hs'].append(hs)
             
-            output = output.reshape(args['stim_val']**args['stim_dim']*args['test_N_s'], output_mask.shape[1], args['batch_size']) # trial X T X batch size
+            output = output.reshape(args['stim_val']**args['stim_dim']*10, output_mask.shape[1], args['batch_size']) # trial X T X batch size
             loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
             losses.append(loss)
         
