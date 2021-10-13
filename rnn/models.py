@@ -176,15 +176,16 @@ class SimpleRNN(nn.Module):
         
         if self.attention_type=='weight':
             attn = F.softmax(self.attn_func(output), -1)
-            attn = torch.repeat_interleave(attn, self.attn_group_size, dim=-1)
+            attn_expand = torch.repeat_interleave(attn, self.attn_group_size, dim=-1)
         elif self.attention_type=='sample':
             attn = F.gumbel_softmax(self.attn_func(output), hard=True, dim=-1)
-            attn = torch.repeat_interleave(attn, self.attn_group_size, dim=-1)
+            attn_expand = torch.repeat_interleave(attn, self.attn_group_size, dim=-1)
         else:
             attn = None
+            attn_expand = None
 
         if self.attention_type=='weight' or self.attention_type=='sample':
-            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) * attn * len(self.attn_group_size)
+            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) * attn_expand * len(self.attn_group_size)
         else:
             x = torch.relu(x + self._sigma_in * torch.randn_like(x))
 
