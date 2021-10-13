@@ -1,3 +1,4 @@
+from collections import defaultdict
 import torch
 from torch.functional import einsum
 import torch.nn as nn
@@ -87,8 +88,8 @@ class EILinear(nn.Module):
             return result
 
 class SimpleRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, 
-                attn_group_size=None, plastic=True, attention=True, activation='retanh',
+    def __init__(self, input_size, hidden_size, output_size, attention_type='weight',
+                attn_group_size=None, plastic=True, activation='retanh',
                 dt=0.02, tau_x=0.1, tau_w=1.0, c_plasticity=None, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=None, 
                 balance_ei=False, **kwargs):
@@ -134,11 +135,18 @@ class SimpleRNN(nn.Module):
             else:
                 self.kappa_w = nn.Parameter(torch.zeros(6)+self.alpha_w)
 
-        self.attention = attention
+
+        assert attention_type in ['none', 'weight', 'sample']
+        self.attention_type = attention_type
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer?
-        if attention:
+        if attention_type!='none':
             assert(attn_group_size is not None)
-            self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, e_prop=e_prop, zero_cols_prop=1-e_prop)
+            if attention_type=='weight':
+                self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, \
+                                          e_prop=e_prop, zero_cols_prop=1-e_prop)
+            elif attention_type=='sample':
+                self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, \
+                                          e_prop=e_prop, zero_cols_prop=1-e_prop)
             self.attn_group_size = torch.LongTensor(attn_group_size)
         else:
             self.attn_func = None
@@ -166,11 +174,17 @@ class SimpleRNN(nn.Module):
         else:
             state, output = h
         
-        if self.attention:
-            attn_weights = self.attn_func(output)
-            attn_weights = F.softmax(attn_weights, -1)
-            attn_weights = torch.repeat_interleave(attn_weights, self.attn_group_size, dim=-1)
-            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) * attn_weights * len(self.attn_group_size)
+        if self.attention_type=='weight':
+            attn = F.softmax(self.attn_func(output), -1)
+            attn = torch.repeat_interleave(attn, self.attn_group_size, dim=-1)
+        elif self.attention_type=='sample':
+            attn = F.gumbel_softmax(self.attn_func(output), hard=True, dim=-1)
+            attn = torch.repeat_interleave(attn, self.attn_group_size, dim=-1)
+        else:
+            attn = None
+
+        if self.attention_type=='weight' or self.attention_type=='sample':
+            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) * attn * len(self.attn_group_size)
         else:
             x = torch.relu(x + self._sigma_in * torch.randn_like(x))
 
@@ -195,9 +209,9 @@ class SimpleRNN(nn.Module):
                 self.kappa_w[5]*torch.einsum('bi, bj->bij', new_output, output)) + \
                 self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
-            return (new_state, new_output, wx, wh)
+            return (new_state, new_output, wx, wh, attn)
         else:
-            return (new_state, new_output)
+            return (new_state, new_output, attn)
 
     def truncate(self, hidden):
         if self.plastic:
@@ -205,20 +219,41 @@ class SimpleRNN(nn.Module):
         else:
             return (hidden[0].detach(), hidden[1].detach())
 
-    def forward(self, x, Rs, hidden=None):
+    def forward(self, x, Rs, hidden=None, save_weight=False, save_attn=False):
         if hidden is None:
             hidden = self.init_hidden(x)
 
         hs = []
+
+        if save_weight:
+            wxs = []
+            whs = []
+        if save_attn:
+            attns = []
+
         steps = range(x.size(0))
         for i in steps:
             hidden = self.recurrence(x[i], hidden, Rs[i])
             hs.append(hidden[1])
+            if save_weight:
+                wxs.append(hidden[2])
+                whs.append(hidden[3])
+            if save_attn:
+                attns.append(hidden[4])
 
         hs = torch.stack(hs, dim=0)
+        saved_states = defaultdict(list)
+        if save_weight:
+            wxs = torch.stack(wxs, dim=0)
+            whs = torch.stack(whs, dim=0)
+            saved_states['wxs'].append(wxs)
+            saved_states['whs'].append(whs)
+        if save_attn:
+            attns = torch.stach(attns, dim=0)
+            saved_states['attns'].append(attns)
         os = self.h2o(hs)
 
-        return os, hs
+        return os, hs, saved_states
 
 class HierarchicalRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, attention_type='weight',
@@ -275,7 +310,7 @@ class HierarchicalRNN(nn.Module):
             else:
                 self.kappa_w = nn.Parameter(torch.zeros(12)+self.alpha_w)
 
-        assert attention_type in ['none', 'bias', 'weight']
+        assert attention_type in ['none', 'bias', 'weight', 'sample']
         self.attention_type = attention_type
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer?
         if attention_type!='none':
@@ -284,6 +319,9 @@ class HierarchicalRNN(nn.Module):
                 self.attn_func = EILinear(hidden_size, hidden_size, remove_diag=False, \
                                           e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.01)
             elif attention_type=='weight':
+                self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, \
+                                          e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.5)
+            elif attention_type=='sample':
                 self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, \
                                           e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.5)
             self.attn_group_size = torch.LongTensor(attn_group_size)
@@ -324,10 +362,15 @@ class HierarchicalRNN(nn.Module):
         elif self.attention_type=='weight':
             attn = F.softmax(self.attn_func(output_h), -1)
             attn = torch.repeat_interleave(attn, self.attn_group_size, dim=-1)
+        elif self.attention_type=='sample':
+            attn = F.gumbel_softmax(self.attn_func(output_h), hard=True, dim=-1)
+            attn = torch.repeat_interleave(attn, self.attn_group_size, dim=-1)
         
         # if use multiplicative feedback, modulated firing rate
-        if self.attention_type=='weight':
+        if self.attention_type=='weight' or self.attention_type=='sample':
             x = torch.relu(x + self._sigma_in * torch.randn_like(x)) * attn * len(self.attn_group_size)
+        else:
+            x = torch.relu(x + self._sigma_in * torch.randn_like(x))
 
         # calculate state for c
         if self.plastic:

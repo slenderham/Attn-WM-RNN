@@ -56,7 +56,9 @@ if __name__ == "__main__":
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
     parser.add_argument('--rnn_type', type=str, choices=['simple', 'hierarchical'], default='simple', help='Type of RNN, one layer or two')
-    parser.add_argument('--add_attn', action='store_true', help='Whether to add attention')
+    parser.add_argument('--attn_type', type=str, choices=['none', 'bias', 'weight', 'sample'], 
+                        default='weight', help='Type of attn. None, additive feedback, multiplicative weighing, gumbel-max sample')
+    parser.add_argument('--rwd_input', action='store_true', help='Whether to use reward as input')
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
     parser.add_argument('--seed', type=int, help='Random seed')
@@ -109,7 +111,10 @@ if __name__ == "__main__":
         'feat+conj+obj': args.stim_dim*args.stim_val+args.stim_dim*args.stim_val*args.stim_val+args.stim_val**args.stim_dim,
     }[args.input_type]
 
-    if args.add_attn:
+    if args.rwd_input:
+        input_size += 1
+
+    if args.attn_type!='none':
         if args.input_type=='feat':
             attn_group_size = [args.stim_val]*args.stim_dim
         elif args.input_type=='feat+obj':
@@ -121,7 +126,7 @@ if __name__ == "__main__":
     assert(sum(attn_group_size)==input_size)
 
     model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1, 
-                'plastic': args.plas_type=='all', 'attention': args.add_attn, 'activation': args.activ_func,
+                'plastic': args.plas_type=='all', 'attention_type': args.attn_type, 'activation': args.activ_func,
                 'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
                 'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
                 'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w}
@@ -146,7 +151,11 @@ if __name__ == "__main__":
         pbar = tqdm(total=iters)
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinput(args.batch_size, args.N_s)
-            output, hs = model(pop_s, DA_s)
+            if args.rwd_input:
+                total_input = torch.cat([pop_s, DA_s], -1)
+            else:
+                total_input = pop_s
+            output, hs, _ = model(total_input, DA_s)
             loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean()\
                     + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             optimizer.zero_grad()
@@ -172,7 +181,11 @@ if __name__ == "__main__":
         with torch.no_grad():
             for i in range(args.eval_samples):
                 DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinputfromexp(args.batch_size, args.test_N_s)
-                output, hs = model(pop_s, DA_s)
+                if args.rwd_input:
+                    total_input = torch.cat([pop_s, DA_s], -1)
+                else:
+                    total_input = pop_s
+                output, hs, _ = model(total_input, DA_s)
                 output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], args.batch_size) # trial X T X batch size
                 loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
                 losses.append(loss)
