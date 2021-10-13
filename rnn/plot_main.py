@@ -12,7 +12,7 @@ import numpy as np
 
 def plot_mean_and_std(ax, m, sd):
     ax.plot(m)
-    ax.fill_between(range(len(m)), m-sd, m+sd)
+    ax.fill_between(range(len(m)), m-sd, m+sd, alpha=0.1)
 
 def plot_connectivity(x2hw, h2hw, h2ow):
     fig, axes = plt.subplots(2, 2)
