@@ -19,7 +19,7 @@ def plot_connectivity(x2hw, h2hw, h2ow):
     axes[0, 1].imshow(h2ow.T, cmap='seismic')
     axes[1, 0].imshow(x2hw, cmap='seismic')
     fig.colorbar()
-    plt.show()
+    plt.savefig('plots/connectivity')
 
 def plot_learning_curve(lm, lsd):
     fig, ax = plt.subplots()
@@ -27,7 +27,7 @@ def plot_learning_curve(lm, lsd):
     ax.set_xlabel('Trials')
     ax.set_xlabel('Loss')
     plt.tight_layout()
-    plt.show()
+    plt.savefig('plots/learning_curve')
 
 def plot_attn_entropy(attns):
     log_attns = np.log(attns+1e-6)
@@ -39,7 +39,7 @@ def plot_attn_entropy(attns):
     ax.set_xlabel('Trials')
     ax.set_xlabel('Entropy')
     plt.tight_layout()
-    plt.show()
+    plt.savefig('plots/attn_entropy')
 
 def run_model(args, model, task_mdprl):
     model.eval()
