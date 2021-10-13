@@ -31,15 +31,27 @@ def plot_learning_curve(lm, lsd):
 
 def plot_attn_entropy(attns):
     log_attns = np.log(attns+1e-6)
-    ents = (attns*log_attns).sum(axis=-1)
+    ents = -(attns*log_attns).sum(axis=-1)
     ents_mean = ents.mean(1)
     ents_std = ents.std(1)
     fig, ax = plt.subplots()
     plot_mean_and_std(ax, ents_mean, ents_std)
-    ax.set_xlabel('Trials')
-    ax.set_xlabel('Entropy')
+    ax.set_xlabel('Time step')
+    ax.set_ylabel('Entropy')
     plt.tight_layout()
     plt.savefig('plots/attn_entropy')
+
+def plot_attn_as_bars(attns):
+    fig, ax = plt.subplots()
+    mean_attns = attns.mean(1)
+    xs = np.arange(len(attns))
+    ax.bar(xs, mean_attns[:,0])
+    for i in range(1, attns.shape[-1]):
+        ax.bar(xs, mean_attns[:,i], bottom=mean_attns[:,i-1])
+    ax.set_xlabel('Time step')
+    ax.set_ylabel('Attention Distribution')
+    plt.tight_layout()
+    plt.savefig('plots/attn_bars')
 
 def run_model(args, model, task_mdprl):
     model.eval()
@@ -73,6 +85,7 @@ if __name__=='__main__':
     parser.add_argument('--pca', action='store_true')
     parser.add_argument('--learning_curve', action='store_true')
     parser.add_argument('--attn_entropy', action='store_true')
+    parser.add_argument('--attn_distribution', action='store_true')
     plot_args = parser.parse_args()
 
     # load training config
