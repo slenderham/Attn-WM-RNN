@@ -129,7 +129,7 @@ if __name__=='__main__':
 
     if plot_args.connectivity:
         plot_connectivity(state_dict['x2h.weight'], state_dict['h2h.weight'], state_dict['h2o.weight'])
-    if plot_args.training_curve:
+    if plot_args.learning_curve:
         plot_learning_curve(losses_means, losses_stds)
     if plot_args.attn_entropy:
         plot_attn_entropy(all_saved_states['attns'])
