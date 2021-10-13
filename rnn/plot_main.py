@@ -48,10 +48,7 @@ def run_model(args, model, task_mdprl):
     with torch.no_grad():
         for i in range(args['eval_samples']):
             DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinputfromexp(args['batch_size'], args['test_N_s'])
-            if args['rwd_input']:
-                total_input = torch.cat([pop_s, DA_s], -1)
-            else:
-                total_input = pop_s
+            total_input = pop_s
             output, hs, saved_states = model(total_input, DA_s, save_attn=True)
             for k, v in saved_states.items():
                 all_saved_states[k].append(v)
@@ -103,8 +100,6 @@ if __name__=='__main__':
         'feat+conj+obj': args['stim_dim']*args['stim_val']+args['stim_dim']*args['stim_val']*args['stim_val']+args['stim_val']**args['stim_dim'],
     }[args['input_type']]
 
-    if args['rwd_input']:
-        input_size += 1
 
     if args['attn_type']!='none':
         if args['input_type']=='feat':
