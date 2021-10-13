@@ -146,3 +146,5 @@ if __name__=='__main__':
         plot_learning_curve(losses_means, losses_stds)
     if plot_args.attn_entropy:
         plot_attn_entropy(all_saved_states['attns'])
+    if plot_args.attn_distribution:
+        plot_attn_as_bars(all_saved_states['attns'])
