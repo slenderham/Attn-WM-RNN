@@ -105,9 +105,9 @@ if __name__=='__main__':
         if args['input_type']=='feat':
             attn_group_size = [args['stim_val']]*args['stim_dim']
         elif args['input_type']=='feat+obj':
-            attn_group_size = [args['stim_val']]*args['stim_dim'] + [args['stim_val']**args['stim_dim]']]
+            attn_group_size = [args['stim_val']]*args['stim_dim'] + [args['stim_val']**args['stim_dim']]
         elif args['input_type']=='feat+conj+obj':
-            attn_group_size = [args['stim_val']]*args['stim_dim'] + [args['stim_val']*args['stim_val]']*args['stim_dim']] + [args['stim_val']**args['stim_dim]']]
+            attn_group_size = [args['stim_val']]*args['stim_dim'] + [args['stim_val']*args['stim_val']*args['stim_dim']] + [args['stim_val']**args['stim_dim']]
     else:
         attn_group_size = [input_size]
     assert(sum(attn_group_size)==input_size)
