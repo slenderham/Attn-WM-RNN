@@ -41,13 +41,11 @@ def plot_attn_entropy(attns):
     plt.tight_layout()
     plt.savefig('plots/attn_entropy')
 
-def plot_attn_as_bars(attns):
+def plot_attn_distribution(attns):
     fig, ax = plt.subplots()
     mean_attns = attns.mean(1)
-    xs = np.arange(len(attns))
-    ax.bar(xs, mean_attns[:,0])
-    for i in range(1, attns.shape[-1]):
-        ax.bar(xs, mean_attns[:,i], bottom=mean_attns[:,i-1])
+    im = ax.imshow(mean_attns, aspect='auto')
+    fig.colorbar(im)
     ax.set_xlabel('Time step')
     ax.set_ylabel('Attention Distribution')
     plt.tight_layout()
@@ -147,4 +145,4 @@ if __name__=='__main__':
     if plot_args.attn_entropy:
         plot_attn_entropy(all_saved_states['attns'])
     if plot_args.attn_distribution:
-        plot_attn_as_bars(all_saved_states['attns'])
+        plot_attn_distribution(all_saved_states['attns'])
