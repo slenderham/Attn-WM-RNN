@@ -249,7 +249,7 @@ class SimpleRNN(nn.Module):
             saved_states['wxs'].append(wxs)
             saved_states['whs'].append(whs)
         if save_attn:
-            attns = torch.stach(attns, dim=0)
+            attns = torch.stack(attns, dim=0)
             saved_states['attns'].append(attns)
         os = self.h2o(hs)
 
