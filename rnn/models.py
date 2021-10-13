@@ -233,7 +233,7 @@ class SimpleRNN(nn.Module):
 
         steps = range(x.size(0))
         for i in steps:
-            hidden = self.recurrence(x[i], hidden[:-1], Rs[i])
+            hidden = self.recurrence(x[i], hidden[:-1] if i>0 else hidden, Rs[i])
             hs.append(hidden[1])
             if save_weight:
                 wxs.append(hidden[2])
