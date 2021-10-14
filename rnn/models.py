@@ -442,4 +442,4 @@ class HierarchicalRNN(nn.Module):
         hs = torch.stack(hs, dim=0)
         os = self.h2o(hs)
 
-        return os, hs
+        return os, hs, None
