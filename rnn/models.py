@@ -58,7 +58,8 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
-            nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
+            g = torch.distributions.gamma.Gamma(torch.tensor(math.sqrt(1/(self.input_size-self.zero_cols))), torch.tensor([1.0]))
+            self.weight.data = g.sample(self.weight.data.shape).squeeze()
             # Scale E weight by E-I ratio
             if balance_ei and self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
