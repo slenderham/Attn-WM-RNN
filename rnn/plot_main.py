@@ -45,7 +45,7 @@ def plot_attn_entropy(attns):
 def plot_attn_distribution(attns):
     fig, ax = plt.subplots()
     mean_attns = attns.mean(1)
-    im = ax.imshow(mean_attns.t(), aspect='auto', interpolation='nearest')
+    im = ax.imshow(mean_attns.t(), vmax=0.3, aspect='auto', interpolation='nearest')
     fig.colorbar(im)
     ax.set_xlabel('Time step')
     ax.set_ylabel('Attention Distribution')
@@ -57,7 +57,8 @@ def run_model(args, model, task_mdprl):
     losses = []
     all_saved_states = defaultdict(list)
     with torch.no_grad():
-        for i in range(args['eval_samples']):
+        for i in range(10):
+            print(i)
             DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinputfromexp(args['batch_size'], 10)
             total_input = pop_s
             output, hs, saved_states = model(total_input, DA_s, save_attn=True)
