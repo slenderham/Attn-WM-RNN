@@ -58,7 +58,7 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
-            g = torch.distributions.gamma.Gamma(torch.tensor(math.sqrt(1/(self.input_size-self.zero_cols))), torch.tensor([1.0]))
+            g = torch.distributions.gamma.Gamma(torch.tensor(10*math.sqrt(1/(self.input_size-self.zero_cols))), torch.tensor([10.0]))
             self.weight.data = g.sample(self.weight.data.shape).squeeze()
             # Scale E weight by E-I ratio
             if balance_ei and self.i_size!=0:
@@ -100,12 +100,12 @@ class SimpleRNN(nn.Module):
         self.output_size =  output_size
         self.rwd_input = rwd_input
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
-                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.2)
+                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.25)
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='relu',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1, 
                             init_spectral=init_spectral, balance_ei=balance_ei)
         self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
-                            e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.2)
+                            e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.25)
 
         self.tau_x = tau_x
         self.tau_w = tau_w
