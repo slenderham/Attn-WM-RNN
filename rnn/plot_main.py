@@ -117,6 +117,8 @@ if __name__=='__main__':
         'feat+conj+obj': args['stim_dim']*args['stim_val']+args['stim_dim']*args['stim_val']*args['stim_val']+args['stim_val']**args['stim_dim'],
     }[args['input_type']]
 
+    if args.rwd_input:
+        input_size += 2
 
     if args['attn_type']!='none':
         if args['input_type']=='feat':
@@ -127,7 +129,7 @@ if __name__=='__main__':
             attn_group_size = [args['stim_val']]*args['stim_dim'] + [args['stim_val']*args['stim_val']]*args['stim_dim'] + [args['stim_val']**args['stim_dim']]
     else:
         attn_group_size = [input_size]
-    assert(sum(attn_group_size)==input_size)
+    
     model_specs = {'input_size': input_size, 'hidden_size': args['hidden_size'], 'output_size': 1, 
             'plastic': args['plas_type']=='all', 'attention_type': 'weight', 'activation': args['activ_func'],
             'dt': args['dt'], 'tau_x': args['tau_x'], 'tau_w': args['tau_w'], 'attn_group_size': attn_group_size,
