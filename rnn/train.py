@@ -123,13 +123,17 @@ if __name__ == "__main__":
             attn_group_size = [args.stim_val]*args.stim_dim + [args.stim_val*args.stim_val]*args.stim_dim + [args.stim_val**args.stim_dim]
     else:
         attn_group_size = [input_size]
-    assert(sum(attn_group_size)==input_size)
+    
+    if not args.rwd_input:
+        assert(sum(attn_group_size)==input_size)
+    else:
+        assert(sum(attn_group_size)==input_size-1)
 
     model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1, 
                 'plastic': args.plas_type=='all', 'attention_type': args.attn_type, 'activation': args.activ_func,
                 'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
                 'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
-                'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w}
+                'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 'rwd_input': args.rwd_input}
     
     model = {
         'simple': SimpleRNN,
@@ -151,11 +155,7 @@ if __name__ == "__main__":
         pbar = tqdm(total=iters)
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinput(args.batch_size, args.N_s)
-            if args.rwd_input:
-                total_input = torch.cat([pop_s, DA_s], -1)
-            else:
-                total_input = pop_s
-            output, hs, _ = model(total_input, DA_s)
+            output, hs, _ = model(pop_s, DA_s)
             loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean()\
                     + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             optimizer.zero_grad()
@@ -181,11 +181,7 @@ if __name__ == "__main__":
         with torch.no_grad():
             for i in range(args.eval_samples):
                 DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinputfromexp(args.batch_size, args.test_N_s)
-                if args.rwd_input:
-                    total_input = torch.cat([pop_s, DA_s], -1)
-                else:
-                    total_input = pop_s
-                output, hs, _ = model(total_input, DA_s)
+                output, hs, _ = model(pop_s, DA_s)
                 output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], args.batch_size) # trial X T X batch size
                 loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
                 losses.append(loss)
