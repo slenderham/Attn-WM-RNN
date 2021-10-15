@@ -100,12 +100,12 @@ class SimpleRNN(nn.Module):
         self.output_size =  output_size
         self.rwd_input = rwd_input
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
-                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.3)
+                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.1)
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='relu',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1, 
                             init_spectral=init_spectral, balance_ei=balance_ei)
         self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
-                            e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.3)
+                            e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.1)
 
         self.tau_x = tau_x
         self.tau_w = tau_w
@@ -192,7 +192,7 @@ class SimpleRNN(nn.Module):
             x = torch.relu(x + self._sigma_in * torch.randn_like(x))
 
         if self.rwd_input:
-            x = torch.cat([x, R], -1)
+            x = torch.cat([x, R + self._sigma_in * torch.randn_like(R)], -1)
 
         if self.plastic:
             total_input = self.x2h(x, wx) + self.h2h(output, wh)
