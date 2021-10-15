@@ -112,7 +112,7 @@ if __name__ == "__main__":
     }[args.input_type]
 
     if args.rwd_input:
-        input_size += 1
+        input_size += 2
 
     if args.attn_type!='none':
         if args.input_type=='feat':
@@ -127,7 +127,7 @@ if __name__ == "__main__":
     if not args.rwd_input:
         assert(sum(attn_group_size)==input_size)
     else:
-        assert(sum(attn_group_size)==input_size-1)
+        assert(sum(attn_group_size)==input_size-2)
 
     model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1, 
                 'plastic': args.plas_type=='all', 'attention_type': args.attn_type, 'activation': args.activ_func,
