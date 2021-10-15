@@ -117,7 +117,7 @@ if __name__=='__main__':
         'feat+conj+obj': args['stim_dim']*args['stim_val']+args['stim_dim']*args['stim_val']*args['stim_val']+args['stim_val']**args['stim_dim'],
     }[args['input_type']]
 
-    if args.rwd_input:
+    if args['rwd_input']:
         input_size += 2
 
     if args['attn_type']!='none':
