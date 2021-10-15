@@ -58,6 +58,8 @@ if __name__ == "__main__":
     parser.add_argument('--rnn_type', type=str, choices=['simple', 'hierarchical'], default='simple', help='Type of RNN, one layer or two')
     parser.add_argument('--attn_type', type=str, choices=['none', 'bias', 'weight', 'sample'], 
                         default='weight', help='Type of attn. None, additive feedback, multiplicative weighing, gumbel-max sample')
+    parser.add_argument('--sep_lr_in', action='store_true', help='Use different lr between diff type of input unit and e/i rec unit')
+    parser.add_argument('--sep_lr_rec', action='store_true', help='Use different lr between diff type of e/i rec units')
     parser.add_argument('--rwd_input', action='store_true', help='Whether to use reward as input')
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
@@ -114,6 +116,12 @@ if __name__ == "__main__":
     if args.rwd_input:
         input_size += 2
 
+    input_unit_group = {
+        'feat': [args.stim_dim*args.stim_val], 
+        'feat+obj': [args.stim_dim*args.stim_val, args.stim_val**args.stim_dim], 
+        'feat+conj+obj': [args.stim_dim*args.stim_val, args.stim_dim*args.stim_val*args.stim_val, args.stim_val**args.stim_dim]
+    }[args.input_type]
+
     if args.attn_type!='none':
         if args.input_type=='feat':
             attn_group_size = [args.stim_val]*args.stim_dim
@@ -133,7 +141,8 @@ if __name__ == "__main__":
                 'plastic': args.plas_type=='all', 'attention_type': args.attn_type, 'activation': args.activ_func,
                 'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
                 'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
-                'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 'rwd_input': args.rwd_input}
+                'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 'rwd_input': args.rwd_input,
+                'input_unit_group': input_unit_group, 'sep_lr_in': args.sep_lr_in, 'sep_lr_rec': args.sep_lr_rec}
     
     model = {
         'simple': SimpleRNN,
@@ -190,6 +199,7 @@ if __name__ == "__main__":
             print('====> Eval Loss: {:.4f}'.format((
                 output[:, output_mask.squeeze()==1].mean((1,2))[-args.stim_val**args.stim_dim:]
                 -task_mdprl.prob_mdprl.flatten()).pow(2).mean()))
+            model.print_kappa()
             return losses_means, losses_stds
 
     metrics = defaultdict(list)

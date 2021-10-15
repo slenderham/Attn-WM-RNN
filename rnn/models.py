@@ -93,7 +93,7 @@ class SimpleRNN(nn.Module):
                 attn_group_size=None, plastic=True, activation='retanh',
                 dt=0.02, tau_x=0.1, tau_w=1.0, c_plasticity=None, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=None, 
-                balance_ei=False, rwd_input=False, **kwargs):
+                balance_ei=False, rwd_input=False, sep_lr_in=True, sep_lr_rec=True, input_unit_group=None, **kwargs):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -129,14 +129,6 @@ class SimpleRNN(nn.Module):
         else:
             self.x0 = torch.zeros(1, hidden_size)
         
-        self.plastic = plastic
-        if plastic:
-            if c_plasticity is not None:
-                assert(len(c_plasticity)==6)
-                self.kappa_w = torch.FloatTensor(c_plasticity)
-            else:
-                self.kappa_w = nn.Parameter(torch.zeros(6)+self.alpha_w)
-
 
         assert attention_type in ['none', 'weight', 'sample']
         self.attention_type = attention_type
@@ -158,6 +150,40 @@ class SimpleRNN(nn.Module):
         if truncate_iter is not None:
             raise NotImplementedError
 
+        self.plastic = plastic
+        if plastic:
+            # separate lr for different neurons
+            kappa_count = 0
+            if sep_lr_rec is not None:
+                self.rec_coords = [[0, self.h2h.e_size, 0, self.h2h.e_size],
+                                   [0, self.h2h.e_size, self.h2h.e_size, self.hidden_size],
+                                   [self.h2h.e_size, self.hidden_size, 0, self.h2h.e_size],
+                                   [self.h2h.e_size, self.hidden_size, self.h2h.e_size, self.hidden_size]]
+                kappa_count += 4
+            else:
+                self.rec_coords = None
+                kappa_count += 1
+
+            if sep_lr_in is not None:
+                self.in_coords = []
+                input_unit_group.insert(0, 0)
+                group_start = np.cumsum(input_unit_group)
+                for i in range(len(group_start)-1):
+                    self.in_coords.append([0, self.h2h.e_size, group_start[i], group_start[i+1]])
+                    self.in_coords.append([self.h2h.e_size, self.hidden_size, group_start[i], group_start[i+1]])
+                kappa_count += (len(input_unit_group)-1)*2
+                self.input_unit_group = input_unit_group[1:]
+            else:
+                self.in_coords = None
+                kappa_count += 1
+
+            kappa_count = kappa_count*3
+            if c_plasticity is not None:
+                assert(len(c_plasticity)==kappa_count)
+                self.kappa_w = torch.FloatTensor(c_plasticity)
+            else:
+                self.kappa_w = nn.Parameter(torch.zeros(kappa_count)+self.alpha_w)
+
     def init_hidden(self, x):
         batch_size = x.shape[1]
         h_init = self.x0.to(x.device) + self._sigma_rec * torch.randn(batch_size, self.hidden_size)
@@ -167,6 +193,14 @@ class SimpleRNN(nn.Module):
                     torch.zeros(batch_size, self.hidden_size, self.hidden_size).to(x.device))
         else:
             return (h_init, h_init.relu())
+
+    def fill_blocks(self, w, kappa_w, coords):
+        if coords is None:
+            return 1
+        mask = torch.zeros_like(w)
+        for i, c in enumerate(coords):
+            mask[:, c[0]:c[1], c[2]:c[3]] = kappa_w[i]
+        return mask
 
     def recurrence(self, x, h, R):
         batch_size = x.shape[0]
@@ -205,15 +239,21 @@ class SimpleRNN(nn.Module):
         if self.plastic:
             R = R.unsqueeze(-1)
             wx = wx * self.oneminusalpha_w + self.dt*R*(
-                self.kappa_w[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
-                self.kappa_w[1]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
-                self.kappa_w[2]*torch.einsum('bi, bj->bij', new_output, x)) + \
+                self.fill_blocks(wx, self.kappa_w[0:2*len(self.input_unit_group)], self.in_coords)\
+                    *torch.reshape(x, (batch_size, 1, self.input_size)) +
+                self.fill_blocks(wx, self.kappa_w[2*len(self.input_unit_group):4*len(self.input_unit_group)], self.in_coords)\
+                    *torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
+                self.fill_blocks(wx, self.kappa_w[4*len(self.input_unit_group):6*len(self.input_unit_group)], self.in_coords)\
+                    *torch.einsum('bi, bj->bij', new_output, x)) + \
                 self._sigma_w * torch.randn_like(wx)
             wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
             wh = wh * self.oneminusalpha_w + self.dt*R*(
-                self.kappa_w[3]*torch.reshape(output, (batch_size, 1, self.hidden_size)) +
-                self.kappa_w[4]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
-                self.kappa_w[5]*torch.einsum('bi, bj->bij', new_output, output)) + \
+                self.fill_blocks(wh, self.kappa_w[6*len(self.input_unit_group):6*len(self.input_unit_group)+4], self.rec_coords)\
+                    *torch.reshape(output, (batch_size, 1, self.hidden_size)) +
+                self.fill_blocks(wh, self.kappa_w[6*len(self.input_unit_group)+4:6*len(self.input_unit_group)+8], self.rec_coords)\
+                    *torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
+                self.fill_blocks(wh, self.kappa_w[6*len(self.input_unit_group)+8:6*len(self.input_unit_group)+12], self.rec_coords)\
+                    *torch.einsum('bi, bj->bij', new_output, output)) + \
                 self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
             return (new_state, new_output, wx, wh, attn)
@@ -225,6 +265,39 @@ class SimpleRNN(nn.Module):
             return (hidden[0].detach(), hidden[1].detach(), hidden[2].detach(), hidden[3].detach())
         else:
             return (hidden[0].detach(), hidden[1].detach())
+
+    def print_kappa(self):
+        print('Input weight kappa: ')
+        if self.in_coords is None:
+            print(self.kappa_w[0:3].tolist())
+        else:
+            for i in range(3):
+                label = ['kappa_pre', 'kappa_post', 'kappa_corr'][i]
+                print(f'{label}')
+                print (f'Input->E: ', end='')
+                print(self.kappa_w[(2*i)*len(self.input_unit_group):(2*i+1)*len(self.input_unit_group)].tolist())
+                print (f'Input->I: ', end='')
+                print(self.kappa_w[(2*i+1)*len(self.input_unit_group):(2*i+2)*len(self.input_unit_group)].tolist())
+        
+        print()
+        print('Recurrent weight kapp')
+        if self.rec_coords is None:
+            print(self.kappa_w[-3:])
+        else:
+            s = 6*len(self.input_unit_group)
+            for k in range(3):
+                label = ['kappa_pre', 'kappa_post', 'kappa_corr'][k]
+                print(f'{label}')
+                print (f'E->E: ', end='')
+                print(self.kappa_w[s+4*k].item(), end=', ')
+                print (f'I->E: ', end='')
+                print(self.kappa_w[s+4*k+1].item(), end=', ')
+                print (f'E->I: ', end='')
+                print(self.kappa_w[s+4*k+2].item(), end=', ')
+                print (f'I->I: ', end='')
+                print(self.kappa_w[s+4*k+3].item())
+
+
 
     def forward(self, x, Rs, hidden=None, save_weight=False, save_attn=False):
         if hidden is None:
