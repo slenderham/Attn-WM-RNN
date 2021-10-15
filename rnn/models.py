@@ -192,7 +192,7 @@ class SimpleRNN(nn.Module):
             x = torch.relu(x + self._sigma_in * torch.randn_like(x))
 
         if self.rwd_input:
-            x = torch.cat([x, (R+1)/2 + self._sigma_in * torch.randn_like(R), (1-R)/2 + self._sigma_in * torch.randn_like(R)], -1)
+            x = torch.cat([x, R*(R+1)/2 + self._sigma_in * torch.randn_like(R), R*(1-R)/2 + self._sigma_in * torch.randn_like(R)], -1)
             wx[:,:,-2:] *= 0
 
         if self.plastic:
