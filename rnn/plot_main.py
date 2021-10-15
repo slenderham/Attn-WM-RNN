@@ -76,6 +76,10 @@ def run_model(args, model, task_mdprl):
             all_saved_states[k] = torch.cat(v, dim=1)
         return losses_means, losses_stds, all_saved_states
 
+# def plot_functional_connectivity(args, hs):
+    # for _ in range(args['test_N_s']*args['stim_val']**args['stim_dim']):
+
+
 if __name__=='__main__':
     import argparse
     parser = argparse.ArgumentParser()
@@ -114,7 +118,7 @@ if __name__=='__main__':
     }[args['input_type']]
 
 
-    if args['add_attn']:
+    if args['attn_type']!='none':
         if args['input_type']=='feat':
             attn_group_size = [args['stim_val']]*args['stim_dim']
         elif args['input_type']=='feat+obj':
@@ -128,7 +132,7 @@ if __name__=='__main__':
             'plastic': args['plas_type']=='all', 'attention_type': 'weight', 'activation': args['activ_func'],
             'dt': args['dt'], 'tau_x': args['tau_x'], 'tau_w': args['tau_w'], 'attn_group_size': attn_group_size,
             'c_plasticity': None, 'e_prop': args['e_prop'], 'init_spectral': args['init_spectral'], 'balance_ei': args['balance_ei'],
-            'sigma_rec': args['sigma_rec'], 'sigma_in': args['sigma_in'], 'sigma_w': args['sigma_w']}
+            'sigma_rec': args['sigma_rec'], 'sigma_in': args['sigma_in'], 'sigma_w': args['sigma_w'], 'rwd_input': args['rwd_input']}
     model = SimpleRNN(**model_specs)
     state_dict = torch.load(os.path.join(plot_args.exp_dir, 'checkpoint.pth.tar'), map_location=torch.device('cpu'))
     model.load_state_dict(state_dict)
