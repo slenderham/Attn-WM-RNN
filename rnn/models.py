@@ -238,13 +238,13 @@ class SimpleRNN(nn.Module):
             R = R.unsqueeze(-1)
             wx = wx * self.oneminusalpha_w + self.dt*R*(
                 self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, x), \
-                    self.kappa_w[0:2*len(self.input_unit_group)], self.in_coords))
+                    self.kappa_w[0:2*len(self.input_unit_group)].abs(), self.in_coords))
             if self._sigma_w>0:
                 wx += self._sigma_w * torch.randn_like(wx)
             wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
             wh = wh * self.oneminusalpha_w + self.dt*R*(
                 self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, output), \
-                    self.kappa_w[2*len(self.input_unit_group):2*len(self.input_unit_group)+4], self.rec_coords))
+                    self.kappa_w[2*len(self.input_unit_group):2*len(self.input_unit_group)+4].abs(), self.rec_coords))
             if self._sigma_w>0:
                 wh += self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
@@ -264,9 +264,9 @@ class SimpleRNN(nn.Module):
             print(self.kappa_w[0:3].tolist())
         else:
             print (f'Input->E: ', end='')
-            print(self.kappa_w[:len(self.input_unit_group)].tolist())
+            print(self.kappa_w[:len(self.input_unit_group)].abs().tolist())
             print (f'Input->I: ', end='')
-            print(self.kappa_w[len(self.input_unit_group):2*len(self.input_unit_group)].tolist())
+            print(self.kappa_w[len(self.input_unit_group):2*len(self.input_unit_group)].abs().tolist())
         
         print()
         print('Recurrent weight kapp')
@@ -275,13 +275,13 @@ class SimpleRNN(nn.Module):
         else:
             s = 2*len(self.input_unit_group)
             print (f'E->E: ', end='')
-            print(self.kappa_w[s].item(), end=', ')
+            print(self.kappa_w[s].abs().item(), end=', ')
             print (f'I->E: ', end='')
-            print(self.kappa_w[s+1].item(), end=', ')
+            print(self.kappa_w[s+1].abs().item(), end=', ')
             print (f'E->I: ', end='')
-            print(self.kappa_w[s+2].item(), end=', ')
+            print(self.kappa_w[s+2].abs().item(), end=', ')
             print (f'I->I: ', end='')
-            print(self.kappa_w[s+3].item())
+            print(self.kappa_w[s+3].abs().item())
 
     def forward(self, x, Rs, hidden=None, save_weight=False, save_attn=False):
         if hidden is None:
