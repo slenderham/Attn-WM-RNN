@@ -181,7 +181,7 @@ class SimpleRNN(nn.Module):
                 assert(len(c_plasticity)==kappa_count)
                 self.kappa_w = torch.FloatTensor(c_plasticity)
             else:
-                self.kappa_w = nn.Parameter(torch.zeros(kappa_count)+1e-6)
+                self.kappa_w = nn.Parameter(torch.zeros(kappa_count)+1e-4)
 
     def init_hidden(self, x):
         batch_size = x.shape[1]
