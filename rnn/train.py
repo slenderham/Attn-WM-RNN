@@ -168,12 +168,8 @@ if __name__ == "__main__":
                     + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             optimizer.zero_grad()
             loss.backward()
-            print('grad calculation complete')
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
-            print('clip grad complete')
             optimizer.step()
-
-            print('optimization complete')
 
             if (batch_idx+1) % log_interval == 0:
                 if torch.isnan(loss):
@@ -193,8 +189,6 @@ if __name__ == "__main__":
             for i in range(args.eval_samples):
                 DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinputfromexp(args.batch_size, args.test_N_s)
                 output, hs, _ = model(pop_s, DA_s)
-                plt.plot(output.squeeze().detach())
-                plt.show()
                 output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], args.batch_size) # trial X T X batch size
                 loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
                 losses.append(loss)
