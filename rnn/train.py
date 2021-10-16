@@ -161,17 +161,19 @@ if __name__ == "__main__":
     def train(iters):
         model.train()
         pbar = tqdm(total=iters)
-        optimizer.zero_grad()
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinput(args.batch_size, args.N_s)
             output, hs, _ = model(pop_s, DA_s)
             loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean()\
                     + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
-            optimizer.step()
             optimizer.zero_grad()
-            hs = None
+            loss.backward()
+            print('grad calculation complete')
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
+            print('clip grad complete')
+            optimizer.step()
+
+            print('optimization complete')
 
             if (batch_idx+1) % log_interval == 0:
                 if torch.isnan(loss):
@@ -191,6 +193,8 @@ if __name__ == "__main__":
             for i in range(args.eval_samples):
                 DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinputfromexp(args.batch_size, args.test_N_s)
                 output, hs, _ = model(pop_s, DA_s)
+                plt.plot(output.squeeze().detach())
+                plt.show()
                 output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], args.batch_size) # trial X T X batch size
                 loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
                 losses.append(loss)
