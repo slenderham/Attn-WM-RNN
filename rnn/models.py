@@ -264,9 +264,9 @@ class SimpleRNN(nn.Module):
             print(self.kappa_w[0:3].tolist())
         else:
             print (f'Input->E: ', end='')
-            print(self.kappa_w[:len(self.input_unit_group)].abs().tolist())
+            print(self.kappa_w[0:2:].abs().tolist())
             print (f'Input->I: ', end='')
-            print(self.kappa_w[len(self.input_unit_group):2*len(self.input_unit_group)].abs().tolist())
+            print(self.kappa_w[1:2:].abs().tolist())
         
         print()
         print('Recurrent weight kapp')
