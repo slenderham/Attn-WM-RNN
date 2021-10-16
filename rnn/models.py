@@ -177,7 +177,6 @@ class SimpleRNN(nn.Module):
                 self.in_coords = None
                 kappa_count += 1
 
-            kappa_count = kappa_count*3
             if c_plasticity is not None:
                 assert(len(c_plasticity)==kappa_count)
                 self.kappa_w = torch.FloatTensor(c_plasticity)
@@ -237,22 +236,14 @@ class SimpleRNN(nn.Module):
         if self.plastic:
             R = R.unsqueeze(-1)
             wx = wx * self.oneminusalpha_w + self.dt*R*(
-                self.multiply_blocks(torch.einsum('bi, bj->bij', torch.ones_like(new_output), x), \
-                    self.kappa_w[0:2*len(self.input_unit_group)], self.in_coords) + \
-                self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, torch.ones_like(x)), \
-                    self.kappa_w[2*len(self.input_unit_group):4*len(self.input_unit_group)], self.in_coords) + \
                 self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, x), \
-                    self.kappa_w[4*len(self.input_unit_group):6*len(self.input_unit_group)], self.in_coords))
+                    self.kappa_w[0:2*len(self.input_unit_group)], self.in_coords))
             if self._sigma_w>0:
                 wx += self._sigma_w * torch.randn_like(wx)
             wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
             wh = wh * self.oneminusalpha_w + self.dt*R*(
-                self.multiply_blocks(torch.einsum('bi, bj->bij', torch.ones_like(new_output), output), \
-                    self.kappa_w[6*len(self.input_unit_group):6*len(self.input_unit_group)+4], self.rec_coords) + \
-                self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, torch.ones_like(output)), \
-                     self.kappa_w[6*len(self.input_unit_group)+4:6*len(self.input_unit_group)+8], self.rec_coords) + \
                 self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, output), \
-                    self.kappa_w[6*len(self.input_unit_group)+8:6*len(self.input_unit_group)+12], self.rec_coords))
+                    self.kappa_w[2*len(self.input_unit_group):2*len(self.input_unit_group)+4], self.rec_coords))
             if self._sigma_w>0:
                 wh += self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
@@ -271,33 +262,25 @@ class SimpleRNN(nn.Module):
         if self.in_coords is None:
             print(self.kappa_w[0:3].tolist())
         else:
-            for i in range(3):
-                label = ['kappa_pre', 'kappa_post', 'kappa_corr'][i]
-                print(f'{label}')
-                print (f'Input->E: ', end='')
-                print(self.kappa_w[(2*i)*len(self.input_unit_group):(2*i+1)*len(self.input_unit_group)].tolist())
-                print (f'Input->I: ', end='')
-                print(self.kappa_w[(2*i+1)*len(self.input_unit_group):(2*i+2)*len(self.input_unit_group)].tolist())
+            print (f'Input->E: ', end='')
+            print(self.kappa_w[:len(self.input_unit_group)].tolist())
+            print (f'Input->I: ', end='')
+            print(self.kappa_w[len(self.input_unit_group):2*len(self.input_unit_group)].tolist())
         
         print()
         print('Recurrent weight kapp')
         if self.rec_coords is None:
             print(self.kappa_w[-3:])
         else:
-            s = 6*len(self.input_unit_group)
-            for k in range(3):
-                label = ['kappa_pre', 'kappa_post', 'kappa_corr'][k]
-                print(f'{label}')
-                print (f'E->E: ', end='')
-                print(self.kappa_w[s+4*k].item(), end=', ')
-                print (f'I->E: ', end='')
-                print(self.kappa_w[s+4*k+1].item(), end=', ')
-                print (f'E->I: ', end='')
-                print(self.kappa_w[s+4*k+2].item(), end=', ')
-                print (f'I->I: ', end='')
-                print(self.kappa_w[s+4*k+3].item())
-
-
+            s = 2*len(self.input_unit_group)
+            print (f'E->E: ', end='')
+            print(self.kappa_w[s].item(), end=', ')
+            print (f'I->E: ', end='')
+            print(self.kappa_w[s+1].item(), end=', ')
+            print (f'E->I: ', end='')
+            print(self.kappa_w[s+2].item(), end=', ')
+            print (f'I->I: ', end='')
+            print(self.kappa_w[s+3].item())
 
     def forward(self, x, Rs, hidden=None, save_weight=False, save_attn=False):
         if hidden is None:
