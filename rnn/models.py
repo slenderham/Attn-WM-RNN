@@ -194,13 +194,12 @@ class SimpleRNN(nn.Module):
         else:
             return (h_init, h_init.relu())
 
-    def fill_blocks(self, w, kappa_w, coords):
+    def multiply_blocks(self, w, kappa_w, coords):
         if coords is None:
-            return 1
-        mask = torch.zeros_like(w)
+            return w
         for i, c in enumerate(coords):
-            mask[:, c[0]:c[1], c[2]:c[3]] = kappa_w[i]
-        return mask
+            w[:, c[0]:c[1], c[2]:c[3]] *= kappa_w[i]
+        return w
 
     def recurrence(self, x, h, R):
         batch_size = x.shape[0]
@@ -227,7 +226,6 @@ class SimpleRNN(nn.Module):
 
         if self.rwd_input:
             x = torch.cat([x, (R!=0)*(R+1)/2 + self._sigma_in * torch.randn_like(R), (R!=0)*(1-R)/2 + self._sigma_in * torch.randn_like(R)], -1)
-            wx[:,:,-2:] *= 0
 
         if self.plastic:
             total_input = self.x2h(x, wx) + self.h2h(output, wh)
@@ -239,22 +237,24 @@ class SimpleRNN(nn.Module):
         if self.plastic:
             R = R.unsqueeze(-1)
             wx = wx * self.oneminusalpha_w + self.dt*R*(
-                self.fill_blocks(wx, self.kappa_w[0:2*len(self.input_unit_group)], self.in_coords)\
-                    *torch.reshape(x, (batch_size, 1, self.input_size)) +
-                self.fill_blocks(wx, self.kappa_w[2*len(self.input_unit_group):4*len(self.input_unit_group)], self.in_coords)\
-                    *torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
-                self.fill_blocks(wx, self.kappa_w[4*len(self.input_unit_group):6*len(self.input_unit_group)], self.in_coords)\
-                    *torch.einsum('bi, bj->bij', new_output, x)) + \
-                self._sigma_w * torch.randn_like(wx)
+                self.multiply_blocks(torch.einsum('bi, bj->bij', torch.ones_like(new_output), x), \
+                    self.kappa_w[0:2*len(self.input_unit_group)], self.in_coords) + \
+                self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, torch.ones_like(x)), \
+                    self.kappa_w[2*len(self.input_unit_group):4*len(self.input_unit_group)], self.in_coords) + \
+                self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, x), \
+                    self.kappa_w[4*len(self.input_unit_group):6*len(self.input_unit_group)], self.in_coords))
+            if self._sigma_w>0:
+                wx += self._sigma_w * torch.randn_like(wx)
             wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
             wh = wh * self.oneminusalpha_w + self.dt*R*(
-                self.fill_blocks(wh, self.kappa_w[6*len(self.input_unit_group):6*len(self.input_unit_group)+4], self.rec_coords)\
-                    *torch.reshape(output, (batch_size, 1, self.hidden_size)) +
-                self.fill_blocks(wh, self.kappa_w[6*len(self.input_unit_group)+4:6*len(self.input_unit_group)+8], self.rec_coords)\
-                    *torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
-                self.fill_blocks(wh, self.kappa_w[6*len(self.input_unit_group)+8:6*len(self.input_unit_group)+12], self.rec_coords)\
-                    *torch.einsum('bi, bj->bij', new_output, output)) + \
-                self._sigma_w * torch.randn_like(wh)
+                self.multiply_blocks(torch.einsum('bi, bj->bij', torch.ones_like(new_output), output), \
+                    self.kappa_w[6*len(self.input_unit_group):6*len(self.input_unit_group)+4], self.rec_coords) + \
+                self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, torch.ones_like(output)), \
+                     self.kappa_w[6*len(self.input_unit_group)+4:6*len(self.input_unit_group)+8], self.rec_coords) + \
+                self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, output), \
+                    self.kappa_w[6*len(self.input_unit_group)+8:6*len(self.input_unit_group)+12], self.rec_coords))
+            if self._sigma_w>0:
+                wh += self._sigma_w * torch.randn_like(wh)
             wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
             return (new_state, new_output, wx, wh, attn)
         else:
