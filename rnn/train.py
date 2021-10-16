@@ -171,6 +171,7 @@ if __name__ == "__main__":
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
             optimizer.step()
             optimizer.zero_grad()
+            hs = None
 
             if (batch_idx+1) % log_interval == 0:
                 if torch.isnan(loss):
