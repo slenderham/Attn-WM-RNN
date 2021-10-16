@@ -159,23 +159,22 @@ if __name__ == "__main__":
         print('Model loaded successfully')
 
     def train(iters):
-        losses = []
         model.train()
         pbar = tqdm(total=iters)
+        optimizer.zero_grad()
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinput(args.batch_size, args.N_s)
             output, hs, _ = model(pop_s, DA_s)
             loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean()\
                     + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
-            optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
             optimizer.step()
+            optimizer.zero_grad()
 
             if (batch_idx+1) % log_interval == 0:
                 if torch.isnan(loss):
                     quit()
-                losses.append(loss.item())
                 pbar.set_description('Iteration {} Loss: {:.6f}'.format(
                     batch_idx, loss.item()))
                 pbar.refresh()
