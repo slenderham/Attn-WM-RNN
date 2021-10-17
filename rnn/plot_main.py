@@ -29,8 +29,7 @@ def plot_connectivity(x2hw, h2hw, hb, h2ow):
     axes[1, 2].set_visible(False)
     for i in range(2):
         for j in range(3):
-            axes[i, j].tick_params(axis='both', which='both', bottom='off', top='off', \
-                labelbottom='off', right='off', left='off', labelleft='off')
+            axes[i, j].axis('off')
     fig.colorbar(ims[0], ax=axes.flat)
     plt.axis('off')
     plt.tight_layout()
