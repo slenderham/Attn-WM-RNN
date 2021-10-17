@@ -31,7 +31,7 @@ def plot_connectivity(x2hw, h2hw, hb, h2ow):
         for j in range(3):
             axes[i, j].tick_params(axis='both', which='both', bottom='off', top='off', \
                 labelbottom='off', right='off', left='off', labelleft='off')
-    fig.colorbar(ims[0], ax=ims)
+    fig.colorbar(ims[0], ax=axes.flat())
     plt.axis('off')
     plt.tight_layout()
     plt.savefig('plots/connectivity')
