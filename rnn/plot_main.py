@@ -132,7 +132,7 @@ if __name__=='__main__':
         'feat': [args['stim_dim']*args['stim_val']], 
         'feat+obj': [args['stim_dim']*args['stim_val'], args['stim_val']**args['stim_dim']], 
         'feat+conj+obj': [args['stim_dim']*args['stim_val'], args['stim_dim']*args['stim_val']*args['stim_val'], args['stim_val']**args['stim_dim']]
-    }[args.input_type]
+    }[args['input_type']]
 
     if args['attn_type']!='none':
         if args['input_type']=='feat':
