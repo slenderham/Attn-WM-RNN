@@ -19,7 +19,7 @@ def plot_connectivity(x2hw, h2hw, hb, h2ow):
     maxmax = abs(max([x2hw.max().item(), h2hw.max().item(), hb.max().item(), h2ow.max().item()]))
     minmin = abs(min([x2hw.min().item(), h2hw.min().item(), hb.min().item(), h2ow.min().item()]))
     vbound = max([maxmax, minmin])*0.8
-    fig, axes = plt.subplots(2, 3)
+    fig, axes = plt.subplots(2, 3, gridspec_kw={'width_ratios': [h2hw.shape[1], x2hw.shape[1], 1]})
     ims = []
     ims.append(axes[0, 0].imshow(h2hw, cmap='bwr', vmin=-vbound, vmax=vbound))
     ims.append(axes[0, 1].imshow(x2hw, cmap='bwr', vmin=-vbound, vmax=vbound))
