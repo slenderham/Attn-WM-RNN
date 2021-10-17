@@ -16,8 +16,8 @@ def plot_mean_and_std(ax, m, sd):
     ax.fill_between(range(len(m)), m-sd, m+sd, alpha=0.1)
 
 def plot_connectivity(x2hw, h2hw, hb, h2ow):
-    maxmax = math.abs(max([x2hw.max().item(), h2hw.max().item(), hb.max().item(), h2ow.max().item()]))
-    minmin = math.abs(min([x2hw.min().item(), h2hw.min().item(), hb.min().item(), h2ow.min().item()]))
+    maxmax = abs(max([x2hw.max().item(), h2hw.max().item(), hb.max().item(), h2ow.max().item()]))
+    minmin = abs(min([x2hw.min().item(), h2hw.min().item(), hb.min().item(), h2ow.min().item()]))
     vbound = max([maxmax, minmin])
     fig, axes = plt.subplots(2, 3)
     axes[0, 2].imshow(h2hw, cmap='bwr', vmin=-vbound, vmax=vbound)
