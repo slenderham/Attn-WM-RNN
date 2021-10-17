@@ -18,13 +18,21 @@ def plot_mean_and_std(ax, m, sd):
 def plot_connectivity(x2hw, h2hw, hb, h2ow):
     maxmax = abs(max([x2hw.max().item(), h2hw.max().item(), hb.max().item(), h2ow.max().item()]))
     minmin = abs(min([x2hw.min().item(), h2hw.min().item(), hb.min().item(), h2ow.min().item()]))
-    vbound = max([maxmax, minmin])
+    vbound = max([maxmax, minmin])*0.8
     fig, axes = plt.subplots(2, 3)
-    im = axes[0, 2].imshow(h2hw, cmap='bwr', vmin=-vbound, vmax=vbound)
-    axes[0, 0].imshow(hb.unsqueeze(1), cmap='bwr', vmin=-vbound, vmax=vbound)
-    axes[0, 1].imshow(x2hw, cmap='bwr', vmin=-vbound, vmax=vbound)
-    axes[1, 0].imshow(h2ow, cmap='bwr', vmin=-vbound, vmax=vbound)
-    fig.colorbar(im)
+    ims = []
+    ims.append(axes[0, 0].imshow(h2hw, cmap='bwr', vmin=-vbound, vmax=vbound))
+    ims.append(axes[0, 1].imshow(x2hw, cmap='bwr', vmin=-vbound, vmax=vbound))
+    ims.append(axes[0, 2].imshow(hb.unsqueeze(1), cmap='bwr', vmin=-vbound, vmax=vbound))
+    ims.append(axes[1, 0].imshow(h2ow, cmap='bwr', vmin=-vbound, vmax=vbound))
+    axes[1, 1].set_visible(False)
+    axes[1, 2].set_visible(False)
+    for i in range(2):
+        for j in range(3):
+            axes[i, j].tick_params(axis='both', which='both', bottom='off', top='off', \
+                labelbottom='off', right='off', left='off', labelleft='off')
+    fig.colorbar(ims[0], ax=ims)
+    plt.axis('off')
     plt.tight_layout()
     plt.savefig('plots/connectivity')
 
