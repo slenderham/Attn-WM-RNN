@@ -31,7 +31,7 @@ def plot_connectivity(x2hw, h2hw, hb, h2ow):
         for j in range(3):
             axes[i, j].tick_params(axis='both', which='both', bottom='off', top='off', \
                 labelbottom='off', right='off', left='off', labelleft='off')
-    fig.colorbar(ims[0], ax=axes.flat())
+    fig.colorbar(ims[0], ax=axes.flat)
     plt.axis('off')
     plt.tight_layout()
     plt.savefig('plots/connectivity')
@@ -71,7 +71,7 @@ def run_model(args, model, task_mdprl):
     losses = []
     all_saved_states = defaultdict(list)
     with torch.no_grad():
-        for i in range(10):
+        for i in range(1):
             print(i)
             DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinputfromexp(args['batch_size'], 10)
             total_input = pop_s
