@@ -8,18 +8,24 @@ from task import MDPRL
 import torch
 import os
 import json
+import math
 import numpy as np
 
 def plot_mean_and_std(ax, m, sd):
     ax.plot(m)
     ax.fill_between(range(len(m)), m-sd, m+sd, alpha=0.1)
 
-def plot_connectivity(x2hw, h2hw, h2ow):
-    fig, axes = plt.subplots(2, 2)
-    axes[0, 0].imshow(h2hw, cmap='seismic')
-    axes[0, 1].imshow(h2ow.T, cmap='seismic')
-    axes[1, 0].imshow(x2hw, cmap='seismic')
+def plot_connectivity(x2hw, h2hw, hb, h2ow):
+    maxmax = math.abs(max([x2hw.max().item(), h2hw.max().item(), hb.max().item(), h2ow.max().item()]))
+    minmin = math.abs(min([x2hw.min().item(), h2hw.min().item(), hb.min().item(), h2ow.min().item()]))
+    vbound = max([maxmax, minmin])
+    fig, axes = plt.subplots(2, 3)
+    axes[0, 2].imshow(h2hw, cmap='bwr', vmin=-vbound, vmax=vbound)
+    axes[0, 1].imshow(hb, cmap='bwr', vmin=-vbound, vmax=vbound)
+    axes[0, 0].imshow(h2ow.T, cmap='bwr', vmin=-vbound, vmax=vbound)
+    axes[1, 0].imshow(x2hw, cmap='bwr', vmin=-vbound, vmax=vbound)
     fig.colorbar()
+    plt.tight_layout()
     plt.savefig('plots/connectivity')
 
 def plot_learning_curve(lm, lsd):
@@ -76,6 +82,8 @@ def run_model(args, model, task_mdprl):
             all_saved_states[k] = torch.cat(v, dim=1)
         return losses_means, losses_stds, all_saved_states
 
+
+# TODO: use FC to characterize feature and object selection neurons, as predicted by the hierarchical model
 # def plot_functional_connectivity(args, hs):
     # for _ in range(args['test_N_s']*args['stim_val']**args['stim_dim']):
 
@@ -120,6 +128,12 @@ if __name__=='__main__':
     if args['rwd_input']:
         input_size += 2
 
+    input_unit_group = {
+        'feat': [args.stim_dim*args.stim_val], 
+        'feat+obj': [args.stim_dim*args.stim_val, args.stim_val**args.stim_dim], 
+        'feat+conj+obj': [args.stim_dim*args.stim_val, args.stim_dim*args.stim_val*args.stim_val, args.stim_val**args.stim_dim]
+    }[args.input_type]
+
     if args['attn_type']!='none':
         if args['input_type']=='feat':
             attn_group_size = [args['stim_val']]*args['stim_dim']
@@ -147,7 +161,7 @@ if __name__=='__main__':
     metrics = json.load(open(os.path.join(plot_args.exp_dir, 'metrics.json'), 'r'))
 
     if plot_args.connectivity:
-        plot_connectivity(state_dict['x2h.weight'], state_dict['h2h.weight'], state_dict['h2o.weight'])
+        plot_connectivity(state_dict['x2h.weight'], state_dict['h2h.weight'], state_dict['h2h.bias'], state_dict['h2o.weight'])
     if plot_args.learning_curve:
         plot_learning_curve(losses_means, losses_stds)
     if plot_args.attn_entropy:
