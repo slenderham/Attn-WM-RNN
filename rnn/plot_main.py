@@ -21,9 +21,9 @@ def plot_connectivity(x2hw, h2hw, hb, h2ow):
     vbound = max([maxmax, minmin])
     fig, axes = plt.subplots(2, 3)
     axes[0, 2].imshow(h2hw, cmap='bwr', vmin=-vbound, vmax=vbound)
-    axes[0, 1].imshow(hb.unsqueeze(1), cmap='bwr', vmin=-vbound, vmax=vbound)
-    axes[0, 0].imshow(h2ow.T, cmap='bwr', vmin=-vbound, vmax=vbound)
-    axes[1, 0].imshow(x2hw, cmap='bwr', vmin=-vbound, vmax=vbound)
+    axes[0, 0].imshow(hb.unsqueeze(1), cmap='bwr', vmin=-vbound, vmax=vbound)
+    axes[0, 1].imshow(x2hw, cmap='bwr', vmin=-vbound, vmax=vbound)
+    axes[1, 0].imshow(h2ow, cmap='bwr', vmin=-vbound, vmax=vbound)
     fig.colorbar()
     plt.tight_layout()
     plt.savefig('plots/connectivity')
@@ -162,7 +162,7 @@ if __name__=='__main__':
     metrics = json.load(open(os.path.join(plot_args.exp_dir, 'metrics.json'), 'r'))
 
     if plot_args.connectivity:
-        plot_connectivity(state_dict['x2h.weight'], state_dict['h2h.weight'], state_dict['h2h.bias'], state_dict['h2o.weight'])
+        plot_connectivity(model.x2h.effective_weight(), model.h2h.effective_weight(), state_dict['h2h.bias'], model.h2o.effective_weight())
     if plot_args.learning_curve:
         plot_learning_curve(losses_means, losses_stds)
     if plot_args.attn_entropy:
