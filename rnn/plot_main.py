@@ -162,7 +162,10 @@ if __name__=='__main__':
     metrics = json.load(open(os.path.join(plot_args.exp_dir, 'metrics.json'), 'r'))
 
     if plot_args.connectivity:
-        plot_connectivity(model.x2h.effective_weight(), model.h2h.effective_weight(), state_dict['h2h.bias'], model.h2o.effective_weight())
+        plot_connectivity(model.x2h.effective_weight().detach(), \
+                          model.h2h.effective_weight().detach(), \
+                          state_dict['h2h.bias'].detach(), \
+                          model.h2o.effective_weight().detach())
     if plot_args.learning_curve:
         plot_learning_curve(losses_means, losses_stds)
     if plot_args.attn_entropy:
