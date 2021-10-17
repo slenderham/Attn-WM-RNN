@@ -18,7 +18,7 @@ def plot_mean_and_std(ax, m, sd):
 def plot_connectivity(x2hw, h2hw, hb, h2ow):
     maxmax = abs(max([x2hw.max().item(), h2hw.max().item(), hb.max().item(), h2ow.max().item()]))
     minmin = abs(min([x2hw.min().item(), h2hw.min().item(), hb.min().item(), h2ow.min().item()]))
-    vbound = max([maxmax, minmin])*0.8
+    vbound = max([maxmax, minmin])*0.5
     fig, axes = plt.subplots(2, 3, \
         gridspec_kw={'width_ratios': [h2hw.shape[1], x2hw.shape[1], 1], 'height_ratios': [h2hw.shape[0], 1]})
     ims = []
@@ -31,8 +31,10 @@ def plot_connectivity(x2hw, h2hw, hb, h2ow):
     for i in range(2):
         for j in range(3):
             axes[i, j].axis('off')
-    fig.colorbar(ims[0], ax=axes.flat)
     plt.axis('off')
+    fig.subplots_adjust(right=0.85)
+    cbar_ax = fig.add_axes([0.88, 0.15, 0.04, 0.7])
+    fig.colorbar(ims[0], cax=cbar_ax)
     plt.tight_layout()
     plt.savefig('plots/connectivity')
 
