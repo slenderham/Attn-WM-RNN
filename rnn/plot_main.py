@@ -129,9 +129,9 @@ if __name__=='__main__':
         input_size += 2
 
     input_unit_group = {
-        'feat': [args.stim_dim*args.stim_val], 
-        'feat+obj': [args.stim_dim*args.stim_val, args.stim_val**args.stim_dim], 
-        'feat+conj+obj': [args.stim_dim*args.stim_val, args.stim_dim*args.stim_val*args.stim_val, args.stim_val**args.stim_dim]
+        'feat': [args['stim_dim']*args['stim_val']], 
+        'feat+obj': [args['stim_dim']*args['stim_val'], args['stim_val']**args['stim_dim']], 
+        'feat+conj+obj': [args['stim_dim']*args['stim_val'], args['stim_dim']*args['stim_val']*args['stim_val'], args['stim_val']**args['stim_dim']]
     }[args.input_type]
 
     if args['attn_type']!='none':
