@@ -148,7 +148,8 @@ if __name__=='__main__':
             'plastic': args['plas_type']=='all', 'attention_type': 'weight', 'activation': args['activ_func'],
             'dt': args['dt'], 'tau_x': args['tau_x'], 'tau_w': args['tau_w'], 'attn_group_size': attn_group_size,
             'c_plasticity': None, 'e_prop': args['e_prop'], 'init_spectral': args['init_spectral'], 'balance_ei': args['balance_ei'],
-            'sigma_rec': args['sigma_rec'], 'sigma_in': args['sigma_in'], 'sigma_w': args['sigma_w'], 'rwd_input': args['rwd_input']}
+            'sigma_rec': args['sigma_rec'], 'sigma_in': args['sigma_in'], 'sigma_w': args['sigma_w'], 'rwd_input': args['rwd_input'],
+            'input_unit_group': input_unit_group, 'sep_lr_in': args['sep_lr_in'], 'sep_lr_rec': args['sep_lr_rec']}
     model = SimpleRNN(**model_specs)
     state_dict = torch.load(os.path.join(plot_args.exp_dir, 'checkpoint.pth.tar'), map_location=torch.device('cpu'))
     model.load_state_dict(state_dict)
