@@ -259,6 +259,7 @@ class SimpleRNN(nn.Module):
             return (hidden[0].detach(), hidden[1].detach())
 
     def print_kappa(self):
+        print()
         print('Input weight kappa: ')
         if self.in_coords is None:
             print(self.kappa_w[0:3].tolist())
@@ -268,7 +269,6 @@ class SimpleRNN(nn.Module):
             print (f'Input->I: ', end='')
             print(self.kappa_w[1:2*len(self.input_unit_group):2].abs().tolist())
         
-        print()
         print('Recurrent weight kapp')
         if self.rec_coords is None:
             print(self.kappa_w[-3:])
@@ -282,6 +282,7 @@ class SimpleRNN(nn.Module):
             print(self.kappa_w[s+2].abs().item(), end=', ')
             print (f'I->I: ', end='')
             print(self.kappa_w[s+3].abs().item())
+        print()
 
     def forward(self, x, Rs, hidden=None, save_weight=False, save_attn=False):
         if hidden is None:
