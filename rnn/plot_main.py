@@ -42,6 +42,7 @@ def plot_connectivity(x2hw, h2hw, hb, h2ow):
 def plot_learning_curve(lm, lsd):
     fig, ax = plt.subplots()
     plot_mean_and_std(ax, lm, lsd)
+    ax.vlines(x=args['N_s']*args['stim_val']**args['stim_dim'])
     ax.set_xlabel('Trials')
     ax.set_ylabel('Loss')
     plt.tight_layout()
@@ -60,11 +61,11 @@ def plot_attn_entropy(attns):
     plt.savefig('plots/attn_entropy')
 
 def plot_attn_distribution(attns):
-    fig, axes = plt.subplots(args['test_N_s'], 1)
+    fig, axes = plt.subplots(args['test_N_s'], 1, )
     mean_attns = attns.mean(1)
     rep_len = len(mean_attns)//args['test_N_s']
     for i in range(10):
-        im = axes[i].imshow(mean_attns[i*rep_len:(i+1)*rep_len].t(), aspect='auto', interpolation='nearest')
+        im = axes[i].imshow(mean_attns[i*rep_len:(i+1)*rep_len].t(), vmin=0, vmax=1, aspect='auto', interpolation='nearest')
     fig.supxlabel('Time step')
     fig.supylabel('Dimension')
     fig.colorbar(im)
@@ -162,7 +163,7 @@ if __name__=='__main__':
             'plastic': args['plas_type']=='all', 'attention_type': 'weight', 'activation': args['activ_func'],
             'dt': args['dt'], 'tau_x': args['tau_x'], 'tau_w': args['tau_w'], 'attn_group_size': attn_group_size,
             'c_plasticity': None, 'e_prop': args['e_prop'], 'init_spectral': args['init_spectral'], 'balance_ei': args['balance_ei'],
-            'sigma_rec': args['sigma_rec'], 'sigma_in': args['sigma_in'], 'sigma_w': args['sigma_w'], 'rwd_input': args['rwd_input'],
+            'sigma_rec': args['sigma_rec'], 'sigma_in': args['sigma_in'], 'sigma_w': args['sigma_w'], 'rwd_input': args.get('rwd_input', False),
             'input_unit_group': input_unit_group, 'sep_lr_in': args['sep_lr_in'], 'sep_lr_rec': args['sep_lr_rec']}
     model = SimpleRNN(**model_specs)
     state_dict = torch.load(os.path.join(plot_args.exp_dir, 'checkpoint.pth.tar'), map_location=torch.device('cpu'))
