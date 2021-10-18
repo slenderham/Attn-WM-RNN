@@ -182,7 +182,7 @@ if __name__ == "__main__":
         pbar.close()
         return loss.item()
 
-    def eval():
+    def eval(epoch):
         model.eval()
         losses = []
         with torch.no_grad():
@@ -194,16 +194,16 @@ if __name__ == "__main__":
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
             losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
-            print('====> Eval Loss: {:.4f}'.format((
+            print('====> Epoch {} Eval Loss: {:.4f}'.format(epoch, (
                 output[:, output_mask.squeeze()==1].mean((1,2))[-args.stim_val**args.stim_dim:]
                 -task_mdprl.prob_mdprl.flatten()).pow(2).mean()))
             model.print_kappa()
             return losses_means, losses_stds
 
     metrics = defaultdict(list)
-    for _ in range(args.epochs):
+    for i in range(args.epochs):
         training_loss = train(args.iters)
-        eval_loss_means, eval_loss_stds = eval()
+        eval_loss_means, eval_loss_stds = eval(i)
         metrics['eval_losses_mean'].append(eval_loss_means.tolist())
         metrics['eval_losses_std'].append(eval_loss_means.tolist())
         
