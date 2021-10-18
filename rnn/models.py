@@ -155,7 +155,7 @@ class SimpleRNN(nn.Module):
             # separate lr for different neurons
             if sep_lr_in!=sep_lr_rec:
                 raise NotImplementedError
-            if sep_lr_rec is not None:
+            if sep_lr_rec:
                 self.rec_coords = [[0, self.h2h.e_size, 0, self.h2h.e_size],
                                    [0, self.h2h.e_size, self.h2h.e_size, self.hidden_size],
                                    [self.h2h.e_size, self.hidden_size, 0, self.h2h.e_size],
@@ -163,7 +163,7 @@ class SimpleRNN(nn.Module):
             else:
                 self.rec_coords = None
 
-            if sep_lr_in is not None:
+            if sep_lr_in:
                 self.in_coords = []
                 input_unit_group.insert(0, 0)
                 group_start = np.cumsum(input_unit_group)
