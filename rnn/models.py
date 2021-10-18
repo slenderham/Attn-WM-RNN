@@ -174,7 +174,7 @@ class SimpleRNN(nn.Module):
                 
             if plastic_feedback:
                 self.fb_coords = []
-                group_start = [0, 3, 3, 1]
+                group_start = [0, 3, 6, 7]
                 if sep_lr:
                     for i in range(len(group_start)-1):
                         self.fb_coords.append([group_start[i], group_start[i+1], 0, self.h2h.e_size])
