@@ -19,7 +19,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
 
-from models import SimpleRNN, HierarchicalRNN
+from models import SimpleRNN
 from task import MDPRL
 
 from matplotlib import pyplot as plt
@@ -55,11 +55,10 @@ if __name__ == "__main__":
     parser.add_argument('--l1w', type=float, default=0.0, help='Weight for L1 reg on weight')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
-    parser.add_argument('--rnn_type', type=str, choices=['simple', 'hierarchical'], default='simple', help='Type of RNN, one layer or two')
     parser.add_argument('--attn_type', type=str, choices=['none', 'bias', 'weight', 'sample'], 
                         default='weight', help='Type of attn. None, additive feedback, multiplicative weighing, gumbel-max sample')
-    parser.add_argument('--sep_lr_in', action='store_true', help='Use different lr between diff type of input unit and e/i rec unit')
-    parser.add_argument('--sep_lr_rec', action='store_true', help='Use different lr between diff type of e/i rec units')
+    parser.add_argument('--sep_lr', action='store_true', help='Use different lr between diff type of units')
+    parser.add_argument('--plastic_feedback', action='store_true', help='Plastic feedback weights')
     parser.add_argument('--rwd_input', action='store_true', help='Whether to use reward as input')
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
@@ -142,12 +141,9 @@ if __name__ == "__main__":
                 'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
                 'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
                 'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 'rwd_input': args.rwd_input,
-                'input_unit_group': input_unit_group, 'sep_lr_in': args.sep_lr_in, 'sep_lr_rec': args.sep_lr_rec}
+                'input_unit_group': input_unit_group, 'sep_lr': args.sep_lr, 'plastic_feedback': args.plastic_feedback}
     
-    model = {
-        'simple': SimpleRNN,
-        'hierarchical': HierarchicalRNN
-    }[args.rnn_type](**model_specs)
+    model = SimpleRNN(**model_specs)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     print(model)
     for n, p in model.named_parameters():
