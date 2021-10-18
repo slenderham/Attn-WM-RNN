@@ -18,14 +18,14 @@ def plot_mean_and_std(ax, m, sd):
 def plot_connectivity(x2hw, h2hw, hb, h2ow):
     maxmax = abs(max([x2hw.max().item(), h2hw.max().item(), hb.max().item(), h2ow.max().item()]))
     minmin = abs(min([x2hw.min().item(), h2hw.min().item(), hb.min().item(), h2ow.min().item()]))
-    vbound = max([maxmax, minmin])*0.5
+    vbound = max([maxmax, minmin])
     fig, axes = plt.subplots(2, 3, \
         gridspec_kw={'width_ratios': [h2hw.shape[1], x2hw.shape[1], 1], 'height_ratios': [h2hw.shape[0], 1]})
     ims = []
-    ims.append(axes[0, 0].imshow(h2hw, cmap='bwr', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    ims.append(axes[0, 0].imshow(h2hw, cmap='bwr', vmin=-vbound*0.2, vmax=vbound*0.2, interpolation='nearest'))
     ims.append(axes[0, 1].imshow(x2hw, cmap='bwr', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    ims.append(axes[0, 2].imshow(hb.unsqueeze(1), cmap='bwr', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    ims.append(axes[1, 0].imshow(h2ow, cmap='bwr', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    ims.append(axes[0, 2].imshow(hb.unsqueeze(1), cmap='bwr', vmin=-vbound*0.2, vmax=vbound*0.2, interpolation='nearest'))
+    ims.append(axes[1, 0].imshow(h2ow, cmap='bwr', vmin=-vbound*0.2, vmax=vbound*0.2, interpolation='nearest'))
     axes[1, 1].set_visible(False)
     axes[1, 2].set_visible(False)
     for i in range(2):
@@ -62,7 +62,7 @@ def plot_attn_entropy(attns):
 def plot_attn_distribution(attns):
     fig, ax = plt.subplots()
     mean_attns = attns.mean(1)
-    im = ax.imshow(mean_attns.t(), vmax=0.3, aspect='auto', interpolation='nearest')
+    im = ax.imshow(mean_attns.t(), aspect='auto', interpolation='nearest')
     fig.colorbar(im)
     ax.set_xlabel('Time step')
     ax.set_ylabel('Attention Distribution')
