@@ -42,7 +42,7 @@ def plot_connectivity(x2hw, h2hw, hb, h2ow):
 def plot_learning_curve(lm, lsd):
     fig, ax = plt.subplots()
     plot_mean_and_std(ax, lm, lsd)
-    ax.vlines(x=args['N_s']*args['stim_val']**args['stim_dim'])
+    ax.vlines(x=args['N_s']*args['stim_val']**args['stim_dim'], ymin=0, ymax=(lm+lsd).max()*1.05)
     ax.set_xlabel('Trials')
     ax.set_ylabel('Loss')
     plt.tight_layout()
