@@ -183,7 +183,7 @@ class SimpleRNN(nn.Module):
                 assert(len(c_plasticity)==kappa_count)
                 self.kappa_w = torch.FloatTensor(c_plasticity)
             else:
-                self.kappa_w = nn.Parameter(torch.zeros(kappa_count) + 1e-4 + (1 if (sep_lr_rec or sep_lr_in) else 0))
+                self.kappa_w = nn.Parameter(torch.zeros(kappa_count)+1e-4)
 
     def init_hidden(self, x):
         batch_size = x.shape[1]
@@ -239,13 +239,13 @@ class SimpleRNN(nn.Module):
         if self.plastic:
             if self.in_coords is not None and self.rec_coords is not None:
                 R = R.unsqueeze(-1)
-                wx = wx * self.oneminusalpha_w + self.alpha_w*R*(
+                wx = wx * self.oneminusalpha_w + self.dt*R*(
                     self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, x), \
                         self.kappa_w[0:2*len(self.input_unit_group)].abs(), self.in_coords))
                 if self._sigma_w>0:
                     wx += self._sigma_w * torch.randn_like(wx)
                 wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
-                wh = wh * self.oneminusalpha_w + self.alpha_w*R*(
+                wh = wh * self.oneminusalpha_w + self.dt*R*(
                     self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, output), \
                         self.kappa_w[2*len(self.input_unit_group):2*len(self.input_unit_group)+4].abs(), self.rec_coords))
                 if self._sigma_w>0:
