@@ -69,7 +69,8 @@ def plot_attn_distribution(attns):
     fig.supylabel('Dimension')
     fig.colorbar(im)
     plt.tight_layout()
-    plt.savefig('plots/attn_bars')
+    plt.show()
+    # plt.savefig('plots/attn_bars')
 
 def run_model(args, model, task_mdprl):
     model.eval()
