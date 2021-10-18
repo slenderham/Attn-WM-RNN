@@ -34,7 +34,7 @@ def plot_connectivity(x2hw, h2hw, hb, h2ow):
     plt.axis('off')
     fig.subplots_adjust(right=0.85)
     cbar_ax = fig.add_axes([0.88, 0.15, 0.04, 0.7])
-    fig.colorbar(ims[0], cax=cbar_ax)
+    fig.colorbar(ims[-1], cax=cbar_ax)
     plt.tight_layout()
     plt.savefig('plots/connectivity')
 
