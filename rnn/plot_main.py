@@ -35,7 +35,7 @@ def plot_connectivity(x2hw, h2hw, hb, h2ow):
     fig.subplots_adjust(right=0.85)
     cbar_ax = fig.add_axes([0.88, 0.15, 0.04, 0.7])
     fig.colorbar(ims[-1], cax=cbar_ax)
-    plt.tight_layout()
+    # plt.tight_layout()
     plt.savefig('plots/connectivity')
 
 def plot_learning_curve(lm, lsd):
