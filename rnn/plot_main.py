@@ -60,12 +60,14 @@ def plot_attn_entropy(attns):
     plt.savefig('plots/attn_entropy')
 
 def plot_attn_distribution(attns):
-    fig, ax = plt.subplots()
+    fig, axes = plt.subplots(args.test_N_s, 1)
     mean_attns = attns.mean(1)
-    im = ax.imshow(mean_attns.t(), aspect='auto', interpolation='nearest')
+    rep_len = len(mean_attns)//args.test_N_s
+    for i in range(10):
+        im = axes[i].imshow(mean_attns[i*rep_len:(i+1)*rep_len].t(), aspect='auto', interpolation='nearest')
+    fig.supxlabel('Time step')
+    fig.supylabel('Dimension')
     fig.colorbar(im)
-    ax.set_xlabel('Time step')
-    ax.set_ylabel('Attention Distribution')
     plt.tight_layout()
     plt.savefig('plots/attn_bars')
 
