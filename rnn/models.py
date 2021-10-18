@@ -174,6 +174,7 @@ class SimpleRNN(nn.Module):
                 
             if plastic_feedback:
                 self.fb_coords = []
+                group_start = [0, 3, 3, 1]
                 if sep_lr:
                     for i in range(len(group_start)-1):
                         self.fb_coords.append([group_start[i], group_start[i+1], 0, self.h2h.e_size])
@@ -272,7 +273,7 @@ class SimpleRNN(nn.Module):
                             self.kappa_w[2*len(self.input_unit_group)+4:2*len(self.input_unit_group)+7].abs(), self.fb_coords))
                     if self._sigma_w>0:
                         wattn += self._sigma_w * torch.randn_like(wattn)
-                    wattn = torch.maximum(wattn, -self.h2h.pos_func(self.attn_func.weight).detach().unsqueeze(0))
+                    wattn = torch.maximum(wattn, -self.attn_func.pos_func(self.attn_func.weight).detach().unsqueeze(0))
             else:
                 wx = wx * self.oneminusalpha_w + self.dt*R*(
                     self.kappa_w[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
@@ -295,7 +296,7 @@ class SimpleRNN(nn.Module):
                         self.kappa_w[8]*torch.einsum('bi, bj->bij', attn, output))
                     if self._sigma_w>0:
                         wattn += self._sigma_w * torch.randn_like(wattn)
-                    wattn = torch.maximum(wattn, -self.h2h.pos_func(self.attn_func.weight).detach().unsqueeze(0))
+                    wattn = torch.maximum(wattn, -self.attn_func.pos_func(self.attn_func.weight).detach().unsqueeze(0))
             
             if self.plastic_feedback:
                 return (new_state, new_output, wx, wh, wattn, attn)
