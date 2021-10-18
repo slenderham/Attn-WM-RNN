@@ -137,10 +137,10 @@ class SimpleRNN(nn.Module):
             assert(attn_group_size is not None)
             if attention_type=='weight':
                 self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, \
-                                          e_prop=e_prop, zero_cols_prop=1-e_prop)
+                                          e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.1)
             elif attention_type=='sample':
                 self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, \
-                                          e_prop=e_prop, zero_cols_prop=1-e_prop)
+                                          e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.1)
             self.attn_group_size = torch.LongTensor(attn_group_size)
         else:
             self.attn_func = None
@@ -153,16 +153,15 @@ class SimpleRNN(nn.Module):
         self.plastic = plastic
         if plastic:
             # separate lr for different neurons
-            kappa_count = 0
+            if sep_lr_in!=sep_lr_rec:
+                raise NotImplementedError
             if sep_lr_rec is not None:
                 self.rec_coords = [[0, self.h2h.e_size, 0, self.h2h.e_size],
                                    [0, self.h2h.e_size, self.h2h.e_size, self.hidden_size],
                                    [self.h2h.e_size, self.hidden_size, 0, self.h2h.e_size],
                                    [self.h2h.e_size, self.hidden_size, self.h2h.e_size, self.hidden_size]]
-                kappa_count += 4
             else:
                 self.rec_coords = None
-                kappa_count += 1
 
             if sep_lr_in is not None:
                 self.in_coords = []
@@ -171,11 +170,14 @@ class SimpleRNN(nn.Module):
                 for i in range(len(group_start)-1):
                     self.in_coords.append([0, self.h2h.e_size, group_start[i], group_start[i+1]])
                     self.in_coords.append([self.h2h.e_size, self.hidden_size, group_start[i], group_start[i+1]])
-                kappa_count += (len(input_unit_group)-1)*2
                 self.input_unit_group = input_unit_group[1:]
             else:
                 self.in_coords = None
-                kappa_count += 1
+
+            if sep_lr_rec or sep_lr_in:
+                kappa_count = len(self.rec_coords) + len(self.in_coords)
+            else:
+                kappa_count = 6
 
             if c_plasticity is not None:
                 assert(len(c_plasticity)==kappa_count)
@@ -235,19 +237,35 @@ class SimpleRNN(nn.Module):
         new_output = self.activation(new_state)
 
         if self.plastic:
-            R = R.unsqueeze(-1)
-            wx = wx * self.oneminusalpha_w + self.dt*R*(
-                self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, x), \
-                    self.kappa_w[0:2*len(self.input_unit_group)].abs(), self.in_coords))
-            if self._sigma_w>0:
-                wx += self._sigma_w * torch.randn_like(wx)
-            wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
-            wh = wh * self.oneminusalpha_w + self.dt*R*(
-                self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, output), \
-                    self.kappa_w[2*len(self.input_unit_group):2*len(self.input_unit_group)+4].abs(), self.rec_coords))
-            if self._sigma_w>0:
-                wh += self._sigma_w * torch.randn_like(wh)
-            wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
+            if self.in_coords is not None and self.rec_coords is not None:
+                R = R.unsqueeze(-1)
+                wx = wx * self.oneminusalpha_w + self.dt*R*(
+                    self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, x), \
+                        self.kappa_w[0:2*len(self.input_unit_group)].abs(), self.in_coords))
+                if self._sigma_w>0:
+                    wx += self._sigma_w * torch.randn_like(wx)
+                wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
+                wh = wh * self.oneminusalpha_w + self.dt*R*(
+                    self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, output), \
+                        self.kappa_w[2*len(self.input_unit_group):2*len(self.input_unit_group)+4].abs(), self.rec_coords))
+                if self._sigma_w>0:
+                    wh += self._sigma_w * torch.randn_like(wh)
+                wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
+            else:
+                wx = wx * self.oneminusalpha_w + self.dt*R*(
+                    self.kappa_w[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
+                    self.kappa_w[1]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
+                    self.kappa_w[2]*torch.einsum('bi, bj->bij', new_output, x))
+                if self._sigma_w>0:
+                    wx += self._sigma_w * torch.randn_like(wx)
+                wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
+                wh = wh * self.oneminusalpha_w + self.dt*R*(
+                    self.kappa_w[3]*torch.reshape(output, (batch_size, 1, self.hidden_size)) +
+                    self.kappa_w[4]*torch.reshape(new_output, (batch_size, self.hidden_size, 1)) +
+                    self.kappa_w[5]*torch.einsum('bi, bj->bij', new_output, output))
+                if self._sigma_w>0:
+                    wh += self._sigma_w * torch.randn_like(wh)
+                wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
             return (new_state, new_output, wx, wh, attn)
         else:
             return (new_state, new_output, attn)
