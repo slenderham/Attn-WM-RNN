@@ -22,10 +22,10 @@ def plot_connectivity(x2hw, h2hw, hb, h2ow):
     fig, axes = plt.subplots(2, 3, \
         gridspec_kw={'width_ratios': [h2hw.shape[1], x2hw.shape[1], 1], 'height_ratios': [h2hw.shape[0], 1]})
     ims = []
-    ims.append(axes[0, 0].imshow(h2hw, cmap='bwr', vmin=-vbound, vmax=vbound))
-    ims.append(axes[0, 1].imshow(x2hw, cmap='bwr', vmin=-vbound, vmax=vbound))
-    ims.append(axes[0, 2].imshow(hb.unsqueeze(1), cmap='bwr', vmin=-vbound, vmax=vbound))
-    ims.append(axes[1, 0].imshow(h2ow, cmap='bwr', vmin=-vbound, vmax=vbound))
+    ims.append(axes[0, 0].imshow(h2hw, cmap='bwr', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    ims.append(axes[0, 1].imshow(x2hw, cmap='bwr', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    ims.append(axes[0, 2].imshow(hb.unsqueeze(1), cmap='bwr', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    ims.append(axes[1, 0].imshow(h2ow, cmap='bwr', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     axes[1, 1].set_visible(False)
     axes[1, 2].set_visible(False)
     for i in range(2):
@@ -36,7 +36,8 @@ def plot_connectivity(x2hw, h2hw, hb, h2ow):
     cbar_ax = fig.add_axes([0.88, 0.15, 0.04, 0.7])
     fig.colorbar(ims[-1], cax=cbar_ax)
     # plt.tight_layout()
-    plt.savefig('plots/connectivity')
+    plt.show()
+    # plt.savefig('plots/connectivity')
 
 def plot_learning_curve(lm, lsd):
     fig, ax = plt.subplots()
