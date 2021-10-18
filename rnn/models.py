@@ -239,13 +239,13 @@ class SimpleRNN(nn.Module):
         if self.plastic:
             if self.in_coords is not None and self.rec_coords is not None:
                 R = R.unsqueeze(-1)
-                wx = wx * self.oneminusalpha_w + self.dt*R*(
+                wx = wx * self.oneminusalpha_w + self.alpha_w*R*(
                     self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, x), \
                         self.kappa_w[0:2*len(self.input_unit_group)].abs(), self.in_coords))
                 if self._sigma_w>0:
                     wx += self._sigma_w * torch.randn_like(wx)
                 wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
-                wh = wh * self.oneminusalpha_w + self.dt*R*(
+                wh = wh * self.oneminusalpha_w + self.alpha_w*R*(
                     self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, output), \
                         self.kappa_w[2*len(self.input_unit_group):2*len(self.input_unit_group)+4].abs(), self.rec_coords))
                 if self._sigma_w>0:
