@@ -60,9 +60,9 @@ def plot_attn_entropy(attns):
     plt.savefig('plots/attn_entropy')
 
 def plot_attn_distribution(attns):
-    fig, axes = plt.subplots(args.test_N_s, 1)
+    fig, axes = plt.subplots(args['test_N_s'], 1)
     mean_attns = attns.mean(1)
-    rep_len = len(mean_attns)//args.test_N_s
+    rep_len = len(mean_attns)//args['test_N_s']
     for i in range(10):
         im = axes[i].imshow(mean_attns[i*rep_len:(i+1)*rep_len].t(), aspect='auto', interpolation='nearest')
     fig.supxlabel('Time step')
