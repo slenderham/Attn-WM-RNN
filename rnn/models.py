@@ -269,7 +269,7 @@ class SimpleRNN(nn.Module):
                 # wh = torch.minimum(wh, torch.relu(self.weight_bound-self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0)))
                 if self.plastic_feedback:
                     wattn = wattn * self.oneminusalpha_w + self.dt*R*(
-                        self.multiply_blocks(torch.einsum('bi, bj->bij', attn, output), \
+                        self.multiply_blocks(torch.einsum('bi, bj->bij', attn*len(self.attn_group_size), output), \
                             self.kappa_w[2*len(self.input_unit_group)+4:2*len(self.input_unit_group)+7].abs(), self.fb_coords))
                     if self._sigma_w>0:
                         wattn += self._sigma_w * torch.randn_like(wattn)
@@ -292,8 +292,8 @@ class SimpleRNN(nn.Module):
                 if self.plastic_feedback:
                     wattn = wattn * self.oneminusalpha_w + self.dt*R*(
                         self.kappa_w[6]*torch.reshape(output, (batch_size, 1, self.hidden_size)) +
-                        self.kappa_w[7]*torch.reshape(attn, (batch_size, len(self.attn_group_size), 1)) +
-                        self.kappa_w[8]*torch.einsum('bi, bj->bij', attn, output))
+                        self.kappa_w[7]*torch.reshape(attn*len(self.attn_group_size), (batch_size, len(self.attn_group_size), 1)) +
+                        self.kappa_w[8]*torch.einsum('bi, bj->bij', attn*len(self.attn_group_size), output))
                     if self._sigma_w>0:
                         wattn += self._sigma_w * torch.randn_like(wattn)
                     wattn = torch.maximum(wattn, -self.attn_func.pos_func(self.attn_func.weight).detach().unsqueeze(0))
