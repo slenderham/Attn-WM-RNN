@@ -218,9 +218,7 @@ if __name__ == "__main__":
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
             losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
-            print('====> Epoch {} Eval Loss: {:.4f}'.format(epoch, (
-                output[:, output_mask.squeeze()==1].mean((1,2))[-args.stim_val**args.stim_dim:]
-                -task_mdprl.prob_mdprl.flatten()).pow(2).mean()))
+            print('====> Epoch {} Eval Loss: {:.4f}'.format(epoch, losses_means[-args.stim_val**args.stim_dim:]))
             model.print_kappa()
             return losses_means, losses_stds
 
