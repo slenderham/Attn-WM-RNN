@@ -172,9 +172,10 @@ if __name__ == "__main__":
             elif args.task_type=='off_policy':
                 log_p, value = output
                 log_p = log_p.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size, 3)
+                value = value.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
                 m = torch.distributions.categorical.Categorical(logits=log_p)
-                action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size, 1)
-                rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size, 1)
+                action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
+                rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size)
                 rwd = output_mask['fixation']*((action==2)*2-1) + output_mask['target']*((rwd_go==action)*2-1)
                 advantage = rwd-value.detach()
                 advantage = (advantage-advantage.mean())/(advantage.std()+1e-8)
