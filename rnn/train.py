@@ -179,7 +179,7 @@ if __name__ == "__main__":
                 rwd = output_mask['fixation']*((action==2)*2-1) + output_mask['target']*((rwd_go==action)*2-1)
                 advantage = rwd-value.detach()
                 advantage = (advantage-advantage.mean())/(advantage.std()+1e-8)
-                loss = -m.log_prob(action)*advantage + args.beta_v*(value-rwd).pow(2).mean() - args.beta_entropy*m.entropy().mean()
+                loss = -(m.log_prob(action)*advantage).mean() + args.beta_v*(value-rwd).pow(2).mean() - args.beta_entropy*m.entropy().mean()
 
             loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             optimizer.zero_grad()
