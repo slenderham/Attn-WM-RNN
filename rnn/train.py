@@ -21,6 +21,7 @@ from torch import optim
 
 from models import SimpleRNN
 from task import MDPRL
+from ppo import PPO
 
 from matplotlib import pyplot as plt
 
@@ -53,12 +54,16 @@ if __name__ == "__main__":
     parser.add_argument('--l2w', type=float, default=0.0, help='Weight for L2 reg on weight')
     parser.add_argument('--l1r', type=float, default=0.0, help='Weight for L1 reg on firing rate')
     parser.add_argument('--l1w', type=float, default=0.0, help='Weight for L1 reg on weight')
+    parser.add_argument('--beta_v', type=float, default=0.5, help='Weight for value estimation loss')
+    parser.add_argument('--beta_entropy', type=float, default=0.001, help='Weight for entropy regularization')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
     parser.add_argument('--attn_type', type=str, choices=['none', 'bias', 'weight', 'sample'], 
                         default='weight', help='Type of attn. None, additive feedback, multiplicative weighing, gumbel-max sample')
     parser.add_argument('--sep_lr', action='store_true', help='Use different lr between diff type of units')
     parser.add_argument('--plastic_feedback', action='store_true', help='Plastic feedback weights')
+    parser.add_argument('--task_type', type=str, choices=['value', 'off_policy', 'on_policy'],
+                        help='Learn reward prob or RL. On policy if decision determines. On policy if decision determines rwd. Off policy if rwd sampled from random policy.')
     parser.add_argument('--rwd_input', action='store_true', help='Whether to use reward as input')
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
@@ -72,6 +77,8 @@ if __name__ == "__main__":
 
     # TODO: add all plasticity
     if args.plas_type=='half':
+        raise NotImplementedError
+    if args.task_type=='on_policy':
         raise NotImplementedError
 
     assert args.l1w==0 and args.l2w==0, \
@@ -104,7 +111,7 @@ if __name__ == "__main__":
     else:
         device = torch.device('cuda' if args.cuda else 'cpu')
 
-    task_mdprl = MDPRL(exp_times, args.input_type)
+    task_mdprl = MDPRL(exp_times, args.input_type, args.task_type)
 
     input_size = {
         'feat': args.stim_dim*args.stim_val,
@@ -136,12 +143,13 @@ if __name__ == "__main__":
     else:
         assert(sum(attn_group_size)==input_size-2)
 
-    model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1, 
-                'plastic': args.plas_type=='all', 'attention_type': args.attn_type, 'activation': args.activ_func,
-                'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
-                'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
-                'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 'rwd_input': args.rwd_input,
-                'input_unit_group': input_unit_group, 'sep_lr': args.sep_lr, 'plastic_feedback': args.plastic_feedback}
+    model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1 if args.task_type=='value' else 3, 
+                   'plastic': args.plas_type=='all', 'attention_type': args.attn_type, 'activation': args.activ_func,
+                   'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
+                   'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
+                   'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 'rwd_input': args.rwd_input,
+                   'input_unit_group': input_unit_group, 'sep_lr': args.sep_lr, 'plastic_feedback': args.plastic_feedback,
+                   'value_est': 'policy' in args.task_type}
     
     model = SimpleRNN(**model_specs)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
@@ -158,10 +166,22 @@ if __name__ == "__main__":
         model.train()
         pbar = tqdm(total=iters)
         for batch_idx in range(iters):
-            DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinput(args.batch_size, args.N_s)
+            DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(args.batch_size, args.N_s)
             output, hs, _ = model(pop_s, DA_s)
-            loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean()\
-                    + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
+            if args.task_type=='value':
+                loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean()
+            elif args.task_type=='off_policy':
+                log_p_choose, value = output
+                log_p_choose = log_p_choose.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)
+                m = torch.distributions.categorical.Categorical(logits=log_p_choose)
+                action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)
+                rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size, 1)
+                rwd = output_mask['fixation']*((action==2)*2-1) + output_mask['target']*((rwd_go==action)*2-1)
+                advantage = rwd-value.detach()
+                advantage = (advantage-advantage.mean())/(advantage.std()+1e-8)
+                loss = -m.log_prob(action)*advantage + args.beta_v*(value-rwd).pow(2).mean() - args.beta_entropy*m.entropy().mean()
+
+            loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
@@ -183,7 +203,7 @@ if __name__ == "__main__":
         losses = []
         with torch.no_grad():
             for i in range(args.eval_samples):
-                DA_s, ch_s, pop_s, index_s, output_mask = task_mdprl.generateinputfromexp(args.batch_size, args.test_N_s)
+                DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(args.batch_size, args.test_N_s)
                 output, hs, _ = model(pop_s, DA_s)
                 output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], args.batch_size) # trial X T X batch size
                 loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size

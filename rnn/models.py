@@ -92,7 +92,7 @@ class SimpleRNN(nn.Module):
                 attn_group_size=None, plastic=True, plastic_feedback=True, activation='retanh', 
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, c_plasticity=None, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=None, 
-                balance_ei=False, rwd_input=False, sep_lr=True, input_unit_group=None, **kwargs):
+                balance_ei=False, rwd_input=False, sep_lr=True, input_unit_group=None, value_est=True, **kwargs):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -104,7 +104,13 @@ class SimpleRNN(nn.Module):
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='relu',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1, 
                             init_spectral=init_spectral, balance_ei=balance_ei)
-        self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
+        if value_est:
+            self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
+                            e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.5)
+            self.h2v = EILinear(hidden_size, 1, remove_diag=False, pos_function='relu',
+                            e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.5)
+        else:
+            self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
                             e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
 
         self.tau_x = tau_x
@@ -129,7 +135,6 @@ class SimpleRNN(nn.Module):
         else:
             self.x0 = torch.zeros(1, hidden_size)
         
-
         assert attention_type in ['none', 'weight', 'sample']
         self.attention_type = attention_type
         # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer?
@@ -380,5 +385,9 @@ class SimpleRNN(nn.Module):
             attns = torch.stack(attns, dim=0)
             saved_states['attns'].append(attns)
         os = self.h2o(hs)
-
-        return os, hs, saved_states
+        if hasattr(self, 'h2v'):
+            os = F.log_softmax(os, dim=-1)
+            vs = self.h2v(hs)
+            return (os, vs), hs, saved_states
+        else:
+            return os, hs, saved_states

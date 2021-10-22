@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 # TODO: support different dimensions and stim values
 
 class MDPRL():
-    def __init__(self, times, input_type):
+    def __init__(self, times, input_type, task):
         self.prob_mdprl = np.zeros((1, 3, 3, 3))
         self.prob_mdprl[:, :, :, 0] = ([0.92, 0.75, 0.43], [0.50, 0.50, 0.50], [0.57, 0.25, 0.08])
         self.prob_mdprl[:, :, :, 1] = ([0.16, 0.75, 0.98], [0.50, 0.50, 0.50], [0.02, 0.25, 0.84])
@@ -101,6 +101,9 @@ class MDPRL():
         self.pop_s = pop_s
         self.pop_o = pop_o
 
+        assert(task in ['value', 'off_policy', 'on_policy'])
+        self.task = task
+
     def _generate_rand_prob(self, batch_size):
         return np.random.rand(batch_size, 3, 3, 3)
 
@@ -123,8 +126,6 @@ class MDPRL():
         else:
             index_s = np.tile(np.arange(0,27,1), N_s)
 
-        ## TODO: check order of reshape is correct
-
         pop_o = np.zeros((len(index_s), len(self.T), batch_size, 27))
         pop_s = np.zeros((len(index_s), len(self.T), batch_size, 63))
         ch_s = np.zeros((len(index_s), len(self.T), batch_size, 1))
@@ -134,7 +135,11 @@ class MDPRL():
         for i in range(batch_size):
             pop_s[:,:,i,:] = self.pop_s[index_s,:,:]
             pop_o[:,:,i,:] = self.pop_o[index_s,:,:]
-            R[:,i] = np.random.binomial(1, prob_index[i, index_s]) 
+            if self.task=='on_policy':
+                R[:,i] = np.ones(1, prob_index[i, index_s]) 
+                # if on_policy learning, return the mask and decide actual reward during simulation
+            else:
+                R[:,i] = np.random.binomial(1, prob_index[i, index_s]) 
             ch_s[:,:,i,0] = self.filter_ch*prob_index[i, index_s].reshape((27*N_s,1))
         
         DA_s = self.filter_da.reshape((1,len(self.T),1,1))*(2*R.reshape((len(index_s), 1, batch_size, 1))-1)
@@ -143,9 +148,15 @@ class MDPRL():
         pop_s = pop_s.reshape((len(self.T)*len(index_s), batch_size, 63))
         pop_o = pop_o.reshape((len(self.T)*len(index_s), batch_size, 27))
 
+        if self.task=='value':
+            output_mask = torch.from_numpy(1.5*(self.T<0.0*self.s) + self.T_ch).reshape(1, len(self.T), 1)
+        else:
+            output_mask = {'fixation': torch.from_numpy(1.5*(self.T<0.0*self.s)).reshape(1, len(self.T), 1), \
+                           'target': torch.from_numpy(self.T_ch).reshape(1, len(self.T), 1)}
+
         return torch.from_numpy(DA_s).float(), torch.from_numpy(ch_s).float(), \
             torch.from_numpy(pop_s[:,:,self.input_indexes]).float(), torch.from_numpy(index_s), \
-            torch.from_numpy(1.5*(self.T<0.0*self.s) + self.T_ch).reshape(1, len(self.T), 1)
+            torch.from_numpy(prob_index[:, index_s]).t(), output_mask
 
     def generateinputfromexp(self, batch_size, test_N_s):
         return self.generateinput(batch_size, test_N_s, self.prob_mdprl, scramble=False)
