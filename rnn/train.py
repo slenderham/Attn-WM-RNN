@@ -210,10 +210,10 @@ if __name__ == "__main__":
                     loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
                 else:
                     log_p, _ = output
-                    log_p = log_p.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], args.batch_size)[:,-1,:]
+                    log_p = log_p.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask['target'].shape[1], args.batch_size, 3)[:,-1,:,:]
                     m = torch.distributions.categorical.Categorical(logits=log_p)
-                    action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size, 1)
-                    rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size, 1)
+                    action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, args.batch_size)
+                    rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, args.batch_size)
                     loss = (1-(rwd_go==action)).mean()
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
