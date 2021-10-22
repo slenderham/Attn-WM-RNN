@@ -21,7 +21,6 @@ from torch import optim
 
 from models import SimpleRNN
 from task import MDPRL
-from ppo import PPO
 
 from matplotlib import pyplot as plt
 
