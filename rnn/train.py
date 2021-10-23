@@ -55,7 +55,7 @@ if __name__ == "__main__":
     parser.add_argument('--l1r', type=float, default=0.0, help='Weight for L1 reg on firing rate')
     parser.add_argument('--l1w', type=float, default=0.0, help='Weight for L1 reg on weight')
     parser.add_argument('--beta_v', type=float, default=0.5, help='Weight for value estimation loss')
-    parser.add_argument('--beta_entropy', type=float, default=0.001, help='Weight for entropy regularization')
+    parser.add_argument('--beta_entropy', type=float, default=0.0001, help='Weight for entropy regularization')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
     parser.add_argument('--attn_type', type=str, choices=['none', 'bias', 'weight', 'sample'], 
@@ -179,9 +179,9 @@ if __name__ == "__main__":
                 action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
                 rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size).int()
                 rwd = output_mask['fixation']*((action==2).float()*2-1) + output_mask['target']*((rwd_go==action).float()*2-1)
-                advantage = rwd-value.detach()
+                advantage = (rwd-value).detach()
                 advantage = (advantage-advantage.mean())/(advantage.std()+1e-8)
-                loss = - (m.log_prob(action)*advantage).mean() + args.beta_v*(value-rwd).pow(2).mean() - args.beta_entropy*m.entropy().mean()
+                loss = - (m.log_prob(action)*advantage).mean() + args.beta_v*(rwd-value).pow(2).mean() - args.beta_entropy*m.entropy().mean()
             
             loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             (loss/grad_accumulation_step).backward()
