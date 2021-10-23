@@ -99,7 +99,7 @@ if __name__ == "__main__":
         'total_time': 1}
     exp_times['dt'] = args.dt
     log_interval = 1
-    grad_accumulation_step = 1
+    grad_accumulation_step = 50
 
     if args.seed is not None:
         torch.manual_seed(args.seed)
@@ -165,6 +165,7 @@ if __name__ == "__main__":
     def train(iters):
         model.train()
         pbar = tqdm(total=iters)
+        optimizer.zero_grad()
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(args.batch_size, args.N_s)
             output, hs, _ = model(pop_s, DA_s)
@@ -181,12 +182,13 @@ if __name__ == "__main__":
                 advantage = rwd-value.detach()
                 advantage = (advantage-advantage.mean())/(advantage.std()+1e-8)
                 loss = - (m.log_prob(action)*advantage).mean() + args.beta_v*(value-rwd).pow(2).mean() - args.beta_entropy*m.entropy().mean()
-
+            
             loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
-            optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
-            optimizer.step()
+            (loss/grad_accumulation_step).backward()
+            if (iters+1)%grad_accumulation_step==0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
+                optimizer.step()
+                optimizer.zero_grad()
 
             if (batch_idx+1) % log_interval == 0:
                 if torch.isnan(loss):
