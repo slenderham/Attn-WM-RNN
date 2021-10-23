@@ -48,7 +48,6 @@ if __name__ == "__main__":
     parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
     parser.add_argument('--tau_w', type=float, default=600, help='Time constant for weight modification')
-    parser.add_argument('--kappa_w', type=float, default=0.001, help='Learning rate for weight modification')
     parser.add_argument('--dt', type=float, default=0.02, help='Discretization time step (ms)')
     parser.add_argument('--l2r', type=float, default=0.0, help='Weight for L2 reg on firing rate')
     parser.add_argument('--l2w', type=float, default=0.0, help='Weight for L2 reg on weight')
@@ -99,7 +98,7 @@ if __name__ == "__main__":
         'total_time': 1}
     exp_times['dt'] = args.dt
     log_interval = 1
-    grad_accumulation_step = 50
+    grad_accumulation_step = 1
 
     if args.seed is not None:
         torch.manual_seed(args.seed)
@@ -185,7 +184,7 @@ if __name__ == "__main__":
             
             loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             (loss/grad_accumulation_step).backward()
-            if (iters+1)%grad_accumulation_step==0:
+            if (iters+1) % grad_accumulation_step == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
                 optimizer.step()
                 optimizer.zero_grad()

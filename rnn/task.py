@@ -151,7 +151,7 @@ class MDPRL():
         if self.task=='value':
             output_mask = torch.from_numpy(1.5*(self.T<0.0*self.s) + self.T_ch).reshape(1, len(self.T), 1)
         else:
-            output_mask = {'fixation': torch.from_numpy(1.5*(self.T<0.0*self.s)).reshape(1, len(self.T), 1), \
+            output_mask = {'fixation': torch.from_numpy((self.T<0.0*self.s)).reshape(1, len(self.T), 1), \
                            'target': torch.from_numpy(self.T_ch).reshape(1, len(self.T), 1)}
 
         return torch.from_numpy(DA_s).float(), torch.from_numpy(ch_s).float(), \
