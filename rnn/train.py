@@ -1,3 +1,4 @@
+from argparse import Action
 import os
 import numpy as np
 from tqdm import tqdm
@@ -175,7 +176,7 @@ if __name__ == "__main__":
                 value = value.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
                 m = torch.distributions.categorical.Categorical(logits=log_p)
                 action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
-                rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size)
+                rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size).int()
                 rwd = output_mask['fixation']*((action==2).float()*2-1) + output_mask['target']*((rwd_go==action).float()*2-1)
                 advantage = rwd-value.detach()
                 advantage = (advantage-advantage.mean())/(advantage.std()+1e-8)
@@ -213,8 +214,8 @@ if __name__ == "__main__":
                     log_p = log_p.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask['target'].shape[1], args.batch_size, 3)[:,-1,:,:]
                     m = torch.distributions.categorical.Categorical(logits=log_p)
                     action = m.sample().reshape(args.stim_val**args.stim_dim*args.test_N_s, args.batch_size)
-                    rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.test_N_s, args.batch_size)
-                    loss = (1-(rwd_go==action).float())
+                    rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.test_N_s, args.batch_size).int()
+                    loss = 1-(rwd_go==action).float()
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
             losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
