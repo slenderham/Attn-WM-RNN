@@ -264,14 +264,14 @@ class SimpleRNN(nn.Module):
                 if self._sigma_w>0:
                     wx += self._sigma_w * torch.randn_like(wx)
                 wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
-                wx = torch.minimum(wx, self.weight_bound-self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
+                # wx = torch.minimum(wx, self.weight_bound-self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
                 wh = wh * self.oneminusalpha_w + self.dt*R*(
                     self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, output), \
                         self.kappa_w[2*len(self.input_unit_group):2*len(self.input_unit_group)+4].abs(), self.rec_coords))
                 if self._sigma_w>0:
                     wh += self._sigma_w * torch.randn_like(wh)
                 wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
-                wh = torch.minimum(wh, self.weight_bound-self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
+                # wh = torch.minimum(wh, self.weight_bound-self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
                 if self.plastic_feedback:
                     wattn = wattn * self.oneminusalpha_w + self.dt*R*(
                         self.multiply_blocks(torch.einsum('bi, bj->bij', attn*len(self.attn_group_size), output), \
@@ -279,7 +279,7 @@ class SimpleRNN(nn.Module):
                     if self._sigma_w>0:
                         wattn += self._sigma_w * torch.randn_like(wattn)
                     wattn = torch.maximum(wattn, -self.attn_func.pos_func(self.attn_func.weight).detach().unsqueeze(0))
-                    wattn = torch.minimum(wattn, self.weight_bound-self.h2h.pos_func(self.attn_func.weight).detach().unsqueeze(0))
+                    # wattn = torch.minimum(wattn, self.weight_bound-self.h2h.pos_func(self.attn_func.weight).detach().unsqueeze(0))
             else:
                 wx = wx * self.oneminusalpha_w + self.dt*R*(
                     self.kappa_w[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
