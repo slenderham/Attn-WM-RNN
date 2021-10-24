@@ -38,7 +38,7 @@ if __name__ == "__main__":
     parser.add_argument('--test_N_s', type=int, default=10, help='Number of times to repeat the entire stim set during eval')
     parser.add_argument('--e_prop', type=float, default=4/5, help='Proportion of E neurons')
     parser.add_argument('--batch_size', type=int, help='Batch size')
-    parser.add_argument('--grad_accumulation_steps', type=int, help='Steps of gradient accumulation.')
+    parser.add_argument('--grad_accumulation_steps', type=int, default=1, help='Steps of gradient accumulation.')
     parser.add_argument('--eval_samples', type=int, default=60, help='Number of samples to use for evaluation.')
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
