@@ -90,7 +90,7 @@ class EILinear(nn.Module):
 class SimpleRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, attention_type='weight',
                 attn_group_size=None, plastic=True, plastic_feedback=True, activation='retanh', 
-                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, c_plasticity=None, train_init_state=False,
+                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=5.0, c_plasticity=None, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=None, 
                 balance_ei=False, rwd_input=False, sep_lr=True, input_unit_group=None, value_est=True, **kwargs):
         super().__init__()
@@ -264,14 +264,14 @@ class SimpleRNN(nn.Module):
                 if self._sigma_w>0:
                     wx += self._sigma_w * torch.randn_like(wx)
                 wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
-                wx = torch.minimum(wx, torch.relu(self.weight_bound-self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0)))
+                wx = torch.minimum(wx, self.weight_bound-self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
                 wh = wh * self.oneminusalpha_w + self.dt*R*(
                     self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, output), \
                         self.kappa_w[2*len(self.input_unit_group):2*len(self.input_unit_group)+4].abs(), self.rec_coords))
                 if self._sigma_w>0:
                     wh += self._sigma_w * torch.randn_like(wh)
                 wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
-                wh = torch.minimum(wh, torch.relu(self.weight_bound-self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0)))
+                wh = torch.minimum(wh, self.weight_bound-self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
                 if self.plastic_feedback:
                     wattn = wattn * self.oneminusalpha_w + self.dt*R*(
                         self.multiply_blocks(torch.einsum('bi, bj->bij', attn*len(self.attn_group_size), output), \
@@ -279,7 +279,7 @@ class SimpleRNN(nn.Module):
                     if self._sigma_w>0:
                         wattn += self._sigma_w * torch.randn_like(wattn)
                     wattn = torch.maximum(wattn, -self.attn_func.pos_func(self.attn_func.weight).detach().unsqueeze(0))
-                    wattn = torch.minimum(wattn, torch.relu(self.weight_bound-self.h2h.pos_func(self.attn_func.weight).detach().unsqueeze(0)))
+                    wattn = torch.minimum(wattn, self.weight_bound-self.h2h.pos_func(self.attn_func.weight).detach().unsqueeze(0))
             else:
                 wx = wx * self.oneminusalpha_w + self.dt*R*(
                     self.kappa_w[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
