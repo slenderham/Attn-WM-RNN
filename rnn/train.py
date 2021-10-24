@@ -184,7 +184,7 @@ if __name__ == "__main__":
             
             loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             (loss/args.grad_accumulation_steps).backward()
-            if (iters+1) % args.grad_accumulation_steps == 0:
+            if (batch_idx+1) % args.grad_accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
                 optimizer.step()
                 optimizer.zero_grad()
