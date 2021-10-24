@@ -213,7 +213,7 @@ if __name__ == "__main__":
                 else:
                     log_p, _ = output
                     log_p = log_p.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask['target'].shape[1], args.batch_size, 3)
-                    log_p = log_p[:, output_mask.squeeze()==1]
+                    log_p = log_p[:, output_mask['target'].squeeze()==1]
                     m = torch.distributions.categorical.Categorical(logits=log_p)
                     action = m.sample().reshape(args.stim_val**args.stim_dim*args.test_N_s, log_p.shape[1], args.batch_size)
                     rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.test_N_s, log_p.shape[1], args.batch_size).int()
