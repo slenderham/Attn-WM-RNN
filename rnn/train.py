@@ -38,7 +38,8 @@ if __name__ == "__main__":
     parser.add_argument('--test_N_s', type=int, default=10, help='Number of times to repeat the entire stim set during eval')
     parser.add_argument('--e_prop', type=float, default=4/5, help='Proportion of E neurons')
     parser.add_argument('--batch_size', type=int, help='Batch size')
-    parser.add_argument('--eval_samples', type=int, default=60, help='Batch size')
+    parser.add_argument('--grad_accumulation_steps', type=int, help='Steps of gradient accumulation.')
+    parser.add_argument('--eval_samples', type=int, default=60, help='Number of samples to use for evaluation.')
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
@@ -98,7 +99,6 @@ if __name__ == "__main__":
         'total_time': 1}
     exp_times['dt'] = args.dt
     log_interval = 1
-    grad_accumulation_step = 1
 
     if args.seed is not None:
         torch.manual_seed(args.seed)
@@ -151,7 +151,7 @@ if __name__ == "__main__":
                    'value_est': 'policy' in args.task_type}
     
     model = SimpleRNN(**model_specs)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-5 if ('policy' in args.task_type) else 1e-8)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     print(model)
     for n, p in model.named_parameters():
         print(n, p.numel())
@@ -183,8 +183,8 @@ if __name__ == "__main__":
                 loss = - (m.log_prob(action)*advantage).mean() + args.beta_v*(rwd-value).pow(2).mean() - args.beta_entropy*m.entropy().mean()
             
             loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
-            (loss/grad_accumulation_step).backward()
-            if (iters+1) % grad_accumulation_step == 0:
+            (loss/args.grad_accumulation_steps).backward()
+            if (iters+1) % args.grad_accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
                 optimizer.step()
                 optimizer.zero_grad()
