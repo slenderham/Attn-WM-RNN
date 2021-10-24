@@ -177,7 +177,7 @@ if __name__ == "__main__":
                 m = torch.distributions.categorical.Categorical(logits=log_p)
                 action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
                 rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size).int()
-                rwd = output_mask['fixation']*((action==2).float()) + output_mask['target']*((rwd_go==action).float()-5*(action==2))
+                rwd = output_mask['fixation']*((action==2).float()) + output_mask['target']*((rwd_go==action).float()-1*(action==2))
                 advantage = (rwd-value).detach()
                 advantage = (advantage-advantage.mean())/(advantage.std()+1e-8)
                 loss = - (m.log_prob(action)*advantage).mean() + args.beta_v*(rwd-value).pow(2).mean() - args.beta_entropy*m.entropy().mean()
@@ -212,11 +212,12 @@ if __name__ == "__main__":
                     loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
                 else:
                     log_p, _ = output
-                    log_p = log_p.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask['target'].shape[1], args.batch_size, 3)[:,-1,:,:]
+                    log_p = log_p.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask['target'].shape[1], args.batch_size, 3)
+                    log_p = log_p[:, output_mask.squeeze()==1]
                     m = torch.distributions.categorical.Categorical(logits=log_p)
-                    action = m.sample().reshape(args.stim_val**args.stim_dim*args.test_N_s, args.batch_size)
-                    rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.test_N_s, args.batch_size).int()
-                    loss = 1-(rwd_go==action).float()
+                    action = m.sample().reshape(args.stim_val**args.stim_dim*args.test_N_s, log_p.shape[1], args.batch_size)
+                    rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.test_N_s, log_p.shape[1], args.batch_size).int()
+                    loss = (1-(rwd_go==action).float()).mean(1)
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
             losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
