@@ -138,9 +138,9 @@ if __name__ == "__main__":
         attn_group_size = [input_size]
     
     if not args.rwd_input:
-        assert(sum(attn_group_size)==input_size)
+        assert(sum(attn_group_size)==input_size-1)
     else:
-        assert(sum(attn_group_size)==input_size-2)
+        assert(sum(attn_group_size)==input_size-3)
 
     model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1 if args.task_type=='value' else 3, 
                    'plastic': args.plas_type=='all', 'attention_type': args.attn_type, 'activation': args.activ_func,
