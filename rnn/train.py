@@ -178,9 +178,11 @@ if __name__ == "__main__":
                 action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
                 rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size).int()
                 rwd = output_mask['target']*((rwd_go==action).float())
-                advantage = (rwd-value).detach()
+                advantage = output_mask['target']*(rwd-value).detach()
+                value_loss = output_mask['target']*(rwd-value).pow(2)
+                entropy_loss = output_mask['target']*m.entropy()
                 # advantage = (advantage-advantage.mean())/(advantage.std()+1)
-                loss = - (m.log_prob(action)*advantage).mean() + args.beta_v*(rwd-value).pow(2).mean() - args.beta_entropy*m.entropy().mean()
+                loss = - (m.log_prob(action)*advantage).mean() + args.beta_v*value_loss.mean() - args.beta_entropy*entropy_loss.mean()
             
             loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             (loss/args.grad_accumulation_steps).backward()
