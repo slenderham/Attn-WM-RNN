@@ -146,7 +146,7 @@ class MDPRL():
         DA_s = DA_s.reshape((len(self.T)*len(index_s), batch_size, 1))
         # ch_s = ch_s.reshape((len(self.T)*len(index_s), batch_size, 1))
         pop_s = np.concatenate([pop_s, np.tile((self.T<0.0*self.s).reshape(1, len(self.T), 1, 1), (len(index_s), 1, batch_size, 1))], axis=-1)
-        pop_s = pop_s.reshape((len(self.T)*len(index_s), batch_size, 63))
+        pop_s = pop_s.reshape((len(self.T)*len(index_s), batch_size, 64))
         pop_o = pop_o.reshape((len(self.T)*len(index_s), batch_size, 27))
 
         if self.task=='value':
