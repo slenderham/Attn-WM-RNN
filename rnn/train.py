@@ -142,7 +142,7 @@ if __name__ == "__main__":
     else:
         assert(sum(attn_group_size)==input_size-2)
 
-    model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1 if args.task_type=='value' else 3, 
+    model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1 if args.task_type=='value' else 2, 
                    'plastic': args.plas_type=='all', 'attention_type': args.attn_type, 'activation': args.activ_func,
                    'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
                    'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
@@ -177,7 +177,7 @@ if __name__ == "__main__":
                 m = torch.distributions.categorical.Categorical(logits=log_p)
                 action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
                 rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size).int()
-                rwd = output_mask['fixation']*((action==2).float()-1) + output_mask['target']*((rwd_go==action).float()-(action==2).float())
+                rwd = output_mask['target']*((rwd_go==action).float())
                 advantage = (rwd-value).detach()
                 # advantage = (advantage-advantage.mean())/(advantage.std()+1)
                 loss = - (m.log_prob(action)*advantage).mean() + args.beta_v*(rwd-value).pow(2).mean() - args.beta_entropy*m.entropy().mean()
