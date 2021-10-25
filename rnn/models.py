@@ -90,7 +90,7 @@ class EILinear(nn.Module):
 class SimpleRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, attention_type='weight',
                 attn_group_size=None, plastic=True, plastic_feedback=True, activation='retanh', 
-                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, c_plasticity=None, train_init_state=False,
+                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=10.0, c_plasticity=None, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=None, 
                 balance_ei=False, rwd_input=False, sep_lr=True, input_unit_group=None, value_est=True, **kwargs):
         super().__init__()
@@ -142,10 +142,10 @@ class SimpleRNN(nn.Module):
             assert(attn_group_size is not None)
             if attention_type=='weight':
                 self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, \
-                                          e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.5)
+                                          e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=1)
             elif attention_type=='sample':
                 self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, \
-                                          e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.5)
+                                          e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=1)
             self.attn_group_size = torch.LongTensor(attn_group_size)
         else:
             self.attn_func = None
