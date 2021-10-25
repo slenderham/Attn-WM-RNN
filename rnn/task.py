@@ -145,14 +145,13 @@ class MDPRL():
         DA_s = self.filter_da.reshape((1,len(self.T),1,1))*(2*R.reshape((len(index_s), 1, batch_size, 1))-1)
         DA_s = DA_s.reshape((len(self.T)*len(index_s), batch_size, 1))
         # ch_s = ch_s.reshape((len(self.T)*len(index_s), batch_size, 1))
-        pop_s = np.concatenate([pop_s, np.tile((self.T<0.0*self.s).reshape(1, len(self.T), 1, 1), (len(index_s), 1, batch_size, 1))], axis=-1)
-        pop_s = pop_s.reshape((len(self.T)*len(index_s), batch_size, 64))
+        pop_s = pop_s.reshape((len(self.T)*len(index_s), batch_size, 63))
         pop_o = pop_o.reshape((len(self.T)*len(index_s), batch_size, 27))
 
         if self.task=='value':
             output_mask = torch.from_numpy(1.5*(self.T<0.0*self.s) + self.T_ch).reshape(1, len(self.T), 1)
         else:
-            output_mask = {'fixation': torch.from_numpy((self.T<0.0*self.s)).reshape(1, len(self.T), 1), \
+            output_mask = {'fixation': 0.5*torch.from_numpy((self.T<0.0*self.s)).reshape(1, len(self.T), 1), \
                            'target': torch.from_numpy(self.T_ch).reshape(1, len(self.T), 1)}
 
         return torch.from_numpy(DA_s).float(), torch.from_numpy(ch_s).float(), \

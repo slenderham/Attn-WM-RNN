@@ -116,7 +116,7 @@ if __name__ == "__main__":
         'feat': args.stim_dim*args.stim_val,
         'feat+obj': args.stim_dim*args.stim_val+args.stim_val**args.stim_dim, 
         'feat+conj+obj': args.stim_dim*args.stim_val+args.stim_dim*args.stim_val*args.stim_val+args.stim_val**args.stim_dim,
-    }[args.input_type] + 1
+    }[args.input_type]
 
     if args.rwd_input:
         input_size += 2
@@ -138,9 +138,9 @@ if __name__ == "__main__":
         attn_group_size = [input_size]
     
     if not args.rwd_input:
-        assert(sum(attn_group_size)==input_size-1)
+        assert(sum(attn_group_size)==input_size)
     else:
-        assert(sum(attn_group_size)==input_size-3)
+        assert(sum(attn_group_size)==input_size-2)
 
     model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1 if args.task_type=='value' else 3, 
                    'plastic': args.plas_type=='all', 'attention_type': args.attn_type, 'activation': args.activ_func,
