@@ -109,7 +109,6 @@ class SimpleRNN(nn.Module):
                             e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=1)
             self.h2v = EILinear(hidden_size, 1, remove_diag=False, pos_function='relu',
                             e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=1)
-            nn.init.constant_(self.h2v.bias, -1)
         else:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
                             e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
