@@ -90,7 +90,7 @@ class EILinear(nn.Module):
 class SimpleRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, attention_type='weight',
                 attn_group_size=None, plastic=True, plastic_feedback=True, activation='retanh', 
-                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=5.0, c_plasticity=None, train_init_state=False,
+                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, c_plasticity=None, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=None, 
                 balance_ei=False, rwd_input=False, sep_lr=True, input_unit_group=None, value_est=True, **kwargs):
         super().__init__()
@@ -258,7 +258,7 @@ class SimpleRNN(nn.Module):
         if self.plastic:
             R = R.unsqueeze(-1)
             if self.in_coords is not None and self.rec_coords is not None:
-                wx = wx - (wx-self.x2h.pos_func(self.x2h.weight).unsqueeze(0)) * self.alpha_w \
+                wx = wx*self.oneminusalpha_w + self.x2h.pos_func(self.x2h.weight).unsqueeze(0)*self.alpha_w \
                     + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, x), \
                         self.kappa_w[0:2*len(self.input_unit_group)].abs(), self.in_coords))
                 if self._sigma_w>0:
@@ -266,7 +266,7 @@ class SimpleRNN(nn.Module):
                 wx = torch.clamp(wx, 0, self.weight_bound)
                 # wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
                 # wx = torch.minimum(wx, self.weight_bound-self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
-                wh = wh - (wh-self.h2h.pos_func(self.h2h.weight).unsqueeze(0)) * self.alpha_w \
+                wh = wh*self.oneminusalpha_w + self.h2h.pos_func(self.h2h.weight).unsqueeze(0)*self.alpha_w \
                     + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, output), \
                         self.kappa_w[2*len(self.input_unit_group):2*len(self.input_unit_group)+4].abs(), self.rec_coords))
                 if self._sigma_w>0:
@@ -275,7 +275,7 @@ class SimpleRNN(nn.Module):
                 # wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
                 # wh = torch.minimum(wh, self.weight_bound-self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
                 if self.plastic_feedback:
-                    wattn = wattn - (wattn-self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0))  * self.alpha_w \
+                    wattn = wattn*self.oneminusalpha_w + self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0)*self.alpha_w \
                         + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', attn*len(self.attn_group_size), output), \
                             self.kappa_w[2*len(self.input_unit_group)+4:3*len(self.input_unit_group)+4].abs(), self.fb_coords))
                     if self._sigma_w>0:
