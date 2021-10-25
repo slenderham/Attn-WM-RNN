@@ -172,7 +172,7 @@ if __name__ == "__main__":
                 loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean()
             elif args.task_type=='off_policy':
                 log_p, value = output
-                log_p = log_p.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size, 3)
+                log_p = log_p.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size, 2)
                 value = value.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
                 m = torch.distributions.categorical.Categorical(logits=log_p)
                 action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
@@ -212,7 +212,7 @@ if __name__ == "__main__":
                     loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
                 else:
                     log_p, _ = output
-                    log_p = log_p.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask['target'].shape[1], 1, 3)
+                    log_p = log_p.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask['target'].shape[1], 1, 2)
                     log_p = log_p[:, output_mask['target'].squeeze()==1]
                     m = torch.distributions.categorical.Categorical(logits=log_p)
                     action = m.sample().reshape(args.stim_val**args.stim_dim*args.test_N_s, log_p.shape[1], 1)
