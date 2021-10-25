@@ -240,7 +240,7 @@ class SimpleRNN(nn.Module):
             attn_expand = None
 
         if self.attention_type=='weight' or self.attention_type=='sample':
-            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) * attn_expand * len(self.attn_group_size)
+            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) * attn_expand
         else:
             x = torch.relu(x + self._sigma_in * torch.randn_like(x))
 
@@ -276,7 +276,7 @@ class SimpleRNN(nn.Module):
                 # wh = torch.minimum(wh, self.weight_bound-self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
                 if self.plastic_feedback:
                     wattn = wattn*self.oneminusalpha_w + self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0)*self.alpha_w \
-                        + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', attn*len(self.attn_group_size), output), \
+                        + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', attn, output), \
                             self.kappa_w[2*len(self.input_unit_group)+4:3*len(self.input_unit_group)+4].abs(), self.fb_coords))
                     if self._sigma_w>0:
                         wattn += self._sigma_w * torch.randn_like(wattn)
