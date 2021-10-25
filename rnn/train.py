@@ -205,18 +205,18 @@ if __name__ == "__main__":
         losses = []
         with torch.no_grad():
             for i in range(args.eval_samples):
-                DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(args.batch_size, args.test_N_s)
+                DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(1, args.test_N_s)
                 output, hs, _ = model(pop_s, DA_s)
                 if args.task_type=='value':
-                    output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], args.batch_size) # trial X T X batch size
+                    output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], 1) # trial X T X batch size
                     loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
                 else:
                     log_p, _ = output
-                    log_p = log_p.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask['target'].shape[1], args.batch_size, 3)
+                    log_p = log_p.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask['target'].shape[1], 1, 3)
                     log_p = log_p[:, output_mask['target'].squeeze()==1]
                     m = torch.distributions.categorical.Categorical(logits=log_p)
-                    action = m.sample().reshape(args.stim_val**args.stim_dim*args.test_N_s, log_p.shape[1], args.batch_size)
-                    rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.test_N_s, 1, args.batch_size).int()
+                    action = m.sample().reshape(args.stim_val**args.stim_dim*args.test_N_s, log_p.shape[1], 1)
+                    rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.test_N_s, 1, 1).int()
                     loss = (1-(rwd_go==action).float()).mean(1)
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
