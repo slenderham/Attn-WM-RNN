@@ -215,7 +215,7 @@ class SimpleRNN(nn.Module):
         w_new = torch.zeros_like(w)
         for i, c in enumerate(coords):
             w_new[:, c[0]:c[1], c[2]:c[3]] = kappa_w[i]*w[:, c[0]:c[1], c[2]:c[3]]
-        return w
+        return w_new
 
     def recurrence(self, x, h, R):
         batch_size = x.shape[0]
