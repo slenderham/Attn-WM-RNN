@@ -174,9 +174,10 @@ if __name__ == "__main__":
                 log_p, value = output
                 conj_mask = output_mask['target'].squeeze()==1
                 log_p = log_p.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size, 2)
-                log_p = log_p[:, conj_mask][:, -1]
+                log_p = log_p[:, conj_mask][:, -1].flatten(0, 1)
                 value = value.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
                 value = value[:, conj_mask]
+                target = (prob_s>0.5).long().reshape(args.stim_val**args.stim_dim*args.N_s*args.batch_size)
                 # m = torch.distributions.categorical.Categorical(logits=log_p)
                 # action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, conj_mask.sum().long(), args.batch_size)
                 # rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size).long()
@@ -186,7 +187,7 @@ if __name__ == "__main__":
                 # entropy_loss = m.entropy()
                 # # advantage = (advantage-advantage.mean())/(advantage.std()+1e-8)
                 # loss = - (m.log_prob(action)*advantage).mean() + args.beta_v*value_loss.mean() - args.beta_entropy*entropy_loss.mean()
-                loss = F.cross_entropy(log_p, (prob_s>0.5).long().squeeze(-1))
+                loss = F.cross_entropy(log_p, target)
             
             loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             (loss/args.grad_accumulation_steps).backward()
