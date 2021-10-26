@@ -247,7 +247,6 @@ class SimpleRNN(nn.Module):
         if self.rwd_input:
             x = torch.cat([x, (R!=0)*(R+1)/2 + self._sigma_in * torch.randn_like(R), (R!=0)*(1-R)/2 + self._sigma_in * torch.randn_like(R)], -1)
             wx[:,:,-2:] = self.x2h.pos_func(self.x2h.weight).unsqueeze(0)[:,:,-2:]
-            raise NotImplementedError
 
         if self.plastic:
             total_input = self.x2h(x, wx) + self.h2h(output, wh)
@@ -391,7 +390,6 @@ class SimpleRNN(nn.Module):
             saved_states['attns'].append(attns)
         os = self.h2o(hs)
         if hasattr(self, 'h2v'):
-            os = F.log_softmax(os, dim=-1)
             vs = self.h2v(hs)
             return (os, vs), hs, saved_states
         else:
