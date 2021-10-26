@@ -186,7 +186,7 @@ if __name__ == "__main__":
                 # entropy_loss = m.entropy()
                 # # advantage = (advantage-advantage.mean())/(advantage.std()+1e-8)
                 # loss = - (m.log_prob(action)*advantage).mean() + args.beta_v*value_loss.mean() - args.beta_entropy*entropy_loss.mean()
-                loss = F.cross_entropy(log_p, prob_s>0.5)
+                loss = F.cross_entropy(log_p, (prob_s>0.5).int())
             
             loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             (loss/args.grad_accumulation_steps).backward()
