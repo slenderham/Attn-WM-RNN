@@ -223,7 +223,7 @@ if __name__ == "__main__":
                     log_p = log_p[:, output_mask['target'].squeeze()==1][:, -1]
                     action = torch.argmax(log_p, dim=-1)
                     rwd_go = (prob_s>0.5).reshape(args.stim_val**args.stim_dim*args.test_N_s, 1).long()
-                    loss = (rwd_go==action).float().mean(1)
+                    loss = (rwd_go==action).float()
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
             losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
