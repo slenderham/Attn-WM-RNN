@@ -55,7 +55,7 @@ if __name__ == "__main__":
     parser.add_argument('--l1r', type=float, default=0.0, help='Weight for L1 reg on firing rate')
     parser.add_argument('--l1w', type=float, default=0.0, help='Weight for L1 reg on weight')
     parser.add_argument('--beta_v', type=float, default=0.5, help='Weight for value estimation loss')
-    parser.add_argument('--beta_entropy', type=float, default=0.0001, help='Weight for entropy regularization')
+    parser.add_argument('--beta_entropy', type=float, default=0.01, help='Weight for entropy regularization')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
     parser.add_argument('--attn_type', type=str, choices=['none', 'bias', 'weight', 'sample'], 
@@ -174,18 +174,19 @@ if __name__ == "__main__":
                 log_p, value = output
                 conj_mask = output_mask['target'].squeeze()==1
                 log_p = log_p.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size, 2)
-                log_p = log_p[:, conj_mask]
+                log_p = log_p[:, conj_mask][:, -1]
                 value = value.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
                 value = value[:, conj_mask]
-                m = torch.distributions.categorical.Categorical(logits=log_p)
-                action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, conj_mask.sum().int(), args.batch_size)
-                rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size).int()
-                rwd = ((rwd_go==action).float())
-                advantage = (rwd-value).detach()
-                value_loss = (rwd-value).pow(2)
-                entropy_loss = m.entropy()
-                # advantage = (advantage-advantage.mean())/(advantage.std()+1)
-                loss = - (m.log_prob(action)*advantage).mean() + args.beta_v*value_loss.mean() - args.beta_entropy*entropy_loss.mean()
+                # m = torch.distributions.categorical.Categorical(logits=log_p)
+                # action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, conj_mask.sum().int(), args.batch_size)
+                # rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size).int()
+                # rwd = ((rwd_go==action).float())
+                # advantage = (rwd-value).detach()
+                # value_loss = (rwd-value).pow(2)
+                # entropy_loss = m.entropy()
+                # # advantage = (advantage-advantage.mean())/(advantage.std()+1e-8)
+                # loss = - (m.log_prob(action)*advantage).mean() + args.beta_v*value_loss.mean() - args.beta_entropy*entropy_loss.mean()
+                loss = F.cross_entropy(log_p, prob_s>0.5)
             
             loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             (loss/args.grad_accumulation_steps).backward()
@@ -198,7 +199,7 @@ if __name__ == "__main__":
                 if torch.isnan(loss):
                     quit()
                 pbar.set_description('Iteration {} Loss: {:.6f}'.format(
-                    batch_idx, loss.item() if 'policy' not in args.task_type else rwd.mean().item()))
+                    batch_idx, loss.item()))
                 pbar.refresh()
                 
             pbar.update()
@@ -218,9 +219,9 @@ if __name__ == "__main__":
                 else:
                     log_p, _ = output
                     log_p = log_p.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask['target'].shape[1], 1, 2)
-                    log_p = log_p[:, output_mask['target'].squeeze()==1]
+                    log_p = log_p[:, output_mask['target'].squeeze()==1][:, -1]
                     action = torch.argmax(log_p, dim=-1)
-                    rwd_go = (prob_s>0.5).reshape(args.stim_val**args.stim_dim*args.test_N_s, 1, 1).int()
+                    rwd_go = (prob_s>0.5).reshape(args.stim_val**args.stim_dim*args.test_N_s, 1).int()
                     loss = (rwd_go==action).float().mean(1)
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
