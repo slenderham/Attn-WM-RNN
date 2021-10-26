@@ -151,7 +151,7 @@ if __name__ == "__main__":
                    'value_est': 'policy' in args.task_type}
     
     model = SimpleRNN(**model_specs)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-5 if ('policy' in args.task_type) else 1e-8)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     print(model)
     for n, p in model.named_parameters():
         print(n, p.numel())
@@ -222,7 +222,7 @@ if __name__ == "__main__":
                     m = torch.distributions.categorical.Categorical(logits=log_p)
                     action = m.sample().reshape(args.stim_val**args.stim_dim*args.test_N_s, log_p.shape[1], 1)
                     rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.test_N_s, 1, 1).int()
-                    loss = (1-(rwd_go==action).float()).mean(1)
+                    loss = (rwd_go==action).float().mean(1)
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
             losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
