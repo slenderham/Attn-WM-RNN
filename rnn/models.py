@@ -326,7 +326,7 @@ class SimpleRNN(nn.Module):
         if self.in_coords is None:
             print(self.kappa_w[0:3].tolist())
         else:
-            print(self.kappa_w[0:len(self.input_unit_group):2].abs().tolist())
+            print(self.kappa_w[0:len(self.input_unit_group)].abs().tolist())
         
         print('Recurrent weight kappa: ')
         if self.rec_coords is None:
