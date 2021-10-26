@@ -168,7 +168,8 @@ class SimpleRNN(nn.Module):
                 input_unit_group.insert(0, 0)
                 group_start = np.cumsum(input_unit_group)
                 for i in range(len(group_start)-1):
-                    self.in_coords.append([0, self.hidden_size, group_start[i], group_start[i+1]])
+                    self.in_coords.append([0, self.h2h.e_size, group_start[i], group_start[i+1]])
+                    self.in_coords.append([self.h2h.e_size, self.hidden_size, group_start[i], group_start[i+1]])
                 self.input_unit_group = input_unit_group[1:]
                 kappa_count = len(self.rec_coords) + len(self.in_coords)
             else:
@@ -260,7 +261,7 @@ class SimpleRNN(nn.Module):
             if self.in_coords is not None and self.rec_coords is not None:
                 wx = wx*self.oneminusalpha_w + self.x2h.pos_func(self.x2h.weight).unsqueeze(0)*self.alpha_w \
                     + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, x), \
-                        self.kappa_w[0:len(self.input_unit_group)].abs(), self.in_coords))
+                        self.kappa_w[0:2*len(self.input_unit_group)].abs(), self.in_coords))
                 if self._sigma_w>0:
                     wx += self._sigma_w * torch.randn_like(wx)
                 wx = torch.clamp(wx, 0, self.weight_bound)
@@ -268,7 +269,7 @@ class SimpleRNN(nn.Module):
                 # wx = torch.minimum(wx, self.weight_bound-self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
                 wh = wh*self.oneminusalpha_w + self.h2h.pos_func(self.h2h.weight).unsqueeze(0)*self.alpha_w \
                     + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, output), \
-                        self.kappa_w[len(self.input_unit_group):len(self.input_unit_group)+4].abs(), self.rec_coords))
+                        self.kappa_w[2*len(self.input_unit_group):2*len(self.input_unit_group)+4].abs(), self.rec_coords))
                 if self._sigma_w>0:
                     wh += self._sigma_w * torch.randn_like(wh)
                 wh = torch.clamp(wh, 0, self.weight_bound)
@@ -277,7 +278,7 @@ class SimpleRNN(nn.Module):
                 if self.plastic_feedback:
                     wattn = wattn*self.oneminusalpha_w + self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0)*self.alpha_w \
                         + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', attn, output), \
-                            self.kappa_w[len(self.input_unit_group)+4:2*len(self.input_unit_group)+4].abs(), self.fb_coords))
+                            self.kappa_w[2*len(self.input_unit_group)+4:3*len(self.input_unit_group)+4].abs(), self.fb_coords))
                     if self._sigma_w>0:
                         wattn += self._sigma_w * torch.randn_like(wattn)
                     wattn = torch.clamp(wattn, 0, self.weight_bound)
@@ -326,13 +327,16 @@ class SimpleRNN(nn.Module):
         if self.in_coords is None:
             print(self.kappa_w[0:3].tolist())
         else:
-            print(self.kappa_w[0:len(self.input_unit_group)].abs().tolist())
+            print (f'Input->E: ', end='')
+            print(self.kappa_w[0:2*len(self.input_unit_group):2].abs().tolist())
+            print (f'Input->I: ', end='')
+            print(self.kappa_w[1:2*len(self.input_unit_group):2].abs().tolist())
         
         print('Recurrent weight kappa: ')
         if self.rec_coords is None:
             print(self.kappa_w[3:6].tolist())
         else:
-            s = len(self.input_unit_group)
+            s = 2*len(self.input_unit_group)
             print (f'E->E: ', end='')
             print(self.kappa_w[s].abs().item(), end=', ')
             print (f'I->E: ', end='')
@@ -347,7 +351,7 @@ class SimpleRNN(nn.Module):
             if self.fb_coords is None:
                 print(self.kappa_w[6:9].tolist())
             else:
-                s = len(self.input_unit_group)+4
+                s = 2*len(self.input_unit_group)+4
                 print (f'E->Attn: ', end='')
                 print(self.kappa_w[s:s+3].abs().tolist())
         
