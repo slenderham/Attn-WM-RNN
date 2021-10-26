@@ -142,10 +142,10 @@ class SimpleRNN(nn.Module):
             assert(attn_group_size is not None)
             if attention_type=='weight':
                 self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, \
-                                          e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=1)
+                                          e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.5)
             elif attention_type=='sample':
                 self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, \
-                                          e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=1)
+                                          e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.5)
             self.attn_group_size = torch.LongTensor(attn_group_size)
         else:
             self.attn_func = None
