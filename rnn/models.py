@@ -107,7 +107,7 @@ class SimpleRNN(nn.Module):
                             init_spectral=init_spectral, balance_ei=balance_ei)
         if value_est:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
-                            e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=1)
+                            e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=1)
             self.h2v = EILinear(hidden_size, 1, remove_diag=False, pos_function='relu',
                             e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=1)
         else:
@@ -391,6 +391,7 @@ class SimpleRNN(nn.Module):
             saved_states['attns'].append(attns)
         os = self.h2o(hs)
         if hasattr(self, 'h2v'):
+            os = torch.log(torch.tanh(torch.relu(os)))
             vs = self.h2v(hs)
             return (os, vs), hs, saved_states
         else:

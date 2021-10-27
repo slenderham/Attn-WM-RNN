@@ -142,7 +142,7 @@ if __name__ == "__main__":
     else:
         assert(sum(attn_group_size)==input_size-2)
 
-    model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1 if args.task_type=='value' else 2, 
+    model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1, 
                    'plastic': args.plas_type=='all', 'attention_type': args.attn_type, 'activation': args.activ_func,
                    'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
                    'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
@@ -171,24 +171,21 @@ if __name__ == "__main__":
             if args.task_type=='value':
                 loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean()
             elif args.task_type=='off_policy':
-                log_p, _ = output
+                log_p, value = output
                 conj_mask = output_mask['target'].squeeze()==1
-                log_p = log_p.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size, 2)
+                log_p = log_p.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
                 log_p = log_p[:, conj_mask]
-                # value = value.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
-                # value = value[:, conj_mask]
-                # m = torch.distributions.categorical.Categorical(logits=log_p)
-                # action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, conj_mask.sum().int(), args.batch_size)
-                # rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size).int()
-                # rwd = ((rwd_go==action).float())
-                # advantage = (rwd-value).detach()
-                # value_loss = (rwd-value).pow(2)
-                # entropy_loss = m.entropy()
+                value = value.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
+                value = value[:, conj_mask]
+                m = torch.distributions.bernoulli.Bernoulli(logits=log_p)
+                action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, conj_mask.sum().int(), args.batch_size)
+                rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size).int()
+                rwd = ((rwd_go==action).float())
+                advantage = (rwd-value).detach()
+                value_loss = (rwd-value).pow(2)
+                entropy_loss = m.entropy()
                 # advantage = (advantage-advantage.mean())/(advantage.std()+1e-8)
-                # loss = - (m.log_prob(action)*advantage).mean() + args.beta_v*value_loss.mean() - args.beta_entropy*entropy_loss.mean()
-                targets = (prob_s>0.5).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size).long()
-                targets = targets.repeat(1, log_p.shape[1], 1)
-                loss = F.cross_entropy(log_p.flatten(0, 2), targets.flatten())
+                loss = - (m.log_prob(action)*advantage).mean() + args.beta_v*value_loss.mean() - args.beta_entropy*entropy_loss.mean()
             
             loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             (loss/args.grad_accumulation_steps).backward()
@@ -201,7 +198,7 @@ if __name__ == "__main__":
                 if torch.isnan(loss):
                     quit()
                 pbar.set_description('Iteration {} Loss: {:.6f}'.format(
-                    batch_idx, loss.item()))
+                    batch_idx, loss.item() if 'policy' not in args.task_type else rwd.mean().item()))
                 pbar.refresh()
                 
             pbar.update()
