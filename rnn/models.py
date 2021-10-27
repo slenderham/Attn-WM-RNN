@@ -90,7 +90,7 @@ class EILinear(nn.Module):
 class SimpleRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, attention_type='weight',
                 attn_group_size=None, plastic=True, plastic_feedback=True, activation='retanh', 
-                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=10.0, c_plasticity=None, train_init_state=False,
+                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, c_plasticity=None, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=None, 
                 balance_ei=False, rwd_input=False, sep_lr=True, input_unit_group=None, value_est=True, **kwargs):
         super().__init__()
@@ -231,7 +231,7 @@ class SimpleRNN(nn.Module):
             state, output = h
         
         if self.attention_type=='weight':
-            attn = F.softmax(self.attn_func(output, wattn), -1) * len(self.attn_group_size)
+            attn = F.softmax(self.attn_func(output, wattn), -1)
             attn_expand = torch.repeat_interleave(attn, self.attn_group_size, dim=-1)
         elif self.attention_type=='sample':
             attn = F.gumbel_softmax(self.attn_func(output, wattn), hard=True, dim=-1)
@@ -243,11 +243,10 @@ class SimpleRNN(nn.Module):
         if self.attention_type=='weight' or self.attention_type=='sample':
             x = torch.relu(x + self._sigma_in * torch.randn_like(x)) * attn_expand
         else:
-            x = torch.relu(x + self._sigma_in * torch.randn_like(x))
+            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) / len(self.attn_group_size)
 
         if self.rwd_input:
             x = torch.cat([x, (R!=0)*(R+1)/2 + self._sigma_in * torch.randn_like(R), (R!=0)*(1-R)/2 + self._sigma_in * torch.randn_like(R)], -1)
-            wx[:,:,-2:] = self.x2h.pos_func(self.x2h.weight).unsqueeze(0)[:,:,-2:]
 
         if self.plastic:
             total_input = self.x2h(x, wx) + self.h2h(output, wh)
@@ -302,7 +301,7 @@ class SimpleRNN(nn.Module):
                 if self.plastic_feedback:
                     wattn = wattn*self.oneminusalpha_w + self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0)*self.alpha_w + self.dt*R*(
                         self.kappa_w[6]*torch.reshape(output, (batch_size, 1, self.hidden_size)) +
-                        self.kappa_w[7]*torch.reshape(attn*len(self.attn_group_size), (batch_size, len(self.attn_group_size), 1)) +
+                        self.kappa_w[7]*torch.reshape(attn, (batch_size, len(self.attn_group_size), 1)) +
                         self.kappa_w[8]*torch.einsum('bi, bj->bij', attn*len(self.attn_group_size), output))
                     if self._sigma_w>0:
                         wattn += self._sigma_w * torch.randn_like(wattn)
