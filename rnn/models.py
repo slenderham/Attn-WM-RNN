@@ -273,7 +273,8 @@ class SimpleRNN(nn.Module):
                 if self._sigma_w>0:
                     wh += self._sigma_w * torch.randn_like(wh)
                 # wh = torch.clamp(wh, 0, self.weight_bound)
-                wh = torch.cat([F.normalize(wh[:,:,:self.h2h.e_size], p=1, dim=-1), wh[:,:,self.h2h.e_size:]], dim=-1)
+                wh = torch.cat([torch.cat([F.normalize(wh[:, :self.h2h.e_size, :self.h2h.e_size], p=1, dim=-1),
+                               wh[:, :self.h2h.e_size, self.h2h.e_size:]], dim=-1), wh[:, self.h2h.e_size:, :]], dim=-2)
                 # wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
                 # wh = torch.minimum(wh, self.weight_bound-self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
                 if self.plastic_feedback:
