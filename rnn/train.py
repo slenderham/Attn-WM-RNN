@@ -217,9 +217,9 @@ if __name__ == "__main__":
                     loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
                 else:
                     log_p, _ = output
-                    log_p = log_p.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask['target'].shape[1], 1, 2)
+                    log_p = log_p.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask['target'].shape[1], 1)
                     log_p = log_p[:, output_mask['target'].squeeze()==1]
-                    action = torch.argmax(log_p, dim=-1)
+                    action = log_p>0
                     rwd_go = (prob_s>0.5).reshape(args.stim_val**args.stim_dim*args.test_N_s, 1, 1).int()
                     loss = (rwd_go==action).float().mean(1)
                 losses.append(loss)
