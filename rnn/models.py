@@ -282,7 +282,7 @@ class SimpleRNN(nn.Module):
                             self.kappa_w[2*len(self.input_unit_group)+4:3*len(self.input_unit_group)+4].abs(), self.fb_coords))
                     if self._sigma_w>0:
                         wattn += self._sigma_w * torch.randn_like(wattn)
-                    wh[:,:self.attn_func.e_size] = F.normalize(wh[:,:self.attn_func.e_size], p=1, dim=-1)
+                    wattn[:,:self.attn_func.e_size] = F.normalize(wattn[:,:self.attn_func.e_size], p=1, dim=-1)
                     # wattn = torch.clamp(wattn, 0, self.weight_bound)
                     # wattn = torch.maximum(wattn, -self.attn_func.pos_func(self.attn_func.weight).detach().unsqueeze(0))
                     # wattn = torch.minimum(wattn, self.weight_bound-self.h2h.pos_func(self.attn_func.weight).detach().unsqueeze(0))
