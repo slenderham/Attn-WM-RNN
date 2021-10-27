@@ -187,7 +187,7 @@ if __name__ == "__main__":
                 # advantage = (advantage-advantage.mean())/(advantage.std()+1e-8)
                 # loss = - (m.log_prob(action)*advantage).mean() + args.beta_v*value_loss.mean() - args.beta_entropy*entropy_loss.mean()
                 targets = (prob_s>0.5).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size).long()
-                targets = targets.repeat(1, output_mask['target'].shape[1], 1)
+                targets = targets.repeat(1, log_p.shape[1], 1)
                 loss = F.cross_entropy(log_p.flatten(0, 2), targets.flatten())
             
             loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
