@@ -171,13 +171,13 @@ if __name__ == "__main__":
             if args.task_type=='value':
                 loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean()
             elif args.task_type=='off_policy':
-                log_p, value = output
+                p_choose, value = output
                 conj_mask = output_mask['target'].squeeze()==1
-                log_p = log_p.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
-                log_p = log_p[:, conj_mask]
+                p_choose = p_choose.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
+                p_choose = p_choose[:, conj_mask]
                 value = value.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
                 value = value[:, conj_mask]
-                m = torch.distributions.bernoulli.Bernoulli(logits=log_p)
+                m = torch.distributions.bernoulli.Bernoulli(probs=p_choose)
                 action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, conj_mask.sum().int(), args.batch_size)
                 rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size).int()
                 rwd = ((rwd_go==action).float())
@@ -216,10 +216,10 @@ if __name__ == "__main__":
                     output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], 1) # trial X T X batch size
                     loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
                 else:
-                    log_p, _ = output
-                    log_p = log_p.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask['target'].shape[1], 1)
-                    log_p = log_p[:, output_mask['target'].squeeze()==1]
-                    action = log_p>0
+                    p_choose, _ = output
+                    p_choose = p_choose.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask['target'].shape[1], 1)
+                    p_choose = p_choose[:, output_mask['target'].squeeze()==1]
+                    action = p_choose>0.5
                     rwd_go = (prob_s>0.5).reshape(args.stim_val**args.stim_dim*args.test_N_s, 1, 1).int()
                     loss = (rwd_go==action).float().mean(1)
                 losses.append(loss)

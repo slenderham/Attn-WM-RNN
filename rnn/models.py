@@ -391,7 +391,7 @@ class SimpleRNN(nn.Module):
             saved_states['attns'].append(attns)
         os = self.h2o(hs)
         if hasattr(self, 'h2v'):
-            os = torch.log(torch.tanh(torch.relu(os)))
+            os = torch.tanh(torch.relu(os))
             vs = self.h2v(hs)
             return (os, vs), hs, saved_states
         else:
