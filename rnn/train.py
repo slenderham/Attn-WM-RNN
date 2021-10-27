@@ -201,7 +201,7 @@ if __name__ == "__main__":
                 if torch.isnan(loss):
                     quit()
                 pbar.set_description('Iteration {} Loss: {:.6f}'.format(
-                    batch_idx, loss.item() if 'policy' not in args.task_type else rwd.mean().item()))
+                    batch_idx, loss.item()))
                 pbar.refresh()
                 
             pbar.update()
