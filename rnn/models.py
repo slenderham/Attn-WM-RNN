@@ -258,7 +258,7 @@ class SimpleRNN(nn.Module):
         if self.plastic:
             R = R.unsqueeze(-1)
             if self.in_coords is not None and self.rec_coords is not None:
-                wx += -(wx-self.x2h.pos_func(self.x2h.weight).unsqueeze(0))*new_output.unsqueeze(1)*self.alpha_w \
+                wx += -(wx-self.x2h.pos_func(self.x2h.weight).unsqueeze(0))*new_output.unsqueeze(2)*self.alpha_w \
                     + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, x), \
                         self.kappa_w[0:2*len(self.input_unit_group)].abs(), self.in_coords))
                 if self._sigma_w>0:
@@ -266,7 +266,7 @@ class SimpleRNN(nn.Module):
                 wx = torch.clamp(wx, 0, self.weight_bound)
                 # wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
                 # wx = torch.minimum(wx, self.weight_bound-self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
-                wh += - (wh-self.h2h.pos_func(self.h2h.weight).unsqueeze(0))*new_output.unsqueeze(1)*self.alpha_w \
+                wh += - (wh-self.h2h.pos_func(self.h2h.weight).unsqueeze(0))*new_output.unsqueeze(2)*self.alpha_w \
                     + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, output), \
                         self.kappa_w[2*len(self.input_unit_group):2*len(self.input_unit_group)+4].abs(), self.rec_coords))
                 if self._sigma_w>0:
@@ -275,7 +275,7 @@ class SimpleRNN(nn.Module):
                 # wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
                 # wh = torch.minimum(wh, self.weight_bound-self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
                 if self.plastic_feedback:
-                    wattn += - (wattn-self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0))*attn.unsqueeze(1)*self.alpha_w \
+                    wattn += - (wattn-self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0))*attn.unsqueeze(2)*self.alpha_w \
                         + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', attn, output), \
                             self.kappa_w[2*len(self.input_unit_group)+4:3*len(self.input_unit_group)+4].abs(), self.fb_coords))
                     if self._sigma_w>0:
