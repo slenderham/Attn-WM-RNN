@@ -151,7 +151,7 @@ if __name__ == "__main__":
                    'value_est': 'policy' in args.task_type}
     
     model = SimpleRNN(**model_specs)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-5 if 'policy' in args.task_type else 1e-8)
     print(model)
     for n, p in model.named_parameters():
         print(n, p.numel())
