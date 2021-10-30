@@ -234,4 +234,4 @@ class MDPRL():
             torch.from_numpy(prob_index[:, index_s]).t(), output_mask
 
     def generateinputfromexp(self, batch_size, test_N_s):
-        return self.generateinput(batch_size, test_N_s, self.prob_mdprl, scramble=False)
+        return self.generateinput(batch_size, test_N_s, self.prob_mdprl+1e-5*np.random.randn(self.prob_mdprl.shape), scramble=False)
