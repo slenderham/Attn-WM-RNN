@@ -5,6 +5,31 @@ from matplotlib import pyplot as plt
 # TODO: Add reversal functionality
 # TODO: support different dimensions and stim values
 
+class RolloutBuffer:
+    def __init__(self):
+        self.actions = []
+        self.logprobs = []
+        self.rewards = []
+        self.values = []
+    
+    def clear(self):
+        del self.actions[:]
+        del self.logprobs[:]
+        del self.rewards[:]
+        del self.values[:]
+    
+    def convert2torch(self):
+        return {'action': torch.stack(self.actions, dim=0),
+                'logprobs': torch.stack(self.logprobs, dim=0),
+                'rewards': torch.stack(self.rewards, dim=0),
+                'values': torch.stack(self.values, dim=0)}
+    
+    def append(self, a, log_p, r, v):
+        self.actions.append(a)
+        self.logprobs.append(log_p)
+        self.rewards.append(r)
+        self.values.append(v)
+
 class MDPRL():
     def __init__(self, times, input_type, task):
         self.prob_mdprl = np.zeros((1, 3, 3, 3))
@@ -33,6 +58,10 @@ class MDPRL():
 
         self.T = T
         self.s = s
+        self.times = times
+
+        assert(task in ['value', 'off_policy_single', 'on_policy_single', 'on_policy_double'])
+        self.task = task
 
         assert(input_type in ['feat', 'feat+conj', 'feat+conj+obj']), 'invalid input type'
         if input_type=='feat':
@@ -101,13 +130,63 @@ class MDPRL():
         self.pop_s = pop_s
         self.pop_o = pop_o
 
-        assert(task in ['value', 'off_policy', 'on_policy'])
-        self.task = task
-
     def _generate_rand_prob(self, batch_size):
         return np.random.rand(batch_size, 3, 3, 3)
 
     def generateinput(self, batch_size, N_s, prob_index=None, scramble=True):
+        if self.task=='value' or 'single' in self.task:
+            return self.generateinput_single(batch_size, N_s, prob_index, scramble)
+        else:
+            return self.generateinput_double(batch_size, N_s, prob_index)
+
+    def generateinput_double(self, batch_size, N_s, prob_index=None):
+        '''
+        Generate random stimuli AND choice for learning
+        '''
+        if prob_index is not None:
+            assert(len(prob_index.shape)==4 and prob_index.shape[1:] == (3, 3, 3))
+        else:
+            prob_index = self._generate_rand_prob(batch_size)
+
+        batch_size = prob_index.shape[0]
+
+        prob_index = np.reshape(prob_index, (batch_size, 27))
+
+        index_s = np.repeat(np.arange(0,27,1), N_s)
+        index_s_1 = np.random.permutation(index_s)
+        index_s_2 = np.random.permutation(index_s)
+
+        pop_s = np.zeros((len(index_s), len(self.T), batch_size, 2, 63))
+        ch_s = np.zeros((len(index_s), len(self.T), batch_size, 2))
+        prob_s = np.stack([prob_index[:, index_s_1], prob_index[:, index_s_2]], axis=-1)
+
+        for i in range(batch_size):
+            pop_s[:,:,i,0,:] = self.pop_s[index_s_1,:,:]
+            pop_s[:,:,i,1,:] = self.pop_s[index_s_2,:,:]
+            ch_s[:,:,i,0] = self.filter_ch*prob_index[i, index_s_1].reshape((27*N_s,1))
+            ch_s[:,:,i,1] = self.filter_ch*prob_index[i, index_s_2].reshape((27*N_s,1))
+
+        DA_s = self.filter_da.reshape((len(self.T),1,1))
+
+        output_mask = {'fixation': torch.from_numpy((self.T<0.0*self.s)).reshape(1, len(self.T), 1), \
+                        'target': torch.from_numpy(self.T_ch).reshape(1, len(self.T), 1)}
+
+        pop_s = pop_s[:,:,:,:,self.input_indexes]
+        pop_s = {
+            'pre_choice': torch.from_numpy(pop_s[:, self.T <= self.times['choice_end']*self.s]).float(),
+            'post_choice': torch.from_numpy(pop_s[:, self.T > self.times['choice_end']*self.s]).float()
+        }
+
+        DA_s = {
+            'pre_choice': torch.from_numpy(DA_s[self.T <= self.times['choice_end']*self.s]).float(),
+            'post_choice': torch.from_numpy(DA_s[self.T > self.times['choice_end']*self.s]).float()
+        }
+
+        return DA_s, torch.from_numpy(ch_s).float(), pop_s, \
+               torch.stack([torch.from_numpy(index_s), torch.from_numpy(index_s)], dim=-1), \
+               torch.from_numpy(prob_s).transpose(0, 1), output_mask
+
+    def generateinput_single(self, batch_size, N_s, prob_index=None, scramble=True):
         '''
         Generate random stimuli AND choice for learning
         '''
@@ -126,15 +205,12 @@ class MDPRL():
         else:
             index_s = np.tile(np.arange(0,27,1), N_s)
 
-        pop_o = np.zeros((len(index_s), len(self.T), batch_size, 27))
         pop_s = np.zeros((len(index_s), len(self.T), batch_size, 63))
         ch_s = np.zeros((len(index_s), len(self.T), batch_size, 1))
-        DA_s = np.zeros((len(index_s), len(self.T), batch_size, 1))
         R = np.zeros((len(index_s), batch_size))
 
         for i in range(batch_size):
             pop_s[:,:,i,:] = self.pop_s[index_s,:,:]
-            pop_o[:,:,i,:] = self.pop_o[index_s,:,:]
             if self.task=='on_policy':
                 R[:,i] = np.ones(1, prob_index[i, index_s]) 
                 # if on_policy learning, return the mask and decide actual reward during simulation
@@ -146,7 +222,6 @@ class MDPRL():
         DA_s = DA_s.reshape((len(self.T)*len(index_s), batch_size, 1))
         # ch_s = ch_s.reshape((len(self.T)*len(index_s), batch_size, 1))
         pop_s = pop_s.reshape((len(self.T)*len(index_s), batch_size, 63))
-        pop_o = pop_o.reshape((len(self.T)*len(index_s), batch_size, 27))
 
         if self.task=='value':
             output_mask = torch.from_numpy(1.5*(self.T<0.0*self.s) + self.T_ch).reshape(1, len(self.T), 1)

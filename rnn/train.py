@@ -20,8 +20,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
 
-from models import SimpleRNN
-from task import MDPRL
+from models import SimpleRNN, MultiChoiceRNN
+from task import MDPRL, RolloutBuffer
 
 from matplotlib import pyplot as plt
 
@@ -62,15 +62,15 @@ if __name__ == "__main__":
                         default='weight', help='Type of attn. None, additive feedback, multiplicative weighing, gumbel-max sample')
     parser.add_argument('--sep_lr', action='store_true', help='Use different lr between diff type of units')
     parser.add_argument('--plastic_feedback', action='store_true', help='Plastic feedback weights')
-    parser.add_argument('--task_type', type=str, choices=['value', 'off_policy', 'on_policy'],
+    parser.add_argument('--task_type', type=str, choices=['value', 'off_policy_single', 'on_policy_double'],
                         help='Learn reward prob or RL. On policy if decision determines. On policy if decision determines rwd. Off policy if rwd sampled from random policy.')
     parser.add_argument('--rwd_input', action='store_true', help='Whether to use reward as input')
+    parser.add_argument('--action_input', action='store_true', help='Whether to use action as input')
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
     parser.add_argument('--seed', type=int, help='Random seed')
     parser.add_argument('--save_checkpoint', action='store_true', help='Whether to save the trained model')
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to load the trained model')
-    parser.add_argument('--truncate', action='store_true', help='Truncate gradient for neuronal state (not weight) between trials')
     parser.add_argument('--cuda', action='store_true', help='Enables CUDA training')
 
     args = parser.parse_args()
@@ -118,8 +118,6 @@ if __name__ == "__main__":
         'feat+conj+obj': args.stim_dim*args.stim_val+args.stim_dim*args.stim_val*args.stim_val+args.stim_val**args.stim_dim,
     }[args.input_type]
 
-    if args.rwd_input:
-        input_size += 2
 
     input_unit_group = {
         'feat': [args.stim_dim*args.stim_val], 
@@ -136,21 +134,22 @@ if __name__ == "__main__":
             attn_group_size = [args.stim_val]*args.stim_dim + [args.stim_val*args.stim_val]*args.stim_dim + [args.stim_val**args.stim_dim]
     else:
         attn_group_size = [input_size]
-    
-    if not args.rwd_input:
-        assert(sum(attn_group_size)==input_size)
-    else:
-        assert(sum(attn_group_size)==input_size-2)
 
-    model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': 1, 
+    output_size = 1 if args.task_type=='value' else 2
+
+    model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': output_size, 
                    'plastic': args.plas_type=='all', 'attention_type': args.attn_type, 'activation': args.activ_func,
                    'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
                    'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
-                   'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 'rwd_input': args.rwd_input,
+                   'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 
+                   'rwd_input': args.rwd_input, 'action_input': args.action_input,
                    'input_unit_group': input_unit_group, 'sep_lr': args.sep_lr, 'plastic_feedback': args.plastic_feedback,
-                   'value_est': 'policy' in args.task_type}
+                   'value_est': 'policy' in args.task_type, 'num_choices': 2 if 'double' in args.task_type else 1}
     
-    model = SimpleRNN(**model_specs)
+    if 'double' in args.task_type:
+        model = MultiChoiceRNN(**model_specs)
+    else:
+        model = SimpleRNN(**model_specs)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-5 if 'policy' in args.task_type else 1e-8)
     print(model)
     for n, p in model.named_parameters():
@@ -167,27 +166,39 @@ if __name__ == "__main__":
         optimizer.zero_grad()
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(args.batch_size, args.N_s)
-            output, hs, _ = model(pop_s, DA_s)
             if args.task_type=='value':
-                loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean()
-            elif args.task_type=='off_policy':
-                p_choose, value = output
-                conj_mask = output_mask['target'].squeeze()==1
-                p_choose = p_choose.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
-                p_choose = p_choose[:, conj_mask]
-                value = value.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask['target'].shape[1], args.batch_size)
-                value = value[:, conj_mask]
-                m = torch.distributions.bernoulli.Bernoulli(probs=p_choose)
-                action = m.sample().reshape(args.stim_val**args.stim_dim*args.N_s, conj_mask.sum().int(), args.batch_size)
-                rwd_go = (torch.rand_like(prob_s)<prob_s).reshape(args.stim_val**args.stim_dim*args.N_s, 1, args.batch_size).int()
-                rwd = ((rwd_go==action).float())
-                advantage = (rwd-value).detach()
-                value_loss = (rwd-value).pow(2)
-                entropy_loss = m.entropy()
-                # advantage = (advantage-advantage.mean())/(advantage.std()+1e-8)
-                loss = - (m.log_prob(action)*advantage).mean() + args.beta_v*value_loss.mean() - args.beta_entropy*entropy_loss.mean()
+                output, hs, _ = model(pop_s, DA_s)
+                loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean() \
+                        + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
+            elif args.task_type=='on_policy_double':
+                loss = 0
+                for i in range(len(pop_s['pre_choice'])):
+                    # first phase, give stimuli and no feedback
+                    output, hs, _ = model(pop_s['pre_choice'][i], Rs=0*DA_s['pre_choice'],
+                                          acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
+
+                    # use output to calculate action, reward, and record loss function
+                    logprob, value = output
+                    m = torch.distributions.categorical.Categorical(logits=logprob[-1])
+                    action = m.sample().reshape(args.batch_size)
+                    rwd = (torch.rand(args.batch_size)>prob_s[i][range(args.batch_size), action]).float()
+                    advantage = (rwd-value[-1])
+                    loss += - (m.log_prob(action)*advantage.detach()).mean() \
+                            + args.beta_v*advantage.pow(2).mean() - args.beta_entropy*m.entropy().mean() \
+                            +args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
+                    
+                    # use the action (optional) and reward as feedback
+                    if args.action_input:
+                        action_enc = torch.eye(output_size)[action]
+                        print(action)
+                        print(action_enc)
+                        action_enc = action_enc*DA_s['post_choice']
+                    else:
+                        action_enc = None
+                    R = (rwd*2-1)*DA_s['post_choice']
+                    _, hs, _ = model(pop_s['post_choice'][i], Rs=R, acts=action_enc)
+                    loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             
-            loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             (loss/args.grad_accumulation_steps).backward()
             if (batch_idx+1) % args.grad_accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
