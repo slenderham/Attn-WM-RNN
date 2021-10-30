@@ -226,7 +226,7 @@ if __name__ == "__main__":
                     output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], 1) # trial X T X batch size
                     loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
                 else:
-                    loss = 0
+                    loss = []
                     hidden = None
                     for i in range(len(pop_s['pre_choice'])):
                         # first phase, give stimuli and no feedback
@@ -238,7 +238,7 @@ if __name__ == "__main__":
                         m = torch.distributions.categorical.Categorical(logits=logprob[-1])
                         action = m.sample().reshape(args.batch_size)
                         rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
-                        loss += (torch.argmax(action, -1)==torch.argmax(prob_s[i], -1))/(args.stim_val**args.stim_dim*args.N_s)
+                        loss.append((torch.argmax(action, -1)==torch.argmax(prob_s[i], -1)))
                         
                         # use the action (optional) and reward as feedback
                         if args.action_input:
@@ -248,6 +248,7 @@ if __name__ == "__main__":
                             action_enc = None
                         R = (rwd*2-1)*DA_s['post_choice']
                         _, hs, hidden, _ = model(pop_s['post_choice'][i], hidden=hidden, Rs=R, acts=action_enc)
+                    loss = torch.stack(loss, dim=0)
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
             losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
