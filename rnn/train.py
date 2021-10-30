@@ -238,7 +238,7 @@ if __name__ == "__main__":
                         m = torch.distributions.categorical.Categorical(logits=logprob[-1])
                         action = m.sample().reshape(args.batch_size)
                         rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
-                        loss.append((torch.argmax(action, -1)==torch.argmax(prob_s[i], -1)))
+                        loss.append((torch.argmax(action, -1)==torch.argmax(prob_s[i], -1)).float())
                         
                         # use the action (optional) and reward as feedback
                         if args.action_input:
