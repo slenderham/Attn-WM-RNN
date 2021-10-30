@@ -398,9 +398,9 @@ class MultiChoiceRNN(nn.Module):
         os = self.h2o(hs)
         if hasattr(self, 'h2v'):
             vs = self.h2v(hs)
-            return (os, vs), hs, saved_states
+            return (os, vs), hs, hidden, saved_states
         else:
-            return os, hs, saved_states
+            return os, hs, hidden, saved_states
 
 class SimpleRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, attention_type='weight',

@@ -167,14 +167,15 @@ if __name__ == "__main__":
         for batch_idx in range(iters):
             DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(args.batch_size, args.N_s)
             if args.task_type=='value':
-                output, hs, _ = model(pop_s, DA_s)
+                output, hs, _, _ = model(pop_s, DA_s)
                 loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean() \
                         + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             elif args.task_type=='on_policy_double':
                 loss = 0
+                hidden = None
                 for i in range(len(pop_s['pre_choice'])):
                     # first phase, give stimuli and no feedback
-                    output, hs, _ = model(pop_s['pre_choice'][i], Rs=0*DA_s['pre_choice'],
+                    output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, Rs=0*DA_s['pre_choice'],
                                           acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
 
                     # use output to calculate action, reward, and record loss function
@@ -194,7 +195,7 @@ if __name__ == "__main__":
                     else:
                         action_enc = None
                     R = (rwd*2-1)*DA_s['post_choice']
-                    _, hs, _ = model(pop_s['post_choice'][i], Rs=R, acts=action_enc)
+                    _, hs, _ = model(pop_s['post_choice'][i], hidden=hidden, Rs=R, acts=action_enc)
                     loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             
             (loss/args.grad_accumulation_steps).backward()
@@ -226,9 +227,10 @@ if __name__ == "__main__":
                     loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
                 else:
                     loss = 0
+                    hidden = None
                     for i in range(len(pop_s['pre_choice'])):
                         # first phase, give stimuli and no feedback
-                        output, hs, _ = model(pop_s['pre_choice'][i], Rs=0*DA_s['pre_choice'],
+                        output, hs, _ = model(pop_s['pre_choice'][i], hidden=hidden, Rs=0*DA_s['pre_choice'],
                                             acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
 
                         # use output to calculate action, reward, and record loss function
@@ -245,7 +247,7 @@ if __name__ == "__main__":
                         else:
                             action_enc = None
                         R = (rwd*2-1)*DA_s['post_choice']
-                        _, hs, _ = model(pop_s['post_choice'][i], Rs=R, acts=action_enc)
+                        _, hs, _ = model(pop_s['post_choice'][i], hidden=hidden, Rs=R, acts=action_enc)
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
             losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
