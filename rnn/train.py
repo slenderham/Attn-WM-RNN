@@ -184,7 +184,7 @@ if __name__ == "__main__":
                     m = torch.distributions.categorical.Categorical(logits=logprob[-1])
                     action = m.sample().reshape(args.batch_size)
                     rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
-                    rwds += rwd.mean().item()/range(len(pop_s['pre_choice']))
+                    rwds += rwd.mean().item()/len(pop_s['pre_choice'])
                     advantage = (rwd-value[-1])
                     loss += - (m.log_prob(action)*advantage.detach()).mean() \
                             + args.beta_v*advantage.pow(2).mean() - args.beta_entropy*m.entropy().mean() \
