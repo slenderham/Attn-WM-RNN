@@ -173,6 +173,7 @@ if __name__ == "__main__":
             elif args.task_type=='on_policy_double':
                 loss = 0
                 hidden = None
+                rwds = 0
                 for i in range(len(pop_s['pre_choice'])):
                     # first phase, give stimuli and no feedback
                     output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, Rs=0*DA_s['pre_choice'],
@@ -183,6 +184,7 @@ if __name__ == "__main__":
                     m = torch.distributions.categorical.Categorical(logits=logprob[-1])
                     action = m.sample().reshape(args.batch_size)
                     rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
+                    rwds += rwd.mean().item()/range(len(pop_s['pre_choice']))
                     advantage = (rwd-value[-1])
                     loss += - (m.log_prob(action)*advantage.detach()).mean() \
                             + args.beta_v*advantage.pow(2).mean() - args.beta_entropy*m.entropy().mean() \
@@ -208,7 +210,7 @@ if __name__ == "__main__":
                 if torch.isnan(loss):
                     quit()
                 pbar.set_description('Iteration {} Loss: {:.6f}'.format(
-                    batch_idx, loss.item() if 'policy' not in args.task_type else rwd.mean().item()))
+                    batch_idx, loss.item() if 'policy' not in args.task_type else rwds))
                 pbar.refresh()
                 
             pbar.update()
@@ -252,7 +254,7 @@ if __name__ == "__main__":
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
             losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
-            print('====> Epoch {} Eval Loss: {:.4f}'.format(epoch, losses_means[-args.stim_val**args.stim_dim:].mean()))
+            print('====> Epoch {} Eval Loss: {:.4f}'.format(epoch, losses_means.mean()))
             model.print_kappa()
             return losses_means, losses_stds
 
