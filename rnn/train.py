@@ -195,7 +195,7 @@ if __name__ == "__main__":
                     else:
                         action_enc = None
                     R = (rwd*2-1)*DA_s['post_choice']
-                    _, hs, _ = model(pop_s['post_choice'][i], hidden=hidden, Rs=R, acts=action_enc)
+                    _, hs, hidden, _ = model(pop_s['post_choice'][i], hidden=hidden, Rs=R, acts=action_enc)
                     loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             
             (loss/args.grad_accumulation_steps).backward()
@@ -247,7 +247,7 @@ if __name__ == "__main__":
                         else:
                             action_enc = None
                         R = (rwd*2-1)*DA_s['post_choice']
-                        _, hs, _ = model(pop_s['post_choice'][i], hidden=hidden, Rs=R, acts=action_enc)
+                        _, hs, hidden, _ = model(pop_s['post_choice'][i], hidden=hidden, Rs=R, acts=action_enc)
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
             losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
