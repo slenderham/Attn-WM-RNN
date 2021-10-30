@@ -209,11 +209,11 @@ class MultiChoiceRNN(nn.Module):
                 return (h_init, h_init.relu(),
                         [x2hi.pos_func(x2hi.weight).unsqueeze(0).repeat(batch_size, 1, 1) for x2hi in self.x2h], 
                         self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1),
-                        self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0).repeat(batch_size, 1, 1))
+                        self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0).repeat(batch_size, 1, 1), None)
             else:
                 return (h_init, h_init.relu(),
                         [x2hi.pos_func(x2hi.weight).unsqueeze(0).repeat(batch_size, 1, 1) for x2hi in self.x2h], 
-                        self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1))
+                        self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), None)
         else:
             return (h_init, h_init.relu())
 
@@ -239,9 +239,9 @@ class MultiChoiceRNN(nn.Module):
         
         if self.plastic:
             if self.plastic_feedback:
-                state, output, wx, wh, wattn = h
+                state, output, wx, wh, wattn, _ = h
             else:
-                state, output, wx, wh = h
+                state, output, wx, wh, _ = h
                 wattn = None
         else:
             state, output = h
@@ -376,7 +376,7 @@ class MultiChoiceRNN(nn.Module):
 
         steps = range(x.size(0))
         for i in steps:
-            hidden = self.recurrence(x[i], hidden[:-1] if i>0 else hidden, Rs[i], acts[i] if acts is not None else None)
+            hidden = self.recurrence(x[i], hidden, Rs[i], acts[i] if acts is not None else None)
             hs.append(hidden[1])
             if save_weight:
                 wxs.append(hidden[2])
