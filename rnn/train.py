@@ -182,7 +182,7 @@ if __name__ == "__main__":
                     logprob, value = output
                     m = torch.distributions.categorical.Categorical(logits=logprob[-1])
                     action = m.sample().reshape(args.batch_size)
-                    rwd = (torch.rand(args.batch_size)>prob_s[i][range(args.batch_size), action]).float()
+                    rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
                     advantage = (rwd-value[-1])
                     loss += - (m.log_prob(action)*advantage.detach()).mean() \
                             + args.beta_v*advantage.pow(2).mean() - args.beta_entropy*m.entropy().mean() \
@@ -230,15 +230,15 @@ if __name__ == "__main__":
                     hidden = None
                     for i in range(len(pop_s['pre_choice'])):
                         # first phase, give stimuli and no feedback
-                        output, hs, _ = model(pop_s['pre_choice'][i], hidden=hidden, Rs=0*DA_s['pre_choice'],
+                        output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, Rs=0*DA_s['pre_choice'],
                                             acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
 
                         # use output to calculate action, reward, and record loss function
                         logprob, value = output
                         m = torch.distributions.categorical.Categorical(logits=logprob[-1])
                         action = m.sample().reshape(args.batch_size)
-                        rwd = (torch.rand(args.batch_size)>prob_s[i][range(args.batch_size), action]).float()
-                        loss += (torch.argmax(action, -1)==torch.argmax(ch_s, -1))/(args.stim_val**args.stim_dim*args.N_s)
+                        rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
+                        loss += (torch.argmax(action, -1)==torch.argmax(prob_s[i], -1))/(args.stim_val**args.stim_dim*args.N_s)
                         
                         # use the action (optional) and reward as feedback
                         if args.action_input:
