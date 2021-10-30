@@ -190,8 +190,6 @@ if __name__ == "__main__":
                     # use the action (optional) and reward as feedback
                     if args.action_input:
                         action_enc = torch.eye(output_size)[action]
-                        print(action)
-                        print(action_enc)
                         action_enc = action_enc*DA_s['post_choice']
                     else:
                         action_enc = None
@@ -222,17 +220,32 @@ if __name__ == "__main__":
         with torch.no_grad():
             for i in range(args.eval_samples):
                 DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(1, args.test_N_s)
-                output, hs, _ = model(pop_s, DA_s)
                 if args.task_type=='value':
+                    output, hs, _ = model(pop_s, DA_s)
                     output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], 1) # trial X T X batch size
                     loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
                 else:
-                    p_choose, _ = output
-                    p_choose = p_choose.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask['target'].shape[1], 1)
-                    p_choose = p_choose[:, output_mask['target'].squeeze()==1]
-                    action = p_choose>0.5
-                    rwd_go = (prob_s>0.5).reshape(args.stim_val**args.stim_dim*args.test_N_s, 1, 1).int()
-                    loss = (rwd_go==action).float().mean(1)
+                    loss = 0
+                    for i in range(len(pop_s['pre_choice'])):
+                        # first phase, give stimuli and no feedback
+                        output, hs, _ = model(pop_s['pre_choice'][i], Rs=0*DA_s['pre_choice'],
+                                            acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
+
+                        # use output to calculate action, reward, and record loss function
+                        logprob, value = output
+                        m = torch.distributions.categorical.Categorical(logits=logprob[-1])
+                        action = m.sample().reshape(args.batch_size)
+                        rwd = (torch.rand(args.batch_size)>prob_s[i][range(args.batch_size), action]).float()
+                        loss += (torch.argmax(action, -1)==torch.argmax(ch_s, -1))/(args.stim_val**args.stim_dim*args.N_s)
+                        
+                        # use the action (optional) and reward as feedback
+                        if args.action_input:
+                            action_enc = torch.eye(output_size)[action]
+                            action_enc = action_enc*DA_s['post_choice']
+                        else:
+                            action_enc = None
+                        R = (rwd*2-1)*DA_s['post_choice']
+                        _, hs, _ = model(pop_s['post_choice'][i], Rs=R, acts=action_enc)
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
             losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
