@@ -111,7 +111,8 @@ class MultiChoiceRNN(nn.Module):
         self.aux_input_size = (2 if self.rwd_input else 0) + (num_choices if self.action_input else 0)
         if self.aux_input_size>0:
             self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='relu',
-                                  e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.1)
+                                  e_prop=1, zero_cols_prop=0, bias=False, 
+                                  init_gain=math.sqrt(self.aux_input_size/(hidden_size*num_choices)))
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='relu',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
                             init_spectral=init_spectral, balance_ei=balance_ei)
@@ -151,10 +152,9 @@ class MultiChoiceRNN(nn.Module):
 
         if attention_type!='none':
             assert(attn_group_size is not None)
-            if attention_type=='weight':
-                self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False,
-                              e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=1) 
-                              # the same attention applies to the same dimension of both stimuli
+            self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False,
+                                        e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=1) 
+                                        # the same attention applies to the same dimension of both stimuli
             self.attn_group_size = torch.LongTensor(attn_group_size)
         else:
             self.attn_func = None
@@ -226,7 +226,6 @@ class MultiChoiceRNN(nn.Module):
         return w_new
 
     def plasticity_func(self, w, baseline, R, pre, post, kappa, coords, lb, ub):
-
         new_w = w-(w-baseline)*self.alpha_w \
              + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', post, pre), kappa, coords))
         if self._sigma_w>0:
@@ -258,9 +257,9 @@ class MultiChoiceRNN(nn.Module):
 
 
         if self.attention_type=='weight' or self.attention_type=='sample':
-            x = torch.relu(x) * attn_expand.unsqueeze(-2) + self._sigma_in * torch.randn_like(x)
+            x = torch.relu(x) * attn_expand.unsqueeze(-2) * len(self.attn_group_size) + self._sigma_in * torch.randn_like(x)
         else:
-            x = torch.relu(x) / len(self.attn_group_size) + self._sigma_in * torch.randn_like(x)
+            x = torch.relu(x) + self._sigma_in * torch.randn_like(x)
 
         if self.plastic:
             total_input = self.h2h(output, wh)
@@ -563,8 +562,6 @@ class SimpleRNN(nn.Module):
 
         if self.rwd_input:
             x = torch.cat([x, (R!=0)*(R+1)/2 + self._sigma_in * torch.randn_like(R), (R!=0)*(1-R)/2 + self._sigma_in * torch.randn_like(R)], -1)
-        if self.action_input:
-            x = torch.cat([x, a + self._sigma_in * torch.randn_like(a)], -1)
 
         if self.plastic:
             total_input = self.x2h(x, wx) + self.h2h(output, wh)
@@ -688,7 +685,7 @@ class SimpleRNN(nn.Module):
 
         steps = range(x.size(0))
         for i in steps:
-            hidden = self.recurrence(x[i], hidden[:-1] if i>0 else hidden, Rs[i], acts)
+            hidden = self.recurrence(x[i], hidden[:-1] if i>0 else hidden, Rs[i])
             hs.append(hidden[1])
             if save_weight:
                 wxs.append(hidden[2])
