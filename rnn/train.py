@@ -191,12 +191,10 @@ if __name__ == "__main__":
                             + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
                     
                     # use the action (optional) and reward as feedback
-                    if args.action_input:
-                        action_enc = torch.eye(output_size)[action]
-                        action_enc = action_enc*DA_s['post_choice']
-                    else:
-                        action_enc = None
                     pop_post = pop_s['post_choice'][i]
+                    action_enc = torch.eye(output_size)[action]
+                    pop_post = pop_post*action_enc.reshape(1,1,2,1)
+                    action_enc = action_enc*DA_s['post_choice']
                     pop_post = pop_post*action_enc.unsqueeze(-1)
                     R = (rwd*2-1)*DA_s['post_choice']
                     _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, acts=action_enc)
