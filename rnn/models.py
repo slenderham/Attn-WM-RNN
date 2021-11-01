@@ -59,7 +59,6 @@ class EILinear(nn.Module):
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
             nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
-            # nn.init.kaiming_uniform_(self.weight, a=math.sqrt(self.input_size/(self.input_size-self.zero_cols)))
             # Scale E weight by E-I ratio
             if balance_ei and self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -104,9 +103,8 @@ class MultiChoiceRNN(nn.Module):
         assert(num_choices>=2)
         self.num_choices = num_choices
         self.weight_bound = weight_bound
-        self.x2h = nn.ModuleList([EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
-                                           e_prop=1, zero_cols_prop=0, bias=False, init_gain=1/math.sqrt(num_choices))
-                                  for _ in range(num_choices)])
+        self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
+                                           e_prop=1, zero_cols_prop=0, bias=False, init_gain=1)
 
         self.aux_input_size = (2 if self.rwd_input else 0) + (num_choices if self.action_input else 0)
         if self.aux_input_size>0:
@@ -118,9 +116,9 @@ class MultiChoiceRNN(nn.Module):
                             init_spectral=init_spectral, balance_ei=balance_ei)
         if value_est:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
-                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=1)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
             self.h2v = EILinear(hidden_size, 1, remove_diag=False, pos_function='relu',
-                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=1)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
         else:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
                                 e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
@@ -207,12 +205,12 @@ class MultiChoiceRNN(nn.Module):
         if self.plastic:
             if self.plastic_feedback:
                 return (h_init, h_init.relu(),
-                        [x2hi.pos_func(x2hi.weight).unsqueeze(0).repeat(batch_size, 1, 1) for x2hi in self.x2h], 
+                        self.x2h.pos_func(self.x2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), 
                         self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1),
                         self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0).repeat(batch_size, 1, 1), None)
             else:
                 return (h_init, h_init.relu(),
-                        [x2hi.pos_func(x2hi.weight).unsqueeze(0).repeat(batch_size, 1, 1) for x2hi in self.x2h], 
+                        self.x2h.pos_func(self.x2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), 
                         self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), None)
         else:
             return (h_init, h_init.relu())
@@ -410,7 +408,7 @@ class SimpleRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, attention_type='weight',
                 attn_group_size=None, plastic=True, plastic_feedback=True, activation='retanh', 
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, c_plasticity=None, train_init_state=False,
-                e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, truncate_iter=None, init_spectral=None, 
+                e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 balance_ei=False, rwd_input=False, sep_lr=True, input_unit_group=None, value_est=True, **kwargs):
         super().__init__()
         self.input_size = input_size
@@ -419,18 +417,24 @@ class SimpleRNN(nn.Module):
         self.rwd_input = rwd_input
         self.weight_bound = weight_bound
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
-                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=1)
+                                           e_prop=1, zero_cols_prop=0, bias=False, init_gain=1)
+
+        self.aux_input_size = (2 if self.rwd_input else 0)
+        if self.aux_input_size>0:
+            self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='relu',
+                                  e_prop=1, zero_cols_prop=0, bias=False, 
+                                  init_gain=math.sqrt(self.aux_input_size/(input_size)))
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='relu',
-                            e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1, 
+                            e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
                             init_spectral=init_spectral, balance_ei=balance_ei)
         if value_est:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
-                            e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=1)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
             self.h2v = EILinear(hidden_size, 1, remove_diag=False, pos_function='relu',
-                            e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=1)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
         else:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
-                            e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
 
         self.tau_x = tau_x
         self.tau_w = tau_w
@@ -450,29 +454,24 @@ class SimpleRNN(nn.Module):
         self._sigma_w = np.sqrt(2*alpha_w) * sigma_w
 
         if train_init_state:
-            self.x0 = nn.Parameter(torch.randn(1, hidden_size))
+            self.x0 = nn.Parameter(torch.zeros(1, hidden_size))
         else:
             self.x0 = torch.zeros(1, hidden_size)
         
         assert attention_type in ['none', 'weight', 'sample']
         self.attention_type = attention_type
-        # TODO: mixed selectivity is required for the soltani et al 2016 model, what does it mean here? add separate layer?
+
         if attention_type!='none':
             assert(attn_group_size is not None)
-            if attention_type=='weight':
-                self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, \
-                                          e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=1)
-            elif attention_type=='sample':
-                self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, \
-                                          e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=1)
+            self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False,
+                                        e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=1) 
+                                        # the same attention applies to the same dimension of both stimuli
             self.attn_group_size = torch.LongTensor(attn_group_size)
         else:
             self.attn_func = None
             self.attn_group_size = None
 
         self.activation = _get_activation_function(activation)
-        if truncate_iter is not None:
-            raise NotImplementedError
 
         self.plastic = plastic
         self.plastic_feedback = plastic_feedback
@@ -521,11 +520,11 @@ class SimpleRNN(nn.Module):
                 return (h_init, h_init.relu(),
                         self.x2h.pos_func(self.x2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), 
                         self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1),
-                        self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0).repeat(batch_size, 1, 1))
+                        self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0).repeat(batch_size, 1, 1), None)
             else:
                 return (h_init, h_init.relu(),
                         self.x2h.pos_func(self.x2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), 
-                        self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1))
+                        self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), None)
         else:
             return (h_init, h_init.relu())
 
@@ -537,14 +536,22 @@ class SimpleRNN(nn.Module):
             w_new[:, c[0]:c[1], c[2]:c[3]] = kappa_w[i]*w[:, c[0]:c[1], c[2]:c[3]]
         return w_new
 
-    def recurrence(self, x, h, R):
+    def plasticity_func(self, w, baseline, R, pre, post, kappa, coords, lb, ub):
+        new_w = w-(w-baseline)*self.alpha_w \
+             + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', post, pre), kappa, coords))
+        if self._sigma_w>0:
+            new_w += self._sigma_w * torch.randn_like(new_w)
+        new_w = torch.clamp(new_w, lb, ub)
+        return new_w
+
+    def recurrence(self, x, h, R, a=None):
         batch_size = x.shape[0]
         
         if self.plastic:
             if self.plastic_feedback:
-                state, output, wx, wh, wattn = h
+                state, output, wx, wh, wattn, _ = h
             else:
-                state, output, wx, wh = h
+                state, output, wx, wh, _ = h
                 wattn = None
         else:
             state, output = h
@@ -560,49 +567,38 @@ class SimpleRNN(nn.Module):
             attn_expand = None
 
         if self.attention_type=='weight' or self.attention_type=='sample':
-            x = torch.stack([x[:,:self.input_size]])
-            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) * attn_expand
+            x = torch.relu(x * attn_expand * len(self.attn_group_size) + self._sigma_in * torch.randn_like(x))
         else:
-            x = torch.relu(x + self._sigma_in * torch.randn_like(x)) / len(self.attn_group_size)
-
-        if self.rwd_input:
-            x = torch.cat([x, (R!=0)*(R+1)/2 + self._sigma_in * torch.randn_like(R), (R!=0)*(1-R)/2 + self._sigma_in * torch.randn_like(R)], -1)
+            x = torch.relu(x + self._sigma_in * torch.randn_like(x))
 
         if self.plastic:
             total_input = self.x2h(x, wx) + self.h2h(output, wh)
         else:
             total_input = self.x2h(x) + self.h2h(output)
+
+        if self.aux_input_size>0:
+            aux = torch.zeros(batch_size, self.aux_input_size)
+            if self.rwd_input:
+                aux[:, 0:1] = (R != 0)*(R+1)/2 + self._sigma_in * torch.randn_like(R)
+                aux[:, 1:2] = (R != 0)*(1-R)/2 + self._sigma_in * torch.randn_like(R)
+            total_input += self.aux2h(aux)
+
         new_state = state * self.oneminusalpha_x + total_input * self.alpha_x + self._sigma_rec * torch.randn_like(state)
         new_output = self.activation(new_state)
 
         if self.plastic:
             R = R.unsqueeze(-1)
             if self.in_coords is not None and self.rec_coords is not None:
-                wx += -(wx-self.x2h.pos_func(self.x2h.weight).unsqueeze(0))*self.alpha_w \
-                    + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, x), \
-                        self.kappa_w[0:2*len(self.input_unit_group)].abs(), self.in_coords))
-                if self._sigma_w>0:
-                    wx += self._sigma_w * torch.randn_like(wx)
-                wx = torch.clamp(wx, 0, self.weight_bound)
-                # wx = torch.maximum(wx, -self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
-                # wx = torch.minimum(wx, self.weight_bound-self.x2h.pos_func(self.x2h.weight).detach().unsqueeze(0))
-                wh += - (wh-self.h2h.pos_func(self.h2h.weight).unsqueeze(0))*self.alpha_w \
-                    + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', new_output, output), \
-                        self.kappa_w[2*len(self.input_unit_group):2*len(self.input_unit_group)+4].abs(), self.rec_coords))
-                if self._sigma_w>0:
-                    wh += self._sigma_w * torch.randn_like(wh)
-                wh = torch.clamp(wh, 0, self.weight_bound)
-                # wh = torch.maximum(wh, -self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
-                # wh = torch.minimum(wh, self.weight_bound-self.h2h.pos_func(self.h2h.weight).detach().unsqueeze(0))
+                wx = self.plasticity_func(wx, self.x2h.pos_func(self.x2h.weight).unsqueeze(0), R, x, new_output, 
+                                          self.kappa_w[:2*len(self.input_unit_group)].abs(), self.in_coords,
+                                          0, self.weight_bound)
+                wh = self.plasticity_func(wh, self.h2h.pos_func(self.h2h.weight).unsqueeze(0), R, output, new_output,
+                                          self.kappa_w[2*len(self.input_unit_group):2*len(self.input_unit_group)+4].abs(),
+                                          self.rec_coords, 0, self.weight_bound)
                 if self.plastic_feedback:
-                    wattn += - (wattn-self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0))*self.alpha_w \
-                        + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', attn, output), \
-                            self.kappa_w[2*len(self.input_unit_group)+4:3*len(self.input_unit_group)+4].abs(), self.fb_coords))
-                    if self._sigma_w>0:
-                        wattn += self._sigma_w * torch.randn_like(wattn)
-                    wattn = torch.clamp(wattn, 0, self.weight_bound)
-                    # wattn = torch.maximum(wattn, -self.attn_func.pos_func(self.attn_func.weight).detach().unsqueeze(0))
-                    # wattn = torch.minimum(wattn, self.weight_bound-self.h2h.pos_func(self.attn_func.weight).detach().unsqueeze(0))
+                    wattn = self.plasticity_func(wattn, self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0), R, output, attn,
+                                                 self.kappa_w[2*len(self.input_unit_group)+4:3*len(self.input_unit_group)+4].abs(),
+                                                 self.fb_coords, 0, self.weight_bound)
             else:
                 wx = wx*self.oneminusalpha_w + self.x2h.pos_func(self.x2h.weight).unsqueeze(0)*self.alpha_w + self.dt*R*(
                     self.kappa_w[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
@@ -633,12 +629,6 @@ class SimpleRNN(nn.Module):
                 return (new_state, new_output, wx, wh, attn)
         else:
             return (new_state, new_output, attn)
-
-    def truncate(self, hidden):
-        if self.plastic:
-            return (hidden[0].detach(), hidden[1].detach(), hidden[2].detach(), hidden[3].detach())
-        else:
-            return (hidden[0].detach(), hidden[1].detach())
 
     def print_kappa(self):
         print()
@@ -690,7 +680,7 @@ class SimpleRNN(nn.Module):
 
         steps = range(x.size(0))
         for i in steps:
-            hidden = self.recurrence(x[i], hidden[:-1] if i>0 else hidden, Rs[i])
+            hidden = self.recurrence(x[i], hidden, Rs[i])
             hs.append(hidden[1])
             if save_weight:
                 wxs.append(hidden[2])
@@ -712,6 +702,6 @@ class SimpleRNN(nn.Module):
         os = self.h2o(hs)
         if hasattr(self, 'h2v'):
             vs = self.h2v(hs)
-            return (os, vs), hs, saved_states
+            return (os, vs), hs, hidden, saved_states
         else:
-            return os, hs, saved_states
+            return os, hs, hidden, saved_states
