@@ -58,7 +58,8 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
-            nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
+            # nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
+            nn.init.kaiming_normal_(self.weight)
             # Scale E weight by E-I ratio
             if balance_ei and self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -104,22 +105,22 @@ class MultiChoiceRNN(nn.Module):
         self.num_choices = num_choices
         self.weight_bound = weight_bound
         self.x2h = nn.ModuleList([EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
-                                           e_prop=1, zero_cols_prop=0, bias=False, init_gain=1/math.sqrt(num_choices))
+                                           e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.5/math.sqrt(num_choices))
                                   for _ in range(num_choices)])
 
         self.aux_input_size = (2 if self.rwd_input else 0) + (num_choices if self.action_input else 0)
         if self.aux_input_size>0:
             self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='relu',
                                   e_prop=1, zero_cols_prop=0, bias=False, 
-                                  init_gain=math.sqrt(self.aux_input_size/(hidden_size*num_choices)))
+                                  init_gain=0.5*math.sqrt(self.aux_input_size/(hidden_size*num_choices)))
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='relu',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
                             init_spectral=init_spectral, balance_ei=balance_ei)
         if value_est:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
-                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=1)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
             self.h2v = EILinear(hidden_size, 1, remove_diag=False, pos_function='relu',
-                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=1)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
         else:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
                                 e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
