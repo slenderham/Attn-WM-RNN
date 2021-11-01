@@ -20,8 +20,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
 
-from models import SimpleRNN
-from task import MDPRL
+from models import SimpleRNN, MultiChoiceRNN
+from task import MDPRL, RolloutBuffer
 
 from matplotlib import pyplot as plt
 
@@ -135,17 +135,21 @@ if __name__ == "__main__":
     else:
         attn_group_size = [input_size]
 
-    output_size = 1 
+    output_size = 1 if args.task_type=='value' else 2
 
     model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': output_size, 
                    'plastic': args.plas_type=='all', 'attention_type': args.attn_type, 'activation': args.activ_func,
                    'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
                    'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
-                   'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 'rwd_input': args.rwd_input, 
+                   'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 
+                   'rwd_input': args.rwd_input, 'action_input': args.action_input,
                    'input_unit_group': input_unit_group, 'sep_lr': args.sep_lr, 'plastic_feedback': args.plastic_feedback,
-                   'value_est': 'policy' in args.task_type}
+                   'value_est': 'policy' in args.task_type, 'num_choices': 2 if 'double' in args.task_type else 1}
     
-    model = SimpleRNN(**model_specs)
+    if 'double' in args.task_type:
+        model = MultiChoiceRNN(**model_specs)
+    else:
+        model = SimpleRNN(**model_specs)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-5 if 'policy' in args.task_type else 1e-8)
     print(model)
     for n, p in model.named_parameters():
@@ -172,26 +176,30 @@ if __name__ == "__main__":
                 rwds = 0
                 for i in range(len(pop_s['pre_choice'])):
                     # first phase, give stimuli and no feedback
-                    output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, Rs=0*DA_s['pre_choice'])
+                    output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, Rs=0*DA_s['pre_choice'],
+                                          acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
 
                     # use output to calculate action, reward, and record loss function
                     logprob, value = output
-                    logprob = logprob[-1,:,0]
-                    logprob = torch.cat([logprob[:args.batch_size], logprob[args.batch_size:]])
-                    value = torch.sum(logprob.softmax(-1)*value[-1,:,0], dim=-1) # V(s) = sum Q(s, a)p(a|s), ???
-                    m = torch.distributions.categorical.Categorical(logits=logprob)
+                    m = torch.distributions.categorical.Categorical(logits=logprob[-1])
                     action = m.sample().reshape(args.batch_size)
                     rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
                     rwds += rwd.mean().item()/len(pop_s['pre_choice'])
-                    advantage = (rwd-value)
+                    advantage = (rwd-value[-1])
                     loss += - (m.log_prob(action)*advantage.detach()).mean() \
                             + args.beta_v*advantage.pow(2).mean() - args.beta_entropy*m.entropy().mean() \
                             + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
                     
                     # use the action (optional) and reward as feedback
+                    if args.action_input:
+                        action_enc = torch.eye(output_size)[action]
+                        action_enc = action_enc*DA_s['post_choice']
+                    else:
+                        action_enc = None
                     pop_post = pop_s['post_choice'][i]
+                    pop_post[:,:,1-action,:] *= 0
                     R = (rwd*2-1)*DA_s['post_choice']
-                    _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R)
+                    _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, acts=action_enc)
                     loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             
             (loss/args.grad_accumulation_steps).backward()
@@ -226,21 +234,22 @@ if __name__ == "__main__":
                     hidden = None
                     for i in range(len(pop_s['pre_choice'])):
                         # first phase, give stimuli and no feedback
-                        output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, Rs=0*DA_s['pre_choice'])
+                        output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, Rs=0*DA_s['pre_choice'],
+                                            acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
                         # use output to calculate action, reward, and record loss function
                         logprob, value = output
-                        logprob = logprob[-1,:,0]
-                        logprob = torch.cat([logprob[:args.batch_size], logprob[args.batch_size:]])
-                        value = torch.sum(logprob.softmax(-1)*value[-1,:,0], dim=-1) # V(s) = sum Q(s, a)p(a|s), ???
-                        m = torch.distributions.categorical.Categorical(logits=logprob)
+                        m = torch.distributions.categorical.Categorical(logits=logprob[-1])
                         action = m.sample().reshape(args.batch_size)
                         rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
                         loss.append(rwd)
-                        
                         # use the action (optional) and reward as feedback
-                        pop_post = pop_s['post_choice'][i]
+                        if args.action_input:
+                            action_enc = torch.eye(output_size)[action]
+                            action_enc = action_enc*DA_s['post_choice']
+                        else:
+                            action_enc = None
                         R = (rwd*2-1)*DA_s['post_choice']
-                        _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R)
+                        _, hs, hidden, _ = model(pop_s['post_choice'][i], hidden=hidden, Rs=R, acts=action_enc)
                     loss = torch.stack(loss, dim=0)
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial

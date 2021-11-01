@@ -103,8 +103,9 @@ class MultiChoiceRNN(nn.Module):
         assert(num_choices>=2)
         self.num_choices = num_choices
         self.weight_bound = weight_bound
-        self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
-                                           e_prop=1, zero_cols_prop=0, bias=False, init_gain=1)
+        self.x2h = nn.ModuleList([EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
+                                           e_prop=1, zero_cols_prop=0, bias=False, init_gain=1/math.sqrt(num_choices))
+                                  for _ in range(num_choices)])
 
         self.aux_input_size = (2 if self.rwd_input else 0) + (num_choices if self.action_input else 0)
         if self.aux_input_size>0:
@@ -116,9 +117,9 @@ class MultiChoiceRNN(nn.Module):
                             init_spectral=init_spectral, balance_ei=balance_ei)
         if value_est:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
-                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=1)
             self.h2v = EILinear(hidden_size, 1, remove_diag=False, pos_function='relu',
-                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=1)
         else:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
                                 e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
@@ -205,12 +206,12 @@ class MultiChoiceRNN(nn.Module):
         if self.plastic:
             if self.plastic_feedback:
                 return (h_init, h_init.relu(),
-                        self.x2h.pos_func(self.x2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), 
+                        [x2hi.pos_func(x2hi.weight).unsqueeze(0).repeat(batch_size, 1, 1) for x2hi in self.x2h], 
                         self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1),
                         self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0).repeat(batch_size, 1, 1), None)
             else:
                 return (h_init, h_init.relu(),
-                        self.x2h.pos_func(self.x2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), 
+                        [x2hi.pos_func(x2hi.weight).unsqueeze(0).repeat(batch_size, 1, 1) for x2hi in self.x2h], 
                         self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), None)
         else:
             return (h_init, h_init.relu())
@@ -260,9 +261,9 @@ class MultiChoiceRNN(nn.Module):
 
 
         if self.attention_type=='weight' or self.attention_type=='sample':
-            x = torch.relu(x) * attn_expand.unsqueeze(-2) * len(self.attn_group_size) + self._sigma_in * torch.randn_like(x)
+            x = torch.relu(x * attn_expand * len(self.attn_group_size) + self._sigma_in * torch.randn_like(x))
         else:
-            x = torch.relu(x) + self._sigma_in * torch.randn_like(x)
+            x = torch.relu(x + self._sigma_in * torch.randn_like(x))
 
         if self.plastic:
             total_input = self.h2h(output, wh)

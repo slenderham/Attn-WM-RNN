@@ -156,14 +156,14 @@ class MDPRL():
         index_s_1 = np.random.permutation(index_s)
         index_s_2 = np.random.permutation(index_s)
 
-        pop_s = np.zeros((len(index_s), len(self.T), batch_size*2, 63))
+        pop_s = np.zeros((len(index_s), len(self.T), batch_size, 2, 63))
         ch_s = np.zeros((len(index_s), len(self.T), batch_size, 2))
         prob_s = np.stack([prob_index[:, index_s_1], prob_index[:, index_s_2]], axis=-1)
         prob_s += 1e-4*np.random.random(prob_s.shape)
 
         for i in range(batch_size):
-            pop_s[:,:,i,:] = self.pop_s[index_s_1,:,:]
-            pop_s[:,:,batch_size+i,:] = self.pop_s[index_s_2,:,:]
+            pop_s[:,:,i,0,:] = self.pop_s[index_s_1,:,:]
+            pop_s[:,:,i,1,:] = self.pop_s[index_s_2,:,:]
             ch_s[:,:,i,0] = self.filter_ch*prob_index[i, index_s_1].reshape((27*N_s,1))
             ch_s[:,:,i,1] = self.filter_ch*prob_index[i, index_s_2].reshape((27*N_s,1))
 
@@ -172,7 +172,7 @@ class MDPRL():
         output_mask = {'fixation': torch.from_numpy((self.T<0.0*self.s)).reshape(1, len(self.T), 1), \
                         'target': torch.from_numpy(self.T_ch).reshape(1, len(self.T), 1)}
 
-        pop_s = pop_s[:,:,:,self.input_indexes]
+        pop_s = pop_s[:,:,:,:,self.input_indexes]
         pop_s = {
             'pre_choice': torch.from_numpy(pop_s[:, self.T <= self.times['choice_end']*self.s]).float(),
             'post_choice': torch.from_numpy(pop_s[:, self.T > self.times['choice_end']*self.s]).float()
