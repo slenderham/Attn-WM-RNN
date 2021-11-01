@@ -197,7 +197,7 @@ if __name__ == "__main__":
                     else:
                         action_enc = None
                     pop_post = pop_s['post_choice'][i]
-                    pop_post[:,:,1-action,:] *= 0
+                    pop_post = pop_post*action_enc.unsqueeze(-1)
                     R = (rwd*2-1)*DA_s['post_choice']
                     _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, acts=action_enc)
                     loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
