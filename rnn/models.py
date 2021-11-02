@@ -174,11 +174,11 @@ class MultiChoiceRNN(nn.Module):
                     kappa_count += 3
             
             if sep_lr:
-                self.kappa_in = nn.ParameterList([nn.Parameter(torch.zeros(self.hidden_size, self.input_size)-4.5)
+                self.kappa_in = nn.ParameterList([nn.Parameter(torch.zeros(self.hidden_size, self.input_size)+1e-4) 
                                                     for _ in range(num_choices)])
-                self.kappa_rec = nn.Parameter(torch.zeros(self.hidden_size, self.hidden_size)-4.5)
+                self.kappa_rec = nn.Parameter(torch.zeros(self.hidden_size, self.hidden_size)+1e-4)
                 if plastic_feedback:
-                    self.kappa_fb = nn.Parameter(torch.zeros(len(self.attn_group_size), self.hidden_size)-4.5)
+                    self.kappa_fb = nn.Parameter(torch.zeros(len(self.attn_group_size), self.hidden_size)+1e-4)
             else:
                 self.kappa_w = nn.Parameter(torch.zeros(kappa_count)+1e-8)
 
@@ -262,12 +262,12 @@ class MultiChoiceRNN(nn.Module):
             if self.sep_lr:
                 for i in range(self.num_choices):
                     wx[i] = self.plasticity_func(wx[i], self.x2h[i].pos_func(self.x2h[i].weight).unsqueeze(0), R, x[:,i], new_output, 
-                                                 F.softplus(self.kappa_in[i]), 0, self.weight_bound)
+                                                 self.kappa_in[i].relu(), 0, self.weight_bound)
                 wh = self.plasticity_func(wh, self.h2h.pos_func(self.h2h.weight).unsqueeze(0), R, output, new_output,
-                                          F.softplus(self.kappa_rec), 0, self.weight_bound)
+                                          self.kappa_rec.relu(), 0, self.weight_bound)
                 if self.plastic_feedback:
                     wattn = self.plasticity_func(wattn, self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0), R, output, attn,
-                                                 F.softplus(self.kappa_fb), 0, self.weight_bound)
+                                                 self.kappa_fb.relu(), 0, self.weight_bound)
             else:
                 wx = wx*self.oneminusalpha_w + self.x2h.pos_func(self.x2h.weight).unsqueeze(0)*self.alpha_w + self.dt*R*(
                     self.kappa_w[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
