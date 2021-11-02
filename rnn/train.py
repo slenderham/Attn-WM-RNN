@@ -45,7 +45,7 @@ if __name__ == "__main__":
     parser.add_argument('--sigma_in', type=float, default=0.1, help='Std for input noise')
     parser.add_argument('--sigma_rec', type=float, default=0.1, help='Std for recurrent noise')
     parser.add_argument('--sigma_w', type=float, default=0.0, help='Std for weight noise')
-    parser.add_argument('--init_spectral', type=float, default=1, help='Initial spectral radius for the recurrent weights')
+    parser.add_argument('--init_spectral', type=float, default=None, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
     parser.add_argument('--tau_w', type=float, default=200, help='Time constant for weight modification')
