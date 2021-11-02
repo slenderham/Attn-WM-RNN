@@ -91,7 +91,7 @@ class EILinear(nn.Module):
 class MultiChoiceRNN(nn.Module):
     def __init__(self, input_size, num_choices, hidden_size, output_size, attention_type='weight',
                 attn_group_size=None, plastic=True, plastic_feedback=True, activation='retanh', 
-                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, c_plasticity=None, train_init_state=False,
+                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 balance_ei=False, rwd_input=False, action_input=False, sep_lr=True, input_unit_group=None, 
                 value_est=True, **kwargs):
@@ -104,6 +104,7 @@ class MultiChoiceRNN(nn.Module):
         assert(num_choices>=2)
         self.num_choices = num_choices
         self.weight_bound = weight_bound
+        self.sep_lr = sep_lr
         self.x2h = nn.ModuleList([EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
                                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.5/math.sqrt(num_choices))
                                   for _ in range(num_choices)])
@@ -166,38 +167,18 @@ class MultiChoiceRNN(nn.Module):
         self.plastic_feedback = plastic_feedback
         if plastic:
             # separate lr for different neurons
-            if sep_lr:
-                self.rec_coords = [[0, self.h2h.e_size, 0, self.h2h.e_size],
-                                   [0, self.h2h.e_size, self.h2h.e_size, self.hidden_size],
-                                   [self.h2h.e_size, self.hidden_size, 0, self.h2h.e_size],
-                                   [self.h2h.e_size, self.hidden_size, self.h2h.e_size, self.hidden_size]]
-                self.in_coords = []
-                input_unit_group.insert(0, 0)
-                group_start = np.cumsum(input_unit_group)
-                for i in range(len(group_start)-1):
-                    self.in_coords.append([0, self.h2h.e_size, group_start[i], group_start[i+1]])
-                    self.in_coords.append([self.h2h.e_size, self.hidden_size, group_start[i], group_start[i+1]])
-                self.input_unit_group = input_unit_group[1:]
-                kappa_count = len(self.rec_coords) + len(self.in_coords)
-            else:
-                self.in_coords = None
-                self.rec_coords = None
+            if not sep_lr:
                 kappa_count = 6
-                
             if plastic_feedback:
-                self.fb_coords = []
-                group_start = [0, 3, 6, 7]
-                if sep_lr:
-                    for i in range(len(group_start)-1):
-                        self.fb_coords.append([group_start[i], group_start[i+1], 0, self.h2h.e_size])
-                    kappa_count += len(self.fb_coords)
-                else:
-                    self.fb_coords = None
+                if not sep_lr:
                     kappa_count += 3
-
-            if c_plasticity is not None:
-                assert(len(c_plasticity)==kappa_count)
-                self.kappa_w = torch.FloatTensor(c_plasticity)
+            
+            if sep_lr:
+                self.kappa_in = nn.ParameterList([nn.Parameter(torch.zeros(self.hidden_size, self.input_size)+1e-4) 
+                                                    for _ in range(num_choices)])
+                self.kappa_rec = nn.Parameter(torch.zeros(self.hidden_size, self.hidden_size)+1e-4)
+                if plastic_feedback:
+                    self.kappa_fb = nn.Parameter(torch.zeros(len(self.attn_group_size), self.hidden_size)+1e-4)
             else:
                 self.kappa_w = nn.Parameter(torch.zeros(kappa_count)+1e-8)
 
@@ -222,17 +203,8 @@ class MultiChoiceRNN(nn.Module):
         h_init = self.x0.to(hidden[0].device) + self._sigma_rec * torch.randn(batch_size, self.hidden_size)
         return (h_init, h_init.relu(), *hidden[2:])
 
-    def multiply_blocks(self, w, kappa_w, coords):
-        if coords is None:
-            return w
-        w_new = torch.zeros_like(w)
-        for i, c in enumerate(coords):
-            w_new[:, c[0]:c[1], c[2]:c[3]] = kappa_w[i]*w[:, c[0]:c[1], c[2]:c[3]]
-        return w_new
-
-    def plasticity_func(self, w, baseline, R, pre, post, kappa, coords, lb, ub):
-        new_w = w-(w-baseline)*self.alpha_w \
-             + self.dt*R*(self.multiply_blocks(torch.einsum('bi, bj->bij', post, pre), kappa, coords))
+    def plasticity_func(self, w, baseline, R, pre, post, kappa, lb, ub):
+        new_w = w-(w-baseline)*self.alpha_w + R*(kappa*torch.einsum('bi, bj->bij', post, pre))
         if self._sigma_w>0:
             new_w += self._sigma_w * torch.randn_like(new_w)
         new_w = torch.clamp(new_w, lb, ub)
@@ -287,18 +259,15 @@ class MultiChoiceRNN(nn.Module):
 
         if self.plastic:
             R = R.unsqueeze(-1)
-            if self.in_coords is not None and self.rec_coords is not None:
+            if self.sep_lr:
                 for i in range(self.num_choices):
                     wx[i] = self.plasticity_func(wx[i], self.x2h[i].pos_func(self.x2h[i].weight).unsqueeze(0), R, x[:,i], new_output, 
-                                                 self.kappa_w[:2*len(self.input_unit_group)].abs(), self.in_coords,
-                                                 0, self.weight_bound)
+                                                 self.kappa_in[i].relu(), 0, self.weight_bound)
                 wh = self.plasticity_func(wh, self.h2h.pos_func(self.h2h.weight).unsqueeze(0), R, output, new_output,
-                                          self.kappa_w[2*len(self.input_unit_group):2*len(self.input_unit_group)+4].abs(),
-                                          self.rec_coords, 0, self.weight_bound)
+                                          self.kappa_rec.relu(), 0, self.weight_bound)
                 if self.plastic_feedback:
                     wattn = self.plasticity_func(wattn, self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0), R, output, attn,
-                                                 self.kappa_w[2*len(self.input_unit_group)+4:3*len(self.input_unit_group)+4].abs(),
-                                                 self.fb_coords, 0, self.weight_bound)
+                                                 self.kappa_fb.relu(), 0, self.weight_bound)
             else:
                 wx = wx*self.oneminusalpha_w + self.x2h.pos_func(self.x2h.weight).unsqueeze(0)*self.alpha_w + self.dt*R*(
                     self.kappa_w[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
@@ -329,42 +298,6 @@ class MultiChoiceRNN(nn.Module):
                 return (new_state, new_output, wx, wh, attn)
         else:
             return (new_state, new_output, attn)
-
-    def print_kappa(self):
-        print()
-        print('Input weight kappa: ')
-        if self.in_coords is None:
-            print(self.kappa_w[0:3].tolist())
-        else:
-            print (f'Input->E: ', end='')
-            print(self.kappa_w[0:2*len(self.input_unit_group):2].abs().tolist())
-            print (f'Input->I: ', end='')
-            print(self.kappa_w[1:2*len(self.input_unit_group):2].abs().tolist())
-        
-        print('Recurrent weight kappa: ')
-        if self.rec_coords is None:
-            print(self.kappa_w[3:6].tolist())
-        else:
-            s = 2*len(self.input_unit_group)
-            print (f'E->E: ', end='')
-            print(self.kappa_w[s].abs().item(), end=', ')
-            print (f'I->E: ', end='')
-            print(self.kappa_w[s+1].abs().item(), end=', ')
-            print (f'E->I: ', end='')
-            print(self.kappa_w[s+2].abs().item(), end=', ')
-            print (f'I->I: ', end='')
-            print(self.kappa_w[s+3].abs().item())
-
-        if self.plastic_feedback:
-            print('Feedback weight kappa: ')
-            if self.fb_coords is None:
-                print(self.kappa_w[6:9].tolist())
-            else:
-                s = 2*len(self.input_unit_group)+4
-                print (f'E->Attn: ', end='')
-                print(self.kappa_w[s:s+3].abs().tolist())
-        
-        print()
 
     def forward(self, x, Rs, acts=None, hidden=None, save_weight=False, save_attn=False):
         if hidden is None:
