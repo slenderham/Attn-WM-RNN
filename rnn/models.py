@@ -208,9 +208,8 @@ class MultiChoiceRNN(nn.Module):
         if self.plas_rule=='add':
             new_w = w-(w-baseline)*self.alpha_w + self.dt*R*kappa*torch.einsum('bi, bj->bij', post, pre)
         elif self.plas_rule=='mult':
-            exponent = 0.4
             new_w = w-(w-baseline)*self.alpha_w \
-                  + self.dt*R*kappa*((w-baseline)**exponent)*torch.einsum('bi, bj->bij', post**exponent, pre**exponent)
+                  + self.dt*R*kappa*w*torch.einsum('bi, bj->bij', post, pre)
         if self._sigma_w>0:
             new_w += self._sigma_w * torch.randn_like(new_w)
         new_w = torch.clamp(new_w, lb, ub)
