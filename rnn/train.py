@@ -232,7 +232,7 @@ if __name__ == "__main__":
                     for i in range(len(pop_s['pre_choice'])):
                         # first phase, give stimuli and no feedback
                         output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, Rs=0*DA_s['pre_choice'],
-                                            acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
+                                          acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
                         # use output to calculate action, reward, and record loss function
                         logprob, value = output
                         m = torch.distributions.categorical.Categorical(logits=logprob[-1])
@@ -240,14 +240,13 @@ if __name__ == "__main__":
                         rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
                         loss.append(rwd)
                         # use the action (optional) and reward as feedback
-                        if args.action_input:
-                            action_enc = torch.eye(output_size)[action]
-                            action_enc = action_enc*DA_s['post_choice']
-                        else:
-                            action_enc = None
+                        pop_post = pop_s['post_choice'][i]
+                        action_enc = torch.eye(output_size)[action]
+                        pop_post = pop_post*action_enc.reshape(1,1,2,1)
+                        action_enc = action_enc*DA_s['post_choice']
+                        pop_post = pop_post*action_enc.unsqueeze(-1)
                         R = (rwd*2-1)*DA_s['post_choice']
-                        _, hs, hidden, _ = model(pop_s['post_choice'][i], hidden=hidden, Rs=R, acts=action_enc)
-                    loss = torch.stack(loss, dim=0)
+                        _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, acts=action_enc)
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
             losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
