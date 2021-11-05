@@ -57,6 +57,7 @@ if __name__ == "__main__":
     parser.add_argument('--beta_v', type=float, default=0.5, help='Weight for value estimation loss')
     parser.add_argument('--beta_entropy', type=float, default=0.01, help='Weight for entropy regularization')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
+    parser.add_argument('--plas_rule', type=str, choices=['add', 'mult'], default='mult', help='Plasticity rule')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
     parser.add_argument('--attn_type', type=str, choices=['none', 'bias', 'weight', 'sample'], 
                         default='weight', help='Type of attn. None, additive feedback, multiplicative weighing, gumbel-max sample')
@@ -142,7 +143,7 @@ if __name__ == "__main__":
                    'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
                    'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
                    'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 
-                   'rwd_input': args.rwd_input, 'action_input': args.action_input,
+                   'rwd_input': args.rwd_input, 'action_input': args.action_input, 'plas_rule': args.plas_rule,
                    'input_unit_group': input_unit_group, 'sep_lr': args.sep_lr, 'plastic_feedback': args.plastic_feedback,
                    'value_est': 'policy' in args.task_type, 'num_choices': 2 if 'double' in args.task_type else 1}
     

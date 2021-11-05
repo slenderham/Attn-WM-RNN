@@ -93,7 +93,7 @@ class MultiChoiceRNN(nn.Module):
                 attn_group_size=None, plastic=True, plastic_feedback=True, activation='retanh', 
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
-                balance_ei=False, rwd_input=False, action_input=False, sep_lr=True, input_unit_group=None, 
+                balance_ei=False, rwd_input=False, action_input=False, sep_lr=True, plas_rule='mult',
                 value_est=True, **kwargs):
         super().__init__()
         self.input_size = input_size
@@ -105,6 +105,7 @@ class MultiChoiceRNN(nn.Module):
         self.num_choices = num_choices
         self.weight_bound = weight_bound
         self.sep_lr = sep_lr
+        self.plas_rule = plas_rule
         self.x2h = nn.ModuleList([EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
                                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.5/math.sqrt(num_choices))
                                   for _ in range(num_choices)])
@@ -204,7 +205,12 @@ class MultiChoiceRNN(nn.Module):
         return (h_init, h_init.relu(), *hidden[2:])
 
     def plasticity_func(self, w, baseline, R, pre, post, kappa, lb, ub):
-        new_w = w-(w-baseline)*self.alpha_w + self.dt*R*(kappa*torch.einsum('bi, bj->bij', post, pre))
+        if self.plas_rule=='add':
+            new_w = w-(w-baseline)*self.alpha_w + self.dt*R*kappa*torch.einsum('bi, bj->bij', post, pre)
+        elif self.plas_rule=='mult':
+            exponent = 0.4
+            new_w = w-(w-baseline)*self.alpha_w \
+                  + self.dt*R*kappa*((w-baseline)**exponent)*torch.einsum('bi, bj->bij', post**exponent, pre**exponent)
         if self._sigma_w>0:
             new_w += self._sigma_w * torch.randn_like(new_w)
         new_w = torch.clamp(new_w, lb, ub)

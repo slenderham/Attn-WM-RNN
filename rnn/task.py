@@ -184,7 +184,7 @@ class MDPRL():
         }
 
         return DA_s, torch.from_numpy(ch_s).float(), pop_s, \
-               torch.stack([torch.from_numpy(index_s), torch.from_numpy(index_s)], dim=-1), \
+               torch.stack([torch.from_numpy(index_s_1), torch.from_numpy(index_s_2)], dim=-1), \
                torch.from_numpy(prob_s).transpose(0, 1), output_mask
 
     def generateinput_single(self, batch_size, N_s, prob_index=None, scramble=True):
