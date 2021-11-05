@@ -199,7 +199,7 @@ if __name__ == "__main__":
                     _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, acts=action_enc)
                     loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
             
-            (loss/args.grad_accumulation_steps).backward()
+            (loss/args.grad_accumulation_steps/len(pop_s['pre_choice'])).backward()
             if (batch_idx+1) % args.grad_accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
                 optimizer.step()
