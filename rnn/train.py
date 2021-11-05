@@ -247,6 +247,7 @@ if __name__ == "__main__":
                         pop_post = pop_post*action_enc.unsqueeze(-1)
                         R = (rwd*2-1)*DA_s['post_choice']
                         _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, acts=action_enc)
+                    loss = torch.stack(loss, dim=0)
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
             losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
