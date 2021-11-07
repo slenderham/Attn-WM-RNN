@@ -176,11 +176,11 @@ class MultiChoiceRNN(nn.Module):
                     kappa_count += 3
             
             if sep_lr:
-                self.kappa_in = nn.ParameterList([nn.Parameter(torch.zeros(1, self.hidden_size, self.input_size)+1e-4) 
+                self.kappa_in = nn.ParameterList([nn.Parameter(torch.rand(1, self.hidden_size, self.input_size)*1e-4) 
                                                     for _ in range(num_choices)])
-                self.kappa_rec = nn.Parameter(torch.zeros(1, self.hidden_size, self.hidden_size)+1e-4)
+                self.kappa_rec = nn.Parameter(torch.rand(1, self.hidden_size, self.hidden_size)*1e-4)
                 if plastic_feedback:
-                    self.kappa_fb = nn.Parameter(torch.zeros(1, len(self.attn_group_size), self.hidden_size)+1e-4)
+                    self.kappa_fb = nn.Parameter(torch.rand(1, len(self.attn_group_size), self.hidden_size)*1e-4)
             else:
                 self.kappa_w = nn.Parameter(torch.zeros(kappa_count)+1e-8)
 
