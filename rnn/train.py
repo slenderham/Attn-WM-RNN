@@ -42,7 +42,7 @@ if __name__ == "__main__":
     parser.add_argument('--eval_samples', type=int, default=60, help='Number of samples to use for evaluation.')
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--sigma_in', type=float, default=0.1, help='Std for input noise')
+    parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
     parser.add_argument('--sigma_rec', type=float, default=0.1, help='Std for recurrent noise')
     parser.add_argument('--sigma_w', type=float, default=0.0, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=None, help='Initial spectral radius for the recurrent weights')
@@ -252,7 +252,7 @@ if __name__ == "__main__":
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
             losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
-            print('====> Epoch {} Eval Loss: {:.4f}'.format(epoch, losses_means[-args.stim_val**args.stim_dim:].mean()))
+            print('====> Epoch {} Eval Loss: {:.4f}'.format(epoch, losses_means.mean()))
             return losses_means, losses_stds
 
     metrics = defaultdict(list)

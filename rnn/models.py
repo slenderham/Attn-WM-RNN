@@ -60,6 +60,7 @@ class EILinear(nn.Module):
         with torch.no_grad():
             # nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
             nn.init.kaiming_normal_(self.weight)
+            self.weight.abs_()
             # Scale E weight by E-I ratio
             if balance_ei and self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -67,7 +68,7 @@ class EILinear(nn.Module):
             if init_gain is not None:
                 self.weight.data *= init_gain
             if init_spectral is not None:
-                self.weight.data *= init_spectral / torch.linalg.eigvals(self.effective_weight(self.weight)).real.max()
+                self.weight.data *= init_spectral / torch.linalg.eigvals(self.effective_weight()).real.max()
 
             if self.bias is not None:
                 nn.init.zeros_(self.bias)
@@ -120,9 +121,9 @@ class MultiChoiceRNN(nn.Module):
                             init_spectral=init_spectral, balance_ei=balance_ei)
         if value_est:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
-                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.15)
             self.h2v = EILinear(hidden_size, 1, remove_diag=False, pos_function='relu',
-                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.15)
         else:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
                                 e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
@@ -253,8 +254,8 @@ class MultiChoiceRNN(nn.Module):
         if self.aux_input_size>0:
             aux = torch.zeros(batch_size, self.aux_input_size)
             if self.rwd_input:
-                aux[:, 0:1] = (R != 0)*(R+1)/2 + self._sigma_in * torch.randn_like(R)
-                aux[:, 1:2] = (R != 0)*(1-R)/2 + self._sigma_in * torch.randn_like(R)
+                aux[:, 0:1] = (R!=0)*(R+1)/2 + self._sigma_in * torch.randn_like(R)
+                aux[:, 1:2] = (R!=0)*(1-R)/2 + self._sigma_in * torch.randn_like(R)
             if self.action_input:
                 aux[:,-self.num_choices:] = a + self._sigma_in * torch.randn_like(a)
             total_input += self.aux2h(aux)

@@ -159,7 +159,6 @@ class MDPRL():
         pop_s = np.zeros((len(index_s), len(self.T), batch_size, 2, 63))
         ch_s = np.zeros((len(index_s), len(self.T), batch_size, 2))
         prob_s = np.stack([prob_index[:, index_s_1], prob_index[:, index_s_2]], axis=-1)
-        prob_s += 1e-4*np.random.random(prob_s.shape)
 
         for i in range(batch_size):
             pop_s[:,:,i,0,:] = self.pop_s[index_s_1,:,:]
