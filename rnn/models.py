@@ -92,7 +92,7 @@ class EILinear(nn.Module):
 class MultiChoiceRNN(nn.Module):
     def __init__(self, input_size, num_choices, hidden_size, output_size, attention_type='weight',
                 attn_group_size=None, plastic=True, plastic_feedback=True, activation='retanh', 
-                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, train_init_state=False,
+                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=5.0, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 balance_ei=False, rwd_input=False, action_input=False, sep_lr=True, plas_rule='mult',
                 value_est=True, **kwargs):
