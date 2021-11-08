@@ -151,7 +151,7 @@ if __name__ == "__main__":
         model = MultiChoiceRNN(**model_specs)
     else:
         model = SimpleRNN(**model_specs)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-5 if 'policy' in args.task_type else 1e-8)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=5e-5 if 'policy' in args.task_type else 1e-8)
     print(model)
     for n, p in model.named_parameters():
         print(n, p.numel())
@@ -195,7 +195,6 @@ if __name__ == "__main__":
                     action_enc = torch.eye(output_size)[action]
                     pop_post = pop_post*action_enc.reshape(1,1,2,1)
                     action_enc = action_enc*DA_s['post_choice']
-                    pop_post = pop_post*action_enc.unsqueeze(-1)
                     R = (rwd*2-1)*DA_s['post_choice']
                     _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, acts=action_enc)
                     loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
@@ -245,7 +244,6 @@ if __name__ == "__main__":
                         action_enc = torch.eye(output_size)[action]
                         pop_post = pop_post*action_enc.reshape(1,1,2,1)
                         action_enc = action_enc*DA_s['post_choice']
-                        pop_post = pop_post*action_enc.unsqueeze(-1)
                         R = (rwd*2-1)*DA_s['post_choice']
                         _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, acts=action_enc)
                     loss = torch.stack(loss, dim=0)
