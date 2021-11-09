@@ -92,7 +92,7 @@ class EILinear(nn.Module):
 class MultiChoiceRNN(nn.Module):
     def __init__(self, input_size, num_choices, hidden_size, output_size, attention_type='weight',
                 attn_group_size=None, plastic=True, plastic_feedback=True, activation='retanh', 
-                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=10.0, train_init_state=False,
+                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 balance_ei=False, rwd_input=False, action_input=False, sep_lr=True, plas_rule='mult',
                 value_est=True, **kwargs):
@@ -121,9 +121,9 @@ class MultiChoiceRNN(nn.Module):
                             init_spectral=init_spectral, balance_ei=balance_ei)
         if value_est:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
-                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.15)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.15)
             self.h2v = EILinear(hidden_size, 1, remove_diag=False, pos_function='relu',
-                                e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.15)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.15)
         else:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
                                 e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
@@ -207,12 +207,15 @@ class MultiChoiceRNN(nn.Module):
 
     def plasticity_func(self, w, baseline, R, pre, post, kappa, lb, ub):
         if self.plas_rule=='add':
-            new_w = w-(w-baseline)*self.alpha_w + self.dt*R*kappa*torch.einsum('bi, bj->bij', post, pre)
+            new_w = baseline*self.alpha_w + w*self.oneminusalpha_w + self.dt*R*kappa*torch.einsum('bi, bj->bij', post, pre)
+            if self._sigma_w>0:
+                new_w += self._sigma_w * torch.randn_like(new_w)
         elif self.plas_rule=='mult':
-            new_w = w-(w-baseline)*self.alpha_w \
-                  + self.dt*R*kappa*w*torch.einsum('bi, bj->bij', post, pre)
-        if self._sigma_w>0:
-            new_w += self._sigma_w * torch.randn_like(new_w)
+            expnt = 0.4
+            new_w = baseline*self.alpha_w + w*self.oneminusalpha_w \
+                  + self.dt*R*kappa*(w**expnt)*torch.einsum('bi, bj->bij', post**expnt, pre**expnt)
+            if self._sigma_w>0:
+                new_w += w * self._sigma_w * torch.randn_like(new_w)
         new_w = torch.clamp(new_w, lb, ub)
         return new_w
 
