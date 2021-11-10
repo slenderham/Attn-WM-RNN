@@ -188,7 +188,8 @@ if __name__ == "__main__":
                     advantage = (rwd-value[-1])
                     loss += - (m.log_prob(action)*advantage.detach()).mean() \
                             + args.beta_v*advantage.pow(2).mean() - args.beta_entropy*m.entropy().mean() \
-                            + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
+                            + (args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean())\
+                                *len(pop_s['pre_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
                     
                     # use the action (optional) and reward as feedback
                     pop_post = pop_s['post_choice'][i]
@@ -197,7 +198,8 @@ if __name__ == "__main__":
                     action_enc = action_enc*DA_s['post_choice']
                     R = (rwd*2-1)*DA_s['post_choice']
                     _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, acts=action_enc)
-                    loss += args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
+                    loss += (args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean())\
+                            *len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
             
             (loss/args.grad_accumulation_steps/len(pop_s['pre_choice'])).backward()
             if (batch_idx+1) % args.grad_accumulation_steps == 0:
@@ -238,7 +240,7 @@ if __name__ == "__main__":
                         m = torch.distributions.categorical.Categorical(logits=logprob[-1])
                         action = m.sample().reshape(args.batch_size)
                         rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
-                        loss.append((torch.argmax(logprob[-1], -1)==torch.argmax(prob_s[i]), -1).float())
+                        loss.append((torch.argmax(logprob[-1], -1)==torch.argmax(prob_s[i], -1)).float())
                         # use the action (optional) and reward as feedback
                         pop_post = pop_s['post_choice'][i]
                         action_enc = torch.eye(output_size)[action]
