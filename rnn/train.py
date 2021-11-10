@@ -151,7 +151,7 @@ if __name__ == "__main__":
         model = MultiChoiceRNN(**model_specs)
     else:
         model = SimpleRNN(**model_specs)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-4 if 'policy' in args.task_type else 1e-8)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-5 if 'policy' in args.task_type else 1e-8)
     print(model)
     for n, p in model.named_parameters():
         print(n, p.numel())
@@ -238,7 +238,7 @@ if __name__ == "__main__":
                         m = torch.distributions.categorical.Categorical(logits=logprob[-1])
                         action = m.sample().reshape(args.batch_size)
                         rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
-                        loss.append((torch.argmax(logprob[-1], -1)==torch.argmax(prob_s[i])).float())
+                        loss.append((torch.argmax(logprob[-1], -1)==torch.argmax(prob_s[i]), -1).float())
                         # use the action (optional) and reward as feedback
                         pop_post = pop_s['post_choice'][i]
                         action_enc = torch.eye(output_size)[action]

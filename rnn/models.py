@@ -95,13 +95,14 @@ class MultiChoiceRNN(nn.Module):
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 balance_ei=False, rwd_input=False, action_input=False, sep_lr=True, plas_rule='mult',
-                value_est=True, **kwargs):
+                value_est=True, input_unit_group=None, **kwargs):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size =  output_size
         self.action_input = action_input
         self.rwd_input = rwd_input
+        self.input_unit_group = torch.LongTensor(input_unit_group)
         assert(num_choices>=2)
         self.num_choices = num_choices
         self.weight_bound = weight_bound
@@ -159,9 +160,11 @@ class MultiChoiceRNN(nn.Module):
                                         e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=1) 
                                         # the same attention applies to the same dimension of both stimuli
             self.attn_group_size = torch.LongTensor(attn_group_size)
+            self.attn_lr_group = torch.LongTensor([3,3,1])
         else:
             self.attn_func = None
             self.attn_group_size = None
+            self.attn_lr_group = None
 
         self.activation = _get_activation_function(activation)
 
@@ -176,11 +179,11 @@ class MultiChoiceRNN(nn.Module):
                     kappa_count += 3
             
             if sep_lr:
-                self.kappa_in = nn.ParameterList([nn.Parameter(torch.rand(1, self.hidden_size, self.input_size)*1e-4) 
+                self.kappa_in = nn.ParameterList([nn.Parameter(torch.rand(1, self.hidden_size, len(input_unit_group))*1e-4) 
                                                     for _ in range(num_choices)])
                 self.kappa_rec = nn.Parameter(torch.rand(1, self.hidden_size, self.hidden_size)*1e-4)
                 if plastic_feedback:
-                    self.kappa_fb = nn.Parameter(torch.rand(1, len(self.attn_group_size), self.hidden_size)*1e-4)
+                    self.kappa_fb = nn.Parameter(torch.rand(1, len(input_unit_group), self.hidden_size)*1e-4)
             else:
                 self.kappa_w = nn.Parameter(torch.zeros(kappa_count)+1e-8)
 
@@ -271,12 +274,13 @@ class MultiChoiceRNN(nn.Module):
             if self.sep_lr:
                 for i in range(self.num_choices):
                     wx[i] = self.plasticity_func(wx[i], self.x2h[i].pos_func(self.x2h[i].weight).unsqueeze(0), R, x[:,i], new_output, 
-                                                 self.kappa_in[i].relu(), 0, self.weight_bound)
+                                                 torch.repeat_interleave(self.kappa_in[i].relu(), self.input_unit_group, dim=2), 
+                                                 0, self.weight_bound)
                 wh = self.plasticity_func(wh, self.h2h.pos_func(self.h2h.weight).unsqueeze(0), R, output, new_output,
                                           self.kappa_rec.relu(), 0, self.weight_bound)
                 if self.plastic_feedback:
                     wattn = self.plasticity_func(wattn, self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0), R, output, attn,
-                                                 self.kappa_fb.relu(), 0, self.weight_bound)
+                                                 torch.repeat_interleave(self.kappa_fb.relu(), self.attn_lr_group, dim=1), 0, self.weight_bound)
             else:
                 wx = wx*self.oneminusalpha_w + self.x2h.pos_func(self.x2h.weight).unsqueeze(0)*self.alpha_w + self.dt*R*(
                     self.kappa_w[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
