@@ -151,7 +151,7 @@ if __name__ == "__main__":
         model = MultiChoiceRNN(**model_specs)
     else:
         model = SimpleRNN(**model_specs)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-5 if 'policy' in args.task_type else 1e-8)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-4 if 'policy' in args.task_type else 1e-8)
     print(model)
     for n, p in model.named_parameters():
         print(n, p.numel())
