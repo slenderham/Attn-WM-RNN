@@ -264,6 +264,7 @@ class MultiChoiceRNN(nn.Module):
                 aux[:, 1:2] = (R!=0)*(1-R)/2 + self._sigma_in * torch.randn_like(R)
             if self.action_input:
                 aux[:,-self.num_choices:] = a + self._sigma_in * torch.randn_like(a)
+            aux = aux.relu()
             total_input += self.aux2h(aux)
 
         new_state = state * self.oneminusalpha_x + total_input * self.alpha_x + self._sigma_rec * torch.randn_like(state)
