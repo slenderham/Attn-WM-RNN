@@ -270,10 +270,11 @@ class MultiChoiceRNN(nn.Module):
         new_output = self.activation(new_state)
 
         if self.plastic:
-            R = R.unsqueeze(-1)
             if v is None:
+                R = R.unsqueeze(-1)
                 v = 0
             else:
+                R = (R.unsqueeze(-1)+1)/2
                 v = v.unsqueeze(-1)
             if self.sep_lr:
                 for i in range(self.num_choices):
