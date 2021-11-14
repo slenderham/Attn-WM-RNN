@@ -222,7 +222,7 @@ class MultiChoiceRNN(nn.Module):
         new_w = torch.clamp(new_w, lb, ub)
         return new_w
 
-    def recurrence(self, x, h, R, a=None):
+    def recurrence(self, x, h, R, v=None, a=None):
         batch_size = x.shape[0]
         
         if self.plastic:
@@ -271,15 +271,19 @@ class MultiChoiceRNN(nn.Module):
 
         if self.plastic:
             R = R.unsqueeze(-1)
+            if v is None:
+                v = 0
+            else:
+                v = v.unsqueeze(-1)
             if self.sep_lr:
                 for i in range(self.num_choices):
-                    wx[i] = self.plasticity_func(wx[i], self.x2h[i].pos_func(self.x2h[i].weight).unsqueeze(0), R, x[:,i], new_output, 
+                    wx[i] = self.plasticity_func(wx[i], self.x2h[i].pos_func(self.x2h[i].weight).unsqueeze(0), R-v, x[:,i], new_output, 
                                                  torch.repeat_interleave(self.kappa_in[i].relu(), self.input_unit_group, dim=2), 
                                                  0, self.weight_bound)
-                wh = self.plasticity_func(wh, self.h2h.pos_func(self.h2h.weight).unsqueeze(0), R, output, new_output,
+                wh = self.plasticity_func(wh, self.h2h.pos_func(self.h2h.weight).unsqueeze(0), R-v, output, new_output,
                                           self.kappa_rec.relu(), 0, self.weight_bound)
                 if self.plastic_feedback:
-                    wattn = self.plasticity_func(wattn, self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0), R, output, attn,
+                    wattn = self.plasticity_func(wattn, self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0), R-v, output, attn,
                                                  torch.repeat_interleave(self.kappa_fb.relu(), self.attn_lr_group, dim=1), 0, self.weight_bound)
             else:
                 wx = wx*self.oneminusalpha_w + self.x2h.pos_func(self.x2h.weight).unsqueeze(0)*self.alpha_w + self.dt*R*(
@@ -312,7 +316,7 @@ class MultiChoiceRNN(nn.Module):
         else:
             return (new_state, new_output, attn)
 
-    def forward(self, x, Rs, acts=None, hidden=None, save_weight=False, save_attn=False):
+    def forward(self, x, Rs, Vs=None, acts=None, hidden=None, save_weight=False, save_attn=False):
         if hidden is None:
             hidden = self.init_hidden(x)
 
@@ -326,7 +330,7 @@ class MultiChoiceRNN(nn.Module):
 
         steps = range(x.size(0))
         for i in steps:
-            hidden = self.recurrence(x[i], hidden, Rs[i], acts[i] if acts is not None else None)
+            hidden = self.recurrence(x[i], hidden, Rs[i], Vs[i] if Vs is not None else None, acts[i] if acts is not None else None)
             hs.append(hidden[1])
             if save_weight:
                 wxs.append(hidden[2])

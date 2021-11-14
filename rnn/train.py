@@ -177,8 +177,9 @@ if __name__ == "__main__":
                 rwds = 0
                 for i in range(len(pop_s['pre_choice'])):
                     # first phase, give stimuli and no feedback
-                    output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, Rs=0*DA_s['pre_choice'],
-                                          acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
+                    output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, 
+                                                  Rs=0*DA_s['pre_choice'], Vs=0*DA_s['pre_choice'],
+                                                  acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
                     # use output to calculate action, reward, and record loss function
                     logprob, value = output
                     m = torch.distributions.categorical.Categorical(logits=logprob[-1])
@@ -196,8 +197,9 @@ if __name__ == "__main__":
                     action_enc = torch.eye(output_size)[action]
                     pop_post = pop_post*action_enc.reshape(1,1,2,1)
                     action_enc = action_enc*DA_s['post_choice']
-                    R = (rwd-value[-1])*DA_s['post_choice']
-                    _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, acts=action_enc)
+                    R = (2*rwd-1)*DA_s['post_choice']
+                    V = value[-1]*DA_s['post_choice']
+                    _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc)
                     loss += (args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean())\
                             *len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
             
@@ -233,8 +235,9 @@ if __name__ == "__main__":
                     hidden = None
                     for i in range(len(pop_s['pre_choice'])):
                         # first phase, give stimuli and no feedback
-                        output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, Rs=0*DA_s['pre_choice'],
-                                          acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
+                        output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, 
+                                                      Rs=0*DA_s['pre_choice'], Vs=0*DA_s['pre_choice'],
+                                                      acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
                         # use output to calculate action, reward, and record loss function
                         logprob, value = output
                         m = torch.distributions.categorical.Categorical(logits=logprob[-1])
@@ -246,8 +249,9 @@ if __name__ == "__main__":
                         action_enc = torch.eye(output_size)[action]
                         pop_post = pop_post*action_enc.reshape(1,1,2,1)
                         action_enc = action_enc*DA_s['post_choice']
-                        R = (rwd-value[-1])*DA_s['post_choice']
-                        _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, acts=action_enc)
+                        R = (2*rwd-1)*DA_s['post_choice']
+                        V = value[-1]*DA_s['post_choice']
+                        _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc)
                     loss = torch.stack(loss, dim=0)
                 losses.append(loss)
             losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
