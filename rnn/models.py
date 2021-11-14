@@ -274,7 +274,7 @@ class MultiChoiceRNN(nn.Module):
                 R = R.unsqueeze(-1)
                 v = 0
             else:
-                R = (R.unsqueeze(-1)+1)/2
+                R = (R!=0)*(R.unsqueeze(-1)+1)/2
                 v = v.unsqueeze(-1)
             if self.sep_lr:
                 for i in range(self.num_choices):
