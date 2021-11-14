@@ -67,7 +67,7 @@ if __name__ == "__main__":
                         help='Learn reward prob or RL. On policy if decision determines. On policy if decision determines rwd. Off policy if rwd sampled from random policy.')
     parser.add_argument('--rwd_input', action='store_true', help='Whether to use reward as input')
     parser.add_argument('--action_input', action='store_true', help='Whether to use action as input')
-    parser.add_argument('--rps', action='store_true', help='Whether to use reward prediction error as modulation')
+    parser.add_argument('--rpe', action='store_true', help='Whether to use reward prediction error as modulation')
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
     parser.add_argument('--seed', type=int, help='Random seed')
