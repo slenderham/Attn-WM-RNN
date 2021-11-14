@@ -67,6 +67,7 @@ if __name__ == "__main__":
                         help='Learn reward prob or RL. On policy if decision determines. On policy if decision determines rwd. Off policy if rwd sampled from random policy.')
     parser.add_argument('--rwd_input', action='store_true', help='Whether to use reward as input')
     parser.add_argument('--action_input', action='store_true', help='Whether to use action as input')
+    parser.add_argument('--rps', action='store_true', help='Whether to use reward prediction error as modulation')
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
     parser.add_argument('--seed', type=int, help='Random seed')
@@ -178,7 +179,7 @@ if __name__ == "__main__":
                 for i in range(len(pop_s['pre_choice'])):
                     # first phase, give stimuli and no feedback
                     output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, 
-                                                  Rs=0*DA_s['pre_choice'], Vs=0*DA_s['pre_choice'],
+                                                  Rs=0*DA_s['pre_choice'], Vs=None,
                                                   acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
                     # use output to calculate action, reward, and record loss function
                     logprob, value = output
@@ -198,7 +199,10 @@ if __name__ == "__main__":
                     pop_post = pop_post*action_enc.reshape(1,1,2,1)
                     action_enc = action_enc*DA_s['post_choice']
                     R = (2*rwd-1)*DA_s['post_choice']
-                    V = value[-1]*DA_s['post_choice']
+                    if args.rpe:
+                        V = value[-1]*DA_s['post_choice']
+                    else:
+                        V = None
                     _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc)
                     loss += (args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean())\
                             *len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
@@ -236,8 +240,8 @@ if __name__ == "__main__":
                     for i in range(len(pop_s['pre_choice'])):
                         # first phase, give stimuli and no feedback
                         output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, 
-                                                      Rs=0*DA_s['pre_choice'], Vs=0*DA_s['pre_choice'],
-                                                      acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
+                                                    Rs=0*DA_s['pre_choice'], Vs=None,
+                                                    acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
                         # use output to calculate action, reward, and record loss function
                         logprob, value = output
                         m = torch.distributions.categorical.Categorical(logits=logprob[-1])
@@ -250,7 +254,10 @@ if __name__ == "__main__":
                         pop_post = pop_post*action_enc.reshape(1,1,2,1)
                         action_enc = action_enc*DA_s['post_choice']
                         R = (2*rwd-1)*DA_s['post_choice']
-                        V = value[-1]*DA_s['post_choice']
+                        if args.rpe:
+                            V = value[-1]*DA_s['post_choice']
+                        else:
+                            V = None
                         _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc)
                     loss = torch.stack(loss, dim=0)
                 losses.append(loss)
