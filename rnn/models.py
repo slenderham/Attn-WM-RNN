@@ -179,11 +179,11 @@ class MultiChoiceRNN(nn.Module):
                     kappa_count += 3
             
             if sep_lr:
-                self.kappa_in = nn.ParameterList([nn.Parameter(torch.rand(1, self.hidden_size, len(input_unit_group))*1e-4) 
+                self.kappa_in = nn.ParameterList([nn.Parameter(torch.rand(1, self.hidden_size, len(input_unit_group))*1e-3+1e-3) 
                                                     for _ in range(num_choices)])
-                self.kappa_rec = nn.Parameter(torch.rand(1, self.hidden_size, self.hidden_size)*1e-4)
+                self.kappa_rec = nn.Parameter(torch.rand(1, self.hidden_size, self.hidden_size)*1e-3+1e-3)
                 if plastic_feedback:
-                    self.kappa_fb = nn.Parameter(torch.rand(1, len(input_unit_group), self.hidden_size)*1e-4)
+                    self.kappa_fb = nn.Parameter(torch.rand(1, len(input_unit_group), self.hidden_size)*1e-3+1e-3)
             else:
                 self.kappa_w = nn.Parameter(torch.zeros(kappa_count)+1e-8)
 
@@ -202,11 +202,6 @@ class MultiChoiceRNN(nn.Module):
                         self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), None)
         else:
             return (h_init, h_init.relu())
-        
-    def init_state(self, hidden):
-        batch_size = hidden[0].shape[1]
-        h_init = self.x0.to(hidden[0].device) + self._sigma_rec * torch.randn(batch_size, self.hidden_size)
-        return (h_init, h_init.relu(), *hidden[2:])
 
     def plasticity_func(self, w, baseline, R, pre, post, kappa, lb, ub):
         if self.plas_rule=='add':
