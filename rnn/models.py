@@ -58,9 +58,9 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
-            # nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
-            nn.init.kaiming_normal_(self.weight)
-            self.weight.abs_()
+            nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
+            # nn.init.kaiming_normal_(self.weight)
+            # self.weight.abs_()
             # Scale E weight by E-I ratio
             if balance_ei and self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -122,9 +122,9 @@ class MultiChoiceRNN(nn.Module):
                             init_spectral=init_spectral, balance_ei=balance_ei)
         if value_est:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
-                                e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.15)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.5)
             self.h2v = EILinear(hidden_size, 1, remove_diag=False, pos_function='relu',
-                                e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.15)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.5)
         else:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
                                 e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
@@ -157,7 +157,7 @@ class MultiChoiceRNN(nn.Module):
         if attention_type!='none':
             assert(attn_group_size is not None)
             self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False,
-                                        e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.05)
+                                        e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.5)
                                         # the same attention applies to the same dimension of both stimuli
             self.attn_group_size = torch.LongTensor(attn_group_size)
             self.attn_lr_group = torch.LongTensor([3,3,1])
