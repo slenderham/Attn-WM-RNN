@@ -181,8 +181,7 @@ class MultiChoiceRNN(nn.Module):
             if sep_lr:
                 self.kappa_in = nn.ParameterList([nn.Parameter(torch.rand(1, self.hidden_size, len(input_unit_group))*1e-4+1e-4) 
                                                     for _ in range(num_choices)])
-                self.kappa_rec_rank = 4
-                self.kappa_rec = nn.Parameter((torch.rand(1, self.kappa_rec_rank*2, self.hidden_size)*1e-2+1e-2)/math.sqrt(self.kappa_rec_rank))
+                self.kappa_rec = nn.Parameter(torch.rand(1, self.hidden_size, self.hidden_size)*1e-4+1e-4)
                 if plastic_feedback:
                     self.kappa_fb = nn.Parameter(torch.rand(1, len(input_unit_group), self.hidden_size)*1e-4+1e-4)
             else:
@@ -278,9 +277,8 @@ class MultiChoiceRNN(nn.Module):
                     wx[i] = self.plasticity_func(wx[i], self.x2h[i].pos_func(self.x2h[i].weight).unsqueeze(0), R-v, x[:,i], new_output, 
                                                  torch.repeat_interleave(self.kappa_in[i].relu(), self.input_unit_group, dim=2), 
                                                  0, self.weight_bound)
-                kappa_rec = torch.matmul(self.kappa_rec[:,:self.kappa_rec_rank].transpose(1,2).relu(), self.kappa_rec[:,self.kappa_rec_rank:].relu())
                 wh = self.plasticity_func(wh, self.h2h.pos_func(self.h2h.weight).unsqueeze(0), R-v, output, new_output,
-                                          kappa_rec, 0, self.weight_bound)
+                                          self.kappa_rec.relu(), 0, self.weight_bound)
                 if self.plastic_feedback:
                     wattn = self.plasticity_func(wattn, self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0), R-v, output, attn,
                                                  torch.repeat_interleave(self.kappa_fb.relu(), self.attn_lr_group, dim=1), 0, self.weight_bound)
