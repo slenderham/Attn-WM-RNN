@@ -173,7 +173,7 @@ class MDPRL():
         DA_s = self.filter_da.reshape((len(self.T),1,1))
 
         output_mask = {'fixation': torch.from_numpy((self.T<0.0*self.s)).reshape(1, len(self.T), 1), \
-                        'target': torch.from_numpy(self.T_ch).reshape(1, len(self.T), 1)}
+                        'target': torch.from_numpy(self.T_ch).reshape(len(self.T))[self.T <= self.times['choice_end']*self.s]}
 
         pop_s = pop_s[:,:,:,:,self.input_indexes]
         pop_s = {
@@ -239,3 +239,42 @@ class MDPRL():
 
     def generateinputfromexp(self, batch_size, test_N_s):
         return self.generateinput(batch_size, test_N_s, self.prob_mdprl, scramble=False)
+
+    def value_est(self, probdata=None):
+        if probdata is None:
+            probdata = self.prob_mdprl
+
+        probdata = probdata.reshape(27)
+
+        means_shp = np.empty(3)
+        means_pttrn = np.empty(3)
+        means_clr = np.empty(3)
+        for d in range(3):
+            means_shp[d] = probdata[self.index_shp==d].mean()
+            means_pttrn[d] = probdata[self.index_pttrn==d].mean()
+            means_clr[d] = probdata[self.index_clr==d].mean()
+
+        self.est_shp = means_shp[self.index_shp]
+        self.est_pttrn = means_pttrn[self.index_pttrn]
+        self.est_clr = means_shp[self.index_clr]
+
+        means_shppttrn = np.empty(9)
+        means_pttrnclr = np.empty(9)
+        means_shpclr = np.empty(9)
+        for d in range(9):
+            means_shppttrn[d] = probdata[self.index_shppttrn==d].mean()
+            means_pttrnclr[d] = probdata[self.index_pttrnclr==d].mean()
+            means_shpclr[d] = probdata[self.index_shpclr==d].mean()
+
+        self.est_shppttrn = means_shppttrn[self.index_shppttrn]
+        self.est_pttrnclr = means_pttrnclr[self.index_pttrnclr]
+        self.est_shpclr = means_shpclr[self.index_shpclr]
+        
+        self.est_shppttrnclr = probdata
+
+        return [self.est_shp, self.est_pttrn, self.est_clr, 
+                self.est_shppttrn, self.est_pttrnclr, self.est_shpclr, 
+                self.est_shppttrnclr]
+
+    def generalizability(self, probdata=None):
+        pass
