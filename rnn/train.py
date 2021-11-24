@@ -180,7 +180,7 @@ if __name__ == "__main__":
                     # first phase, give stimuli and no feedback
                     output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, 
                                                   Rs=0*DA_s['pre_choice'], Vs=None,
-                                                  acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'], save_attns=True)
+                                                  acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
                     # use output to calculate action, reward, and record loss function
                     logprob, value = output
                     m = torch.distributions.categorical.Categorical(logits=logprob[-1])
