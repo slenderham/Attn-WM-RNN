@@ -180,7 +180,7 @@ if __name__ == "__main__":
                     # first phase, give stimuli and no feedback
                     output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, 
                                                   Rs=0*DA_s['pre_choice'], Vs=None,
-                                                  acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
+                                                  acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'], save_attns=True)
                     # use output to calculate action, reward, and record loss function
                     logprob, value = output
                     m = torch.distributions.categorical.Categorical(logits=logprob[-1])
@@ -267,14 +267,21 @@ if __name__ == "__main__":
             return losses_means, losses_stds
 
     metrics = defaultdict(list)
+    best_eval_loss = 0
     for i in range(args.epochs):
         training_loss = train(args.iters)
         eval_loss_means, eval_loss_stds = eval(i)
         metrics['eval_losses_mean'].append(eval_loss_means.tolist())
-        metrics['eval_losses_std'].append(eval_loss_means.tolist())
+        metrics['eval_losses_std'].append(eval_loss_stds.tolist())
         
         save_defaultdict_to_fs(metrics, os.path.join(args.exp_dir, 'metrics.json'))
         if args.save_checkpoint:
-            save_checkpoint(model.state_dict(), folder=args.exp_dir, filename='checkpoint.pth.tar')
+            if eval_loss_means.mean() > best_eval_loss:
+                is_best_epoch = True
+                best_eval_loss = eval_loss_means.mean().item()
+            else:
+                is_best_epoch = False
+            save_checkpoint(model.state_dict(), is_best=is_best_epoch, folder=args.exp_dir, 
+                            filename='checkpoint.pth.tar', best_filename=f'checkpoint_{i}.pth.tar')
     
     print('====> DONE')
