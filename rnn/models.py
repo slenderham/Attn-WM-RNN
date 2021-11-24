@@ -336,15 +336,15 @@ class MultiChoiceRNN(nn.Module):
                 attns.append(hidden[-1])
 
         hs = torch.stack(hs, dim=0)
-        saved_states = defaultdict(list)
+        saved_states = {}
         if save_weight:
             wxs = torch.stack(wxs, dim=0)
             whs = torch.stack(whs, dim=0)
-            saved_states['wxs'].append(wxs)
-            saved_states['whs'].append(whs)
+            saved_states['wxs'] = wxs
+            saved_states['whs'] = whs
         if save_attns:
             attns = torch.stack(attns, dim=0)
-            saved_states['attns'].append(attns)
+            saved_states['attns'] = attns
         
         os = self.h2o(hs)
         if hasattr(self, 'h2v'):
