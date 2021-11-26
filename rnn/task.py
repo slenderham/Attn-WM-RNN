@@ -182,7 +182,8 @@ class MDPRL():
                 index_s_1 = np.random.permutation(index_s)
                 index_s_2 = np.random.permutation(index_s)
         else:
-            index_s_1, index_s_2 = stim_order
+            index_s_1 = stim_order[:,:,0]
+            index_s_2 = stim_order[:,:,1]
 
         pop_s = np.zeros((len_seq, len(self.T), batch_size, 2, 63))
         ch_s = np.zeros((len_seq, len(self.T), batch_size, 2))
@@ -263,7 +264,6 @@ class MDPRL():
             torch.from_numpy(prob_index[:, index_s]).t(), output_mask
 
     def generateinputfromexp(self, batch_size, test_N_s, participant_num):
-        # TODO: how to feed sequentially
         return self.generateinput(batch_size, test_N_s, self.prob_mdprl, stim_order=self.test_stim_order[participant_num], scramble=False)
 
     def value_est(self, probdata=None):
