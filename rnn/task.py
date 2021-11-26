@@ -151,11 +151,11 @@ class MDPRL():
     def _generate_rand_prob(self, batch_size):
         return np.random.rand(batch_size, 3, 3, 3)
 
-    def generateinput(self, batch_size, N_s, prob_index=None, scramble=True):
+    def generateinput(self, batch_size, N_s, prob_index=None, stim_order=None, scramble=True):
         if self.task=='value' or 'single' in self.task:
             return self.generateinput_single(batch_size, N_s, prob_index, scramble)
         else:
-            return self.generateinput_double(batch_size, N_s, prob_index)
+            return self.generateinput_double(batch_size, N_s, prob_index, stim_order)
 
     def generateinput_double(self, batch_size, N_s, prob_index=None, stim_order=None):
         '''
