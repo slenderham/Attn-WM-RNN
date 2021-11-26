@@ -171,6 +171,8 @@ class MDPRL():
         prob_index = np.reshape(prob_index, (batch_size, 27))
         if stim_order is not None:
             len_seq = len(stim_order)
+        else:
+            len_seq = N_s*27
 
         if stim_order is None:
             index_s = np.repeat(np.arange(0,27,1), N_s)

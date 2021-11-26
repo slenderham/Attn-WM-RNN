@@ -232,8 +232,8 @@ if __name__ == "__main__":
         model.eval()
         losses = []
         with torch.no_grad():
-            for batch_idx in range(args.eval_samples):
-                DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(1, args.test_N_s)
+            for batch_idx in range(eval_samples):
+                DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(1, args.test_N_s, batch_idx)
                 if args.task_type=='value':
                     output, hs, _ = model(pop_s, DA_s)
                     output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], 1) # trial X T X batch size
