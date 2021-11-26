@@ -113,6 +113,10 @@ if __name__ == "__main__":
         device = torch.device('cuda' if args.cuda else 'cpu')
 
     task_mdprl = MDPRL(exp_times, args.input_type, args.task_type)
+    if hasattr(task_mdprl, 'test_rwd'):
+        eval_samples = task_mdprl.test_stim_order.shape[1]
+    else:
+        eval_samples = args.eval_samples
 
     input_size = {
         'feat': args.stim_dim*args.stim_val,
@@ -228,7 +232,7 @@ if __name__ == "__main__":
         model.eval()
         losses = []
         with torch.no_grad():
-            for i in range(args.eval_samples):
+            for batch_idx in range(args.eval_samples):
                 DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(1, args.test_N_s)
                 if args.task_type=='value':
                     output, hs, _ = model(pop_s, DA_s)
@@ -241,12 +245,15 @@ if __name__ == "__main__":
                         # first phase, give stimuli and no feedback
                         output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, 
                                                     Rs=0*DA_s['pre_choice'], Vs=None,
-                                                    acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
+                                                    acts=torch.zeros(1, output_size)*DA_s['pre_choice'])
                         # use output to calculate action, reward, and record loss function
                         logprob, value = output
                         m = torch.distributions.categorical.Categorical(logits=logprob[-1])
-                        action = m.sample().reshape(args.batch_size)
-                        rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
+                        action = m.sample().reshape(1)
+                        if not hasattr(task_mdprl, 'test_rwd'):
+                            rwd = (torch.rand(1)<prob_s[i,0,action]).float()
+                        else:
+                            rwd = task_mdprl.test_rwd[i, batch_idx, action].float()
                         loss.append((torch.argmax(logprob[-1], -1)==torch.argmax(prob_s[i], -1)).float())
                         # use the action (optional) and reward as feedback
                         pop_post = pop_s['post_choice'][i]
@@ -273,15 +280,17 @@ if __name__ == "__main__":
         eval_loss_means, eval_loss_stds = eval(i)
         metrics['eval_losses_mean'].append(eval_loss_means.tolist())
         metrics['eval_losses_std'].append(eval_loss_stds.tolist())
-        
+        metrics = dict(metrics)
         save_defaultdict_to_fs(metrics, os.path.join(args.exp_dir, 'metrics.json'))
         if args.save_checkpoint:
             if eval_loss_means.mean() > best_eval_loss:
                 is_best_epoch = True
                 best_eval_loss = eval_loss_means.mean().item()
+                metrics['best_epoch'] = i
+                metrics['best_eval_loss'] = eval_loss_means.mean().item()
             else:
                 is_best_epoch = False
             save_checkpoint(model.state_dict(), is_best=is_best_epoch, folder=args.exp_dir, 
-                            filename='checkpoint.pth.tar', best_filename=f'checkpoint_{i}.pth.tar')
+                            filename='checkpoint.pth.tar', best_filename=f'checkpoint_best.pth.tar')
     
     print('====> DONE')
