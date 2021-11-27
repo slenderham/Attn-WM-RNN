@@ -145,7 +145,7 @@ class MDPRL():
             self.choiceMap = exp_inputs['expr']['choiceMap'][0,0]
             self.test_stim_order.append(exp_inputs['input']['inputTarget'][0,0])
             self.test_rwd.append(exp_inputs['input']['inputReward'][0,0])
-        self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1)
+        self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1)-1
         self.test_rwd = np.stack(self.test_rwd, axis=0).transpose(2,0,1)
 
     def _generate_rand_prob(self, batch_size):
