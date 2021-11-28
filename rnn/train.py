@@ -233,7 +233,7 @@ if __name__ == "__main__":
         losses = []
         with torch.no_grad():
             for batch_idx in range(eval_samples):
-                DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(1, args.test_N_s, batch_idx)
+                DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(1, args.test_N_s)
                 if args.task_type=='value':
                     output, hs, _ = model(pop_s, DA_s)
                     output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], 1) # trial X T X batch size
@@ -245,15 +245,12 @@ if __name__ == "__main__":
                         # first phase, give stimuli and no feedback
                         output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, 
                                                     Rs=0*DA_s['pre_choice'], Vs=None,
-                                                    acts=torch.zeros(1, output_size)*DA_s['pre_choice'])
+                                                    acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
                         # use output to calculate action, reward, and record loss function
                         logprob, value = output
                         m = torch.distributions.categorical.Categorical(logits=logprob[-1])
-                        action = m.sample().reshape(1)
-                        if not hasattr(task_mdprl, 'test_rwd'):
-                            rwd = (torch.rand(1)<prob_s[i,0,action]).float()
-                        else:
-                            rwd = task_mdprl.test_rwd[i, batch_idx, action].float()
+                        action = m.sample().reshape(args.batch_size)
+                        rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
                         loss.append((torch.argmax(logprob[-1], -1)==torch.argmax(prob_s[i], -1)).float())
                         # use the action (optional) and reward as feedback
                         pop_post = pop_s['post_choice'][i]

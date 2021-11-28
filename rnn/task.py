@@ -1,8 +1,6 @@
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
-import scipy.io as io
-import os
 
 # TODO: Add reversal functionality
 # TODO: support different dimensions and stim values
@@ -132,32 +130,16 @@ class MDPRL():
         self.pop_s = pop_s
         self.pop_o = pop_o
 
-        # -----------------------------------------------------------------------------------------
-        # loading experimental conditions
-        # -----------------------------------------------------------------------------------------
-        subjects = ['aa', 'ab', 'ac', 'ae', 'af', 'ag', 'ah', 'ai', 'aj', 'al',
-                    'am', 'an', 'ao', 'aq', 'ar', 'as', 'at', 'av', 'aw', 'ax', 'ay']
-        base_dir = '/dartfs-hpc/rc/home/d/f005d7d/attn-rnn/Multi-dimensional-probablistic-learning/Behavioral task/PRLexp/inputs'
-        self.test_stim_order = []
-        self.test_rwd = []
-        for s in subjects:
-            exp_inputs = io.loadmat(os.path.join(base_dir, f'input_{s}.mat'))
-            self.choiceMap = exp_inputs['expr']['choiceMap'][0,0]
-            self.test_stim_order.append(exp_inputs['input']['inputTarget'][0,0])
-            self.test_rwd.append(exp_inputs['input']['inputReward'][0,0])
-        self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1)-1
-        self.test_rwd = torch.from_numpy(np.stack(self.test_rwd, axis=0).transpose(2,0,1))
-
     def _generate_rand_prob(self, batch_size):
         return np.random.rand(batch_size, 3, 3, 3)
 
-    def generateinput(self, batch_size, N_s, prob_index=None, stim_order=None, scramble=True):
+    def generateinput(self, batch_size, N_s, prob_index=None, scramble=True):
         if self.task=='value' or 'single' in self.task:
             return self.generateinput_single(batch_size, N_s, prob_index, scramble)
         else:
-            return self.generateinput_double(batch_size, N_s, prob_index, stim_order)
+            return self.generateinput_double(batch_size, N_s, prob_index)
 
-    def generateinput_double(self, batch_size, N_s, prob_index=None, stim_order=None):
+    def generateinput_double(self, batch_size, N_s, prob_index=None):
         '''
         Generate random stimuli AND choice for learning
         '''
@@ -169,32 +151,24 @@ class MDPRL():
         batch_size = prob_index.shape[0]
 
         prob_index = np.reshape(prob_index, (batch_size, 27))
-        if stim_order is not None:
-            len_seq = len(stim_order)
-        else:
-            len_seq = N_s*27
 
-        if stim_order is None:
-            index_s = np.repeat(np.arange(0,27,1), N_s)
+        index_s = np.repeat(np.arange(0,27,1), N_s)
+        index_s_1 = np.random.permutation(index_s)
+        index_s_2 = np.random.permutation(index_s)
+        while np.any(index_s_1==index_s_2):
             index_s_1 = np.random.permutation(index_s)
             index_s_2 = np.random.permutation(index_s)
-            while np.any(index_s_1==index_s_2):
-                index_s_1 = np.random.permutation(index_s)
-                index_s_2 = np.random.permutation(index_s)
-        else:
-            index_s_1 = stim_order[:,0]
-            index_s_2 = stim_order[:,1]
 
-        pop_s = np.zeros((len_seq, len(self.T), batch_size, 2, 63))
-        ch_s = np.zeros((len_seq, len(self.T), batch_size, 2))
+        pop_s = np.zeros((len(index_s), len(self.T), batch_size, 2, 63))
+        ch_s = np.zeros((len(index_s), len(self.T), batch_size, 2))
         prob_s = np.stack([prob_index[:, index_s_1], prob_index[:, index_s_2]], axis=-1)
         prob_s += 1e-8*np.random.random(prob_s.shape) # for random stickbreaking
 
         for i in range(batch_size):
             pop_s[:,:,i,0,:] = self.pop_s[index_s_1,:,:]
             pop_s[:,:,i,1,:] = self.pop_s[index_s_2,:,:]
-            ch_s[:,:,i,0] = self.filter_ch*prob_index[i, index_s_1].reshape((len_seq,1))
-            ch_s[:,:,i,1] = self.filter_ch*prob_index[i, index_s_2].reshape((len_seq,1))
+            ch_s[:,:,i,0] = self.filter_ch*prob_index[i, index_s_1].reshape((27*N_s,1))
+            ch_s[:,:,i,1] = self.filter_ch*prob_index[i, index_s_2].reshape((27*N_s,1))
 
         DA_s = self.filter_da.reshape((len(self.T),1,1))
 
@@ -263,8 +237,8 @@ class MDPRL():
             torch.from_numpy(pop_s[:,:,self.input_indexes]).float(), torch.from_numpy(index_s), \
             torch.from_numpy(prob_index[:, index_s]).t(), output_mask
 
-    def generateinputfromexp(self, batch_size, test_N_s, participant_num):
-        return self.generateinput(batch_size, test_N_s, self.prob_mdprl, stim_order=self.test_stim_order[:,participant_num], scramble=False)
+    def generateinputfromexp(self, batch_size, test_N_s):
+        return self.generateinput(batch_size, test_N_s, self.prob_mdprl, scramble=False)
 
     def value_est(self, probdata=None):
         if probdata is None:
