@@ -98,8 +98,8 @@ if __name__ == "__main__":
         'rwd_end': 0.6,
         'choice_onset': 0.35,
         'choice_end': 0.5,
-        'total_time': 1}
-    exp_times['dt'] = args.dt
+        'total_time': 1,
+        'dt': args.dt}
     log_interval = 1
 
     if args.seed is not None:
@@ -233,7 +233,7 @@ if __name__ == "__main__":
         losses = []
         with torch.no_grad():
             for batch_idx in range(eval_samples):
-                DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(1, args.test_N_s)
+                DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(1, args.test_N_s, batch_idx)
                 if args.task_type=='value':
                     output, hs, _ = model(pop_s, DA_s)
                     output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], 1) # trial X T X batch size
@@ -245,12 +245,12 @@ if __name__ == "__main__":
                         # first phase, give stimuli and no feedback
                         output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, 
                                                     Rs=0*DA_s['pre_choice'], Vs=None,
-                                                    acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
+                                                    acts=torch.zeros(1, output_size)*DA_s['pre_choice'])
                         # use output to calculate action, reward, and record loss function
                         logprob, value = output
                         m = torch.distributions.categorical.Categorical(logits=logprob[-1])
-                        action = m.sample().reshape(args.batch_size)
-                        rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
+                        action = m.sample().reshape(1)
+                        rwd = (torch.rand(1)<prob_s[i,0,action]).float()
                         loss.append((torch.argmax(logprob[-1], -1)==torch.argmax(prob_s[i], -1)).float())
                         # use the action (optional) and reward as feedback
                         pop_post = pop_s['post_choice'][i]
@@ -288,6 +288,6 @@ if __name__ == "__main__":
             else:
                 is_best_epoch = False
             save_checkpoint(model.state_dict(), is_best=is_best_epoch, folder=args.exp_dir, 
-                            filename='checkpoint.pth.tar', best_filename=f'checkpoint_best.pth.tar')
+                            filename='checkpoint.pth.tar', best_filename='checkpoint_best.pth.tar')
     
     print('====> DONE')
