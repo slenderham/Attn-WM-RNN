@@ -113,7 +113,7 @@ if __name__ == "__main__":
         device = torch.device('cuda' if args.cuda else 'cpu')
 
     task_mdprl = MDPRL(exp_times, args.input_type, args.task_type)
-    if hasattr(task_mdprl, 'test_rwd'):
+    if hasattr(task_mdprl, 'test_stim_order'):
         eval_samples = task_mdprl.test_stim_order.shape[1]
     else:
         eval_samples = args.eval_samples
