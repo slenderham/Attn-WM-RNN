@@ -50,7 +50,7 @@ def backward_decoding(hs, ys, NPROC=16):
 def representational_similarity_analysis(xs, hs, NPROC=16):
     n_time_steps, n_trials, n_hidden = hs.shape
     hs = hs.reshape((n_time_steps*n_trials, n_hidden))
-    rnn_sim = pdist(hs, metric='correlation')
+    rnn_sim = pdist(hs, metric='euclidean')
     input_sim = []
     for x in xs: # for each input measure
         x = x.reshape((n_time_steps*n_trials, 1))
@@ -62,9 +62,9 @@ def representational_similarity_analysis(xs, hs, NPROC=16):
 def fit_exp(y,x=None):
     if x is None:
         x = np.arange(y.shape[0])
-    pred = lambda p: 0+(p[0]-0)*(1-math.exp(-x/p[1]))
+    pred = lambda p: p[0]*(1-math.exp(-x/p[1]))
     p0 = [np.rand()*10, np.rand()*1e4]
     lb = [0, 0]
     ub = [10, 1e4]
     popt, _ = curve_fit(pred, x, y, bound=(lb, ub), p0=p0)
-    return popt
+    return popt[0]*(1-math.exp(-x/popt[1]))

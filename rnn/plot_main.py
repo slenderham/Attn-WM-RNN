@@ -4,7 +4,7 @@ from torch.nn.functional import interpolate
 from torch.serialization import save
 from analysis import representational_similarity_analysis
 from utils import load_checkpoint
-from models import SimpleRNN
+from models import SimpleRNN, MultiChoiceRNN
 from task import MDPRL
 from analysis import *
 import torch
@@ -12,9 +12,24 @@ import os
 import json
 import math
 import numpy as np
+# plt.rcParams["figure.figsize"] = (16,10)
+
+def convert_pvalue_to_asterisks(pvalue):
+    if pvalue <= 0.0001:
+        return "****"
+    elif pvalue <= 0.001:
+        return "***"
+    elif pvalue <= 0.01:
+        return "**"
+    elif pvalue <= 0.05:
+        return "*"
+    return "ns"
 
 def plot_mean_and_std(ax, m, sd, label):
-    ax.plot(m, label=label)
+    if label is not None:
+        ax.plot(m, label=label)
+    else:
+        ax.plot(m)
     ax.fill_between(range(len(m)), m-sd, m+sd, alpha=0.1)
 
 def plot_imag_centered_cm(ax, im):
@@ -45,11 +60,22 @@ def plot_connectivity(x2hw, h2hw, hb, h2ow):
     plt.show()
     # plt.savefig('plots/connectivity')
 
-def plot_learning_curve(lm, lsd):
-    fig, ax = plt.subplots()
-    plot_mean_and_std(ax, lm[0], lsd[0], label='Percent Better')
-    plot_mean_and_std(ax, lm[1], lsd[1], label='Reward')
-    ax.vlines(x=args['N_s']*args['stim_val']**args['stim_dim'], ymin=0, ymax=(lm+lsd).max()*1.05, colors='black')
+def plot_learning_curve(all_l, lm, lsd):
+    fig_all = plt.figure('perf_all')
+    ax = fig_all.add_subplot()
+    ax.imshow(all_l[0].squeeze(-1).t(), aspect='auto', interpolation='nearest')
+    ax.set_xlabel('Trials')
+    ax.set_ylabel('Episodes')
+    plt.tight_layout()
+    plt.savefig('plots/performance_all')
+
+    fig_summ = plt.figure('perf_summary')
+    ax = fig_summ.add_subplot()
+    window_size = 20
+    plot_mean_and_std(ax, np.convolve(lm[0], np.ones(window_size)/window_size,'valid'), lsd[0].numpy()[:-window_size+1], label='Percent Better')
+    plot_mean_and_std(ax, np.convolve(lm[1], np.ones(window_size)/window_size,'valid'), lsd[1].numpy()[:-window_size+1], label='Reward')
+    ax.vlines(x=args['N_s']*args['stim_val']**args['stim_dim'], ymin=0.3, ymax=0.9, colors='black')
+    ax.legend()
     ax.set_xlabel('Trials')
     ax.set_ylabel('Percent Correct')
     plt.tight_layout()
@@ -88,26 +114,38 @@ def plot_sorted_matrix(w, selectivity, e_size):
     plot_imag_centered_cm(ax, w)
     return w
 
-def plot_rsa(hs, inputs, stim_order, stim_probs, splits=10):
-    n_timesteps, n_batch, n_hidden = hs.shape
-    n_steps_par_split = n_timesteps//splits
-    probs_by_feat, probs_by_conj, probs_by_obj = stim_probs
-    probs_by_feat = probs_by_feat[stim_order[0]] - probs_by_feat[stim_order[1]]
-    probs_by_conj = probs_by_conj[stim_order[0]] - probs_by_conj[stim_order[1]]
-    probs_by_obj = probs_by_obj[stim_order[0]] - probs_by_obj[stim_order[1]]
+def plot_rsa(hs, stim_order, stim_probs, splits=8):
+    n_trials, n_timesteps, n_batch, n_hidden = hs.shape
+    hs = hs.mean(1)
+    n_steps_par_split = n_trials//splits
+    stim_probs_ordered = []
+    for est in stim_probs:
+        stim_probs_ordered.append([])
+        for i in range(n_batch):
+            stim_probs_ordered[-1].append(est[stim_order[:,i,0]]-est[stim_order[:,i,1]])
+        stim_probs_ordered[-1] = np.stack(stim_probs_ordered[-1], axis=-1)
     rnn_sims = []
     input_sims = []
-    reg_results = defaultdict(list)
+    reg_results = []
     for i in range(splits-1):
-        xs = np.concatenate([probs_by_feat[i*n_steps_par_split:(i+1)*n_steps_par_split],
-              probs_by_conj[i*n_steps_par_split:(i+1)*n_steps_par_split],
-              probs_by_obj[i*n_steps_par_split:(i+1)*n_steps_par_split]], axis=-1).transpose(1,0) # 
+        xs = [est[i*n_steps_par_split:(i+1)*n_steps_par_split] for est in stim_probs_ordered]
         rnn_sim, input_sim, reg_result = representational_similarity_analysis(xs, hs[i*n_steps_par_split:(i+1)*n_steps_par_split])
         rnn_sims.append(rnn_sim)
         input_sims.append(input_sim)
         reg_results.append(reg_result)
     
-    plt.subplot(111).plot()
+    fig = plt.figure('rsa_coeffs')
+    labels = ['Shape', 'Pattern', 'Color', 'Shape+Pattern', 'Pattern+Color', 'Shape+Color', 'Shape+Pattern+Color']
+    ax = fig.add_subplot()
+    for i in range(7):
+        coeffs = [res.coef[i+1] for res in reg_results]
+        ses = [res.se[i+1] for res in reg_results]
+        plot_mean_and_std(ax, np.array(coeffs), np.array(ses), labels[i])
+    ax.legend()
+    ax.set_xlabel('Time Segment')
+    ax.set_ylabel('Regression Coefficient of RDM')
+    plt.tight_layout()
+    plt.savefig('plots/rsa_coeffs')
 
 def run_model(args, model, task_mdprl):
     model.eval()
@@ -116,10 +154,11 @@ def run_model(args, model, task_mdprl):
     all_indices = []
     all_saved_states_pre = defaultdict(list)
     all_saved_states_post = defaultdict(list)
+    n_samples = 21
     with torch.no_grad():
-        for i in range(10):
-            print(i)
-            DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(1, args['test_N_s'])
+        for batch_idx in range(n_samples):
+            print(batch_idx)
+            DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(1, args['test_N_s'], batch_idx)
             if args['task_type']=='value':
                 output, hs, _ = model(pop_s, DA_s)
                 output = output.reshape(args['stim_val']**args['stim_dim']*args['test_N_s'], output_mask.shape[1], 1) # trial X T X batch size
@@ -132,8 +171,8 @@ def run_model(args, model, task_mdprl):
                     # first phase, give stimuli and no feedback
                     output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
                                                 Rs=0*DA_s['pre_choice'], Vs=None,
-                                                acts=torch.zeros(args['batch_size'], 2)*DA_s['pre_choice'], 
-                                                save_attns=True, save_weights=True)
+                                                acts=torch.zeros(1, 2)*DA_s['pre_choice'], 
+                                                save_attns=True, save_weight=False)
                     for k, v in ss.items():
                         all_saved_states_pre[k].append(v)
                     all_saved_states_pre['hs'].append(hs)
@@ -141,8 +180,8 @@ def run_model(args, model, task_mdprl):
                     # use output to calculate action, reward, and record loss function
                     logprob, value = output
                     m = torch.distributions.categorical.Categorical(logits=logprob[-1])
-                    action = m.sample().reshape(args['batch_size'])
-                    rwd = (torch.rand(args['batch_size'])<prob_s[i][range(args['batch_size']), action]).float()
+                    action = m.sample().reshape(1)
+                    rwd = (torch.rand(1)<prob_s[i,0,action]).float()
                     acc.append((torch.argmax(logprob[-1], -1)==torch.argmax(prob_s[i], -1)).float())
                     curr_rwd.append(rwd)
                     # use the action (optional) and reward as feedback
@@ -155,7 +194,7 @@ def run_model(args, model, task_mdprl):
                         V = value[-1]*DA_s['post_choice']
                     else:
                         V = None
-                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc, save_attns=True, save_weights=True)
+                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc, save_attns=True, save_weight=False)
                     for k, v in ss.items():
                         all_saved_states_post[k].append(v)
                     all_saved_states_post['hs'].append(hs)
@@ -164,17 +203,21 @@ def run_model(args, model, task_mdprl):
             accs.append(acc)
             rwds.append(curr_rwd)
             all_indices.append(index_s)
-        
-        accs_means = torch.cat(accs, dim=1).mean(1) # loss per trial
-        accs_stds = torch.cat(accs, dim=1).std(1) # loss per trial
-        rwds_means = torch.cat(rwds, dim=1).mean(1) # loss per trial
-        rwds_stds = torch.cat(rwds, dim=1).std(1) # loss per trial
+        accs = torch.cat(accs, dim=1)
+        rwds = torch.cat(rwds, dim=1)
+        accs_means = accs.mean(1) # loss per trial
+        accs_stds = accs.std(1)/math.sqrt(n_samples) # loss per trial
+        rwds_means = rwds.mean(1) # loss per trial
+        rwds_stds = rwds.std(1)/math.sqrt(n_samples) # loss per trial
         all_saved_states = {}
+        print(rwds_means.mean(), accs_means.mean())
         for k in all_saved_states_pre.keys():
             all_saved_states[k] = torch.cat([torch.cat(all_saved_states_pre[k], dim=1),
                                              torch.cat(all_saved_states_post[k], dim=1)], dim=0)
+            trial_len, batch_times_trials, *hidden_sizes = all_saved_states[k].shape
+            all_saved_states[k] = all_saved_states[k].reshape(trial_len, n_samples, len(index_s), *hidden_sizes).transpose(1,2).transpose(0,1)
         all_indices = torch.stack(all_indices, dim=1) # trials X batch size X 2
-        return [accs_means, rwds_means], [accs_stds, rwds_stds], all_saved_states, all_indices
+        return [accs, rwds], [accs_means, rwds_means], [accs_stds, rwds_stds], all_saved_states, all_indices
 
 
 # TODO: use FC to characterize feature and object selection neurons, as predicted by the hierarchical model
@@ -211,17 +254,14 @@ if __name__=='__main__':
         'choice_end': 0.5,
         'total_time': 1}
     exp_times['dt'] = args['dt']
-    task_mdprl = MDPRL(exp_times, args['input_type'])
-    print('loaded_task')
+    task_mdprl = MDPRL(exp_times, args['input_type'], args['task_type'])
+    print('loaded task')
 
     input_size = {
         'feat': args['stim_dim']*args['stim_val'],
         'feat+obj': args['stim_dim']*args['stim_val']+args['stim_val']**args['stim_dim'], 
         'feat+conj+obj': args['stim_dim']*args['stim_val']+args['stim_dim']*args['stim_val']*args['stim_val']+args['stim_val']**args['stim_dim'],
     }[args['input_type']]
-
-    if args['rwd_input']:
-        input_size += 2
 
     input_unit_group = {
         'feat': [args['stim_dim']*args['stim_val']], 
@@ -239,18 +279,23 @@ if __name__=='__main__':
     else:
         attn_group_size = [input_size]
     
-    model_specs = {'input_size': input_size, 'hidden_size': args['hidden_size'], 'output_size': 1, 
+    model_specs = {'input_size': input_size, 'hidden_size': args['hidden_size'], 'output_size': 2 if 'double' in args['task_type'] else 1, 
             'plastic': args['plas_type']=='all', 'attention_type': 'weight', 'activation': args['activ_func'],
             'dt': args['dt'], 'tau_x': args['tau_x'], 'tau_w': args['tau_w'], 'attn_group_size': attn_group_size,
             'c_plasticity': None, 'e_prop': args['e_prop'], 'init_spectral': args['init_spectral'], 'balance_ei': args['balance_ei'],
-            'sigma_rec': args['sigma_rec'], 'sigma_in': args['sigma_in'], 'sigma_w': args['sigma_w'], 'rwd_input': args.get('rwd_input', False),
-            'input_unit_group': input_unit_group, 'sep_lr': args['sep_lr'], 'plastic_feedback': args['plastic_feedback']}
-    model = SimpleRNN(**model_specs)
-    state_dict = torch.load(os.path.join(plot_args.exp_dir, 'checkpoint.pth.tar'), map_location=torch.device('cpu'))
+            'sigma_rec': args['sigma_rec'], 'sigma_in': args['sigma_in'], 'sigma_w': args['sigma_w'], 
+            'rwd_input': args.get('rwd_input', False), 'action_input': args['action_input'], 
+            'input_unit_group': input_unit_group, 'sep_lr': args['sep_lr'], 'plastic_feedback': args['plastic_feedback'],
+            'value_est': 'policy' in args['task_type'], 'num_choices': 2 if 'double' in args['task_type'] else 1}
+    if 'double' in args['task_type']:
+        model = MultiChoiceRNN(**model_specs)
+    else:
+        model = SimpleRNN(**model_specs)
+    state_dict = torch.load(os.path.join(plot_args.exp_dir, 'checkpoint_best.pth.tar'), map_location=torch.device('cpu'))
     model.load_state_dict(state_dict)
     print('loaded model')
 
-    losses_means, losses_stds, all_saved_states, all_indices = run_model(args, model, task_mdprl)
+    losses, losses_means, losses_stds, all_saved_states, all_indices = run_model(args, model, task_mdprl)
     print('simulation complete')
     
     # load metrics
@@ -262,10 +307,10 @@ if __name__=='__main__':
                           state_dict['h2h.bias'].detach(), \
                           model.h2o.effective_weight().detach())
     if plot_args.learning_curve:
-        plot_learning_curve(losses_means, losses_stds)
+        plot_learning_curve(losses, losses_means, losses_stds)
     if plot_args.attn_entropy:
         plot_attn_entropy(all_saved_states['attns'])
     if plot_args.attn_distribution:
         plot_attn_distribution(all_saved_states['attns'])
     if plot_args.rsa:
-        plot_rsa(all_saved_states['hs'], task_mdprl.value_est(), stim_order=all_indices, stim_probs=task_mdprl.prob_mdprl)
+        plot_rsa(all_saved_states['hs'], stim_probs=task_mdprl.value_est(), stim_order=all_indices)
