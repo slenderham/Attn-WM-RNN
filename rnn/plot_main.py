@@ -2,11 +2,12 @@ from collections import defaultdict
 from matplotlib import pyplot as plt
 from torch.nn.functional import interpolate
 from torch.serialization import save
-from analysis import representational_similarity_analysis
+from analysis import representational_similarity_analysis, hierarchical_clustering, linear_regression
 from utils import load_checkpoint
 from models import SimpleRNN, MultiChoiceRNN
 from task import MDPRL
 from analysis import *
+import scipy.cluster.hierarchy as sch
 import torch
 import os
 import json
@@ -33,29 +34,55 @@ def plot_mean_and_std(ax, m, sd, label):
     ax.fill_between(range(len(m)), m-sd, m+sd, alpha=0.1)
 
 def plot_imag_centered_cm(ax, im):
-    max_mag = im.abs().max()
-    ax.imshow(im, vmax=max_mag, vmin=-max_mag, colormap='RdBu')
+    max_mag = im.abs().max()*0.3
+    im = ax.imshow(im, vmax=max_mag, vmin=-max_mag, cmap='bwr')
+    return im
 
-def plot_connectivity(x2hw, h2hw, hb, h2ow):
-    maxmax = abs(max([x2hw.max().item(), h2hw.max().item(), hb.max().item(), h2ow.max().item()]))
-    minmin = abs(min([x2hw.min().item(), h2hw.min().item(), hb.min().item(), h2ow.min().item()]))
-    vbound = max([maxmax, minmin])
-    fig, axes = plt.subplots(2, 3, \
-        gridspec_kw={'width_ratios': [h2hw.shape[1], x2hw.shape[1], 1], 'height_ratios': [h2hw.shape[0], 1]})
+def plot_connectivity(x2hw, h2hw, hb, h2ow, e_size):
+    # maxmax = abs(max([x2hw.max().item(), h2hw.max().item(), hb.max().item(), h2ow.max().item()]))
+    # minmin = abs(min([x2hw.min().item(), h2hw.min().item(), hb.min().item(), h2ow.min().item()]))
+    # vbound = max([maxmax, minmin])
+    selectivity = h2ow[0,:e_size]-h2ow[1,:e_size]
+    sort_inds = torch.argsort(selectivity)
+    sort_inds = torch.cat([sort_inds, torch.arange(e_size, h2hw.shape[0])])
+    vbound = 0.15
+    # fig, axes = plt.subplots(2, 3, \
+        # gridspec_kw={'width_ratios': [h2hw.shape[1], x2hw.shape[1], 1], 'height_ratios': [h2hw.shape[0], 1]})
+    fig = plt.figure('connectivity')
     ims = []
-    ims.append(axes[0, 0].imshow(h2hw, cmap='bwr', vmin=-vbound*0.3, vmax=vbound*0.3, interpolation='nearest'))
-    ims.append(axes[0, 1].imshow(x2hw, cmap='bwr', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    ims.append(axes[0, 2].imshow(hb.unsqueeze(1), cmap='bwr', vmin=-vbound*0.5, vmax=vbound*0.5, interpolation='nearest'))
-    ims.append(axes[1, 0].imshow(h2ow, cmap='bwr', vmin=-vbound*0.5, vmax=vbound*0.5, interpolation='nearest'))
-    axes[1, 1].set_visible(False)
-    axes[1, 2].set_visible(False)
-    for i in range(2):
-        for j in range(3):
-            axes[i, j].axis('off')
-    plt.axis('off')
-    fig.subplots_adjust(right=0.85)
-    cbar_ax = fig.add_axes([0.88, 0.15, 0.04, 0.7])
+    ax01 = fig.add_axes((0.05, 0.1, 0.04, 0.6))
+    ims.append(ax01.imshow(x2hw[0][sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest', aspect='auto'))
+    ax01.set_xticks([])
+    ax01.set_yticks([])
+    ax01.axis('off')
+    ax02 = fig.add_axes((0.11, 0.1, 0.04, 0.6))
+    ims.append(ax02.imshow(x2hw[1][sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest', aspect='auto'))
+    ax02.set_xticks([])
+    ax02.set_yticks([])
+    ax02.axis('off')
+    ax1w = fig.add_axes((0.18, 0.1, 0.6, 0.6))
+    ims.append(ax1w.imshow(h2hw[sort_inds][:,sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest', aspect='auto'))
+    ax1w.set_xticks([])
+    ax1w.set_yticks([])
+    ax1w.axis('off')
+    ax1b = fig.add_axes((0.80, 0.1, 0.01, 0.6))
+    ims.append(ax1b.imshow(hb[sort_inds].unsqueeze(1), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest', aspect='auto'))
+    ax1b.set_xticks([])
+    ax1b.set_yticks([])
+    ax1b.axis('off')
+    ax2 = fig.add_axes((0.18, 0.73, 0.6, 0.01))
+    ims.append(ax2.imshow(h2ow[:,sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest', aspect='auto'))
+    ax2.set_xticks([])
+    ax2.set_yticks([])
+    ax2.axis('off')
+    # for i in range(2):
+    #     for j in range(3):
+    #         axes[i, j].axis('off')
+    # plt.axis('off')
+    # fig.subplots_adjust(right=0.85)
+    cbar_ax = fig.add_axes([0.83, 0.1, 0.02, 0.6])
     fig.colorbar(ims[-1], cax=cbar_ax)
+    plt.suptitle('Model Connectivity', y=0.8)
     # plt.tight_layout()
     plt.show()
     # plt.savefig('plots/connectivity')
@@ -94,26 +121,72 @@ def plot_attn_entropy(attns):
     plt.savefig('plots/attn_entropy')
 
 def plot_attn_distribution(attns):
-    fig, axes = plt.subplots(args['test_N_s'], 1, )
-    mean_attns = attns.mean(1)
-    rep_len = len(mean_attns)//args['test_N_s']
-    for i in range(10):
+    fig, axes = plt.subplots(16, 1)
+    mean_attns = attns.flatten(0,1).mean(1)
+    rep_len = len(mean_attns)//16
+    for i in range(16):
         im = axes[i].imshow(mean_attns[i*rep_len:(i+1)*rep_len].t(), vmin=0, vmax=1, aspect='auto', interpolation='nearest')
     fig.supxlabel('Time step')
     fig.supylabel('Dimension')
-    fig.colorbar(im)
-    plt.tight_layout()
+    # fig.colorbar(im)
+    # plt.tight_layout()
     plt.show()
     # plt.savefig('plots/attn_bars')
 
-def plot_sorted_matrix(w, selectivity, e_size):
+def plot_sorted_matrix(w, e_size, w_type):
     # from https://github.com/gyyang/nn-brain/blob/master/EI_RNN.ipynb
-    ind_sort = np.concatenate((np.argsort(selectivity[:e_size]), np.argsort(selectivity[e_size:])+e_size))
+    Z = hierarchical_clustering(w[:e_size, :e_size])
+    fig = plt.figure()
+    ax1 = fig.add_axes([0.09,0.22,0.2,0.48])
+    Z = sch.dendrogram(Z, orientation='left')
+    ax1.set_xticks([])
+    ax1.set_yticks([])
+    # ind_sort = np.concatenate((np.argsort(selectivity[:e_size]), np.argsort(selectivity[e_size:])+e_size))
+    ind_sort = np.concatenate((Z['leaves'][:e_size], np.arange(e_size, w.shape[0])))
+    ax2 = fig.add_axes([0.3,0.1,0.6,0.6])
+    ax2.set_xticks([])
+    ax2.set_yticks([])
+    ax2.axvline(x=e_size-0.5, linewidth=1, color='black')
+    ax2.axhline(y=e_size-0.5, linewidth=1, color='black')
     w = w[ind_sort, :][:, ind_sort]
-    ax = plt.subplot(111)
-    plot_imag_centered_cm(ax, w)
-    return w
+    if w_type=='weight':
+        im = plot_imag_centered_cm(ax2, w)
+        plt.title('Sorted Recurrent Connectivity')
+        plt.colorbar(im)
+        plt.savefig('plots/sorted_rec_w')
+    elif w_type=='lr':
+        im = plt.imshow(w, cmap='hot', vmax=w.max()*0.4)
+        plt.title('Sorted Recurrent Learning Rates')
+        plt.colorbar(im)
+        plt.savefig('plots/sorted_rec_lr')
+    else:
+        raise ValueError
 
+def plot_single_unit_regression(hs, stim_order, stim_probs):
+    n_trials, n_timesteps, n_batch, n_hidden = hs.shape
+    hs = hs.mean(1)
+    stim_probs_ordered = []
+    for est in stim_probs:
+        stim_probs_ordered.append([])
+        for i in range(n_batch):
+            stim_probs_ordered[-1].append(est[stim_order[:,i,0]]-est[stim_order[:,i,1]])
+        stim_probs_ordered[-1] = np.stack(stim_probs_ordered[-1], axis=-1)
+    
+    reg_results = []
+    xs = np.stack(stim_probs_ordered, -1)
+    reg_results.append([])
+    for j in range(n_hidden):
+        reg_results[-1].append(linear_regression(xs, hs[:,:,j].reshape(n_trials*n_batch)))
+
+    fig = fig = plt.figure('rsa_coeffs')
+    labels = ['Shape', 'Pattern', 'Color', 'Shape+Pattern', 'Pattern+Color', 'Shape+Color', 'Shape+Pattern+Color']
+    ax = fig.add_subplot()
+    for i in range(7):
+        coeffs = [res.coef[i+1] for res in reg_results]
+        ses = [res.se[i+1] for res in reg_results]
+        ax.plot(coeffs, alpha=0.1)
+        ax.errorbar(range(n_hidden), coeffs, ses, capsize=3)
+    
 def plot_rsa(hs, stim_order, stim_probs, splits=8):
     n_trials, n_timesteps, n_batch, n_hidden = hs.shape
     hs = hs.mean(1)
@@ -145,7 +218,8 @@ def plot_rsa(hs, stim_order, stim_probs, splits=8):
     ax.set_xlabel('Time Segment')
     ax.set_ylabel('Regression Coefficient of RDM')
     plt.tight_layout()
-    plt.savefig('plots/rsa_coeffs')
+    # plt.savefig('plots/rsa_coeffs')
+    plt.show()
 
 def run_model(args, model, task_mdprl):
     model.eval()
@@ -230,6 +304,9 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_dir', type=str, help='Directory of trained model')
     parser.add_argument('--connectivity', action='store_true')
+    parser.add_argument('--learning_rates', action='store_true')
+    parser.add_argument('--sort_rec_w', action='store_true')
+    parser.add_argument('--sort_rec_lr', action='store_true')
     parser.add_argument('--tensor_decomp', action='store_true')
     parser.add_argument('--pca', action='store_true')
     parser.add_argument('--rsa', action='store_true')
@@ -295,17 +372,28 @@ if __name__=='__main__':
     model.load_state_dict(state_dict)
     print('loaded model')
 
+
+    if plot_args.sort_rec_w:
+        plot_sorted_matrix(model.h2h.effective_weight().detach(), int(args['e_prop']*args['hidden_size']), 'weight')
+    if plot_args.sort_rec_lr:
+        plot_sorted_matrix(model.kappa_rec.relu().squeeze().detach(), int(args['e_prop']*args['hidden_size']), 'lr')
+    if plot_args.connectivity:
+        plot_connectivity([mx2h.effective_weight().detach() for mx2h in model.x2h], \
+                          model.h2h.effective_weight().detach(), \
+                          state_dict['h2h.bias'].detach(), \
+                          model.h2o.effective_weight().detach(), e_size=int(args['e_prop']*args['hidden_size']))
+    if plot_args.learning_rates:
+        plot_connectivity([ki.relu().detach()[0] for ki in model.kappa_in], \
+                    model.kappa_rec.relu()[0].detach(), \
+                    0*state_dict['h2h.bias'].detach(), \
+                    model.h2o.effective_weight().detach(), e_size=int(args['e_prop']*args['hidden_size']))
+
     losses, losses_means, losses_stds, all_saved_states, all_indices = run_model(args, model, task_mdprl)
     print('simulation complete')
     
     # load metrics
     metrics = json.load(open(os.path.join(plot_args.exp_dir, 'metrics.json'), 'r'))
 
-    if plot_args.connectivity:
-        plot_connectivity(model.x2h.effective_weight().detach(), \
-                          model.h2h.effective_weight().detach(), \
-                          state_dict['h2h.bias'].detach(), \
-                          model.h2o.effective_weight().detach())
     if plot_args.learning_curve:
         plot_learning_curve(losses, losses_means, losses_stds)
     if plot_args.attn_entropy:

@@ -7,6 +7,7 @@ from scipy.optimize import curve_fit
 import pingouin as pg
 from joblib import Parallel, delayed
 from scipy.spatial.distance import pdist
+import scipy.cluster.hierarchy as sch
 import math
 from tensorly.decomposition import parafac
 
@@ -68,3 +69,8 @@ def fit_exp(y,x=None):
     ub = [10, 1e4]
     popt, _ = curve_fit(pred, x, y, bound=(lb, ub), p0=p0)
     return popt[0]*(1-math.exp(-x/popt[1]))
+
+def hierarchical_clustering(x):
+    dmat = pdist(x)
+    Z = sch.linkage(dmat, method='centroid')
+    return Z
