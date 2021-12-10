@@ -210,7 +210,7 @@ class MultiChoiceRNN(nn.Module):
                         [x2hi.pos_func(x2hi.weight).unsqueeze(0).repeat(batch_size, 1, 1) for x2hi in self.x2h], 
                         self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), None]
         else:
-            return (h_init, h_init.relu())
+            return [h_init, h_init.relu()]
 
     def plasticity_func(self, w, baseline, R, pre, post, kappa, lb, ub):
         if self.plas_rule=='add':
@@ -325,6 +325,15 @@ class MultiChoiceRNN(nn.Module):
     def forward(self, x, Rs, Vs=None, acts=None, hidden=None, save_weight=False, save_attns=False):
         if hidden is None:
             hidden = self.init_hidden(x)
+            # use variational weight dropout (also dropouts out any synaptic updates on dropped weights)
+            if self.weight_drop>0:
+                for x2hi in self.x2h:
+                    x2hi.reset_dropout()
+                self.h2h.reset_dropout()
+                self.attn_func.reset_dropout()
+            # use variational unit dropout
+            if self.rate_drop>0:
+                self.rate_mask = F.dropout(torch.ones_like(hidden[1]), p=self.rate_drop, training=self.training).detach()
 
         hs = []
 
@@ -334,27 +343,17 @@ class MultiChoiceRNN(nn.Module):
         if save_attns:
             attns = []
 
-        # use variational weight dropout (also dropouts out any synaptic updates on dropped weights)
-        if self.weight_drop>0:
-            for x2hi in self.x2h:
-                x2hi.reset_dropout()
-            self.h2h.reset_dropout()
-            self.attn_func.reset_dropout()
-        # use variational unit dropout
-        if self.rate_drop>0:
-            rate_mask = F.dropout(torch.ones_like(hidden[1]), p=self.rate_drop, training=self.training).detach()
-
         steps = range(x.size(0))
         for i in steps:
             if self.rate_drop>0:
                 # dropout unit
                 for i in range(0, 2):
-                    hidden[i] = hidden[i]*rate_mask
+                    hidden[i] = hidden[i]*self.rate_mask
                 # apply dropout to the incoming weights to the droppped units
                 # shouldn't matter for training but good for later analysis
                 for i in range(len(hidden[2])):
-                    hidden[2][i] = hidden[2][i]*rate_mask.unsqueeze(-1)
-                hidden[3] = hidden[3]*rate_mask.unsqueeze(-1)
+                    hidden[2][i] = hidden[2][i]*self.rate_mask.unsqueeze(-1)
+                hidden[3] = hidden[3]*self.rate_mask.unsqueeze(-1)
             hidden = self.recurrence(x[i], hidden, Rs[i], Vs[i] if Vs is not None else None, acts[i] if acts is not None else None)
             hs.append(hidden[1])
             if save_weight:
