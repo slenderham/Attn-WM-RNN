@@ -46,7 +46,6 @@ class EILinear(nn.Module):
         exist_mask = torch.cat([torch.ones(input_size-self.zero_cols), torch.zeros(self.zero_cols)]).reshape([1, input_size])
 
         self.mask = (sign_mask*exist_mask).repeat([output_size, 1])
-        self.mask_raw = self.mask
         self.pos_func = _get_pos_function(pos_function)
         if remove_diag:
             assert(input_size==output_size)
@@ -55,7 +54,7 @@ class EILinear(nn.Module):
             self.bias = nn.Parameter(torch.Tensor(output_size))
         else:
             self.register_parameter('bias', None)
-        
+        self.mask_raw = self.mask
         self.reset_parameters(init_spectral, init_gain, balance_ei)
 
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
