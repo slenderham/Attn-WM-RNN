@@ -321,7 +321,7 @@ class MultiChoiceRNN(nn.Module):
             else:
                 return [new_state, new_output, wx, wh, attn]
         else:
-            return (new_state, new_output, attn)
+            return [new_state, new_output, attn]
 
     def forward(self, x, Rs, Vs=None, acts=None, hidden=None, save_weight=False, save_attns=False):
         if hidden is None:
@@ -353,8 +353,9 @@ class MultiChoiceRNN(nn.Module):
                     hidden[i] = hidden[i]*rate_mask
                 # apply dropout to the incoming weights to the droppped units
                 # shouldn't matter for training but good for later analysis
-                for i in range(2, 4):
-                    hidden[i] = hidden[i]*rate_mask.unsqueeze(-1)            
+                for i in range(len(hidden[2])):
+                    hidden[2][i] = hidden[2][i]*rate_mask.unsqueeze(-1)
+                hidden[3] = hidden[3]*rate_mask.unsqueeze(-1)
             hidden = self.recurrence(x[i], hidden, Rs[i], Vs[i] if Vs is not None else None, acts[i] if acts is not None else None)
             hs.append(hidden[1])
             if save_weight:
