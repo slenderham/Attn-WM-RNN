@@ -337,7 +337,8 @@ class MultiChoiceRNN(nn.Module):
 
         # use variational weight dropout (also dropouts out any synaptic updates on dropped weights)
         if self.weight_drop>0:
-            self.x2h.reset_dropout()
+            for x2hi in self.x2h:
+                x2hi.reset_dropout()
             self.h2h.reset_dropout()
             self.attn_func.reset_dropout()
         # use variational unit dropout
