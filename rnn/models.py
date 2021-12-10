@@ -202,14 +202,14 @@ class MultiChoiceRNN(nn.Module):
         h_init = self.x0.to(x.device) + self._sigma_rec * torch.randn(batch_size, self.hidden_size)
         if self.plastic:
             if self.plastic_feedback:
-                return (h_init, h_init.relu(),
+                return [h_init, h_init.relu(),
                         [x2hi.pos_func(x2hi.weight).unsqueeze(0).repeat(batch_size, 1, 1) for x2hi in self.x2h], 
                         self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1),
-                        self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0).repeat(batch_size, 1, 1), None)
+                        self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0).repeat(batch_size, 1, 1), None]
             else:
-                return (h_init, h_init.relu(),
+                return [h_init, h_init.relu(),
                         [x2hi.pos_func(x2hi.weight).unsqueeze(0).repeat(batch_size, 1, 1) for x2hi in self.x2h], 
-                        self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), None)
+                        self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), None]
         else:
             return (h_init, h_init.relu())
 
@@ -317,9 +317,9 @@ class MultiChoiceRNN(nn.Module):
                     wattn = torch.clamp(wattn, 0, self.weight_bound)
             
             if self.plastic_feedback:
-                return (new_state, new_output, wx, wh, wattn, attn)
+                return [new_state, new_output, wx, wh, wattn, attn]
             else:
-                return (new_state, new_output, wx, wh, attn)
+                return [new_state, new_output, wx, wh, attn]
         else:
             return (new_state, new_output, attn)
 
