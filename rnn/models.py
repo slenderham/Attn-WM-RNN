@@ -166,7 +166,7 @@ class MultiChoiceRNN(nn.Module):
 
         if attention_type!='none':
             assert(attn_group_size is not None)
-            self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False,
+            self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, bias=False,
                                         e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.5)
                                         # the same attention applies to the same dimension of both stimuli
             self.attn_group_size = torch.LongTensor(attn_group_size)
