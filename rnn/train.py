@@ -54,6 +54,8 @@ if __name__ == "__main__":
     parser.add_argument('--l2w', type=float, default=0.0, help='Weight for L2 reg on weight')
     parser.add_argument('--l1r', type=float, default=0.0, help='Weight for L1 reg on firing rate')
     parser.add_argument('--l1w', type=float, default=0.0, help='Weight for L1 reg on weight')
+    parser.add_argument('--rate_drop', type=float, default=0.0, help='Dropout probability of units')
+    parser.add_argument('--weight_drop', type=float, default=0.0, help='Dropout probability of weights')
     parser.add_argument('--beta_v', type=float, default=0.5, help='Weight for value estimation loss')
     parser.add_argument('--beta_entropy', type=float, default=0.01, help='Weight for entropy regularization')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
@@ -150,7 +152,8 @@ if __name__ == "__main__":
                    'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 
                    'rwd_input': args.rwd_input, 'action_input': args.action_input, 'plas_rule': args.plas_rule,
                    'input_unit_group': input_unit_group, 'sep_lr': args.sep_lr, 'plastic_feedback': args.plastic_feedback,
-                   'value_est': 'policy' in args.task_type, 'num_choices': 2 if 'double' in args.task_type else 1}
+                   'value_est': 'policy' in args.task_type, 'num_choices': 2 if 'double' in args.task_type else 1, 
+                   'rate_drop': args.rate_drop, 'weight_drop': args.weight_drop}
     
     if 'double' in args.task_type:
         model = MultiChoiceRNN(**model_specs)
