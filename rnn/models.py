@@ -334,6 +334,8 @@ class MultiChoiceRNN(nn.Module):
             # use variational unit dropout
             if self.rate_drop>0:
                 self.rate_mask = F.dropout(torch.ones_like(hidden[1]), p=self.rate_drop, training=self.training).detach()
+            else:
+                self.rate_mask = 1
 
         hs = []
 
