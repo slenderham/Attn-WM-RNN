@@ -29,11 +29,10 @@ def _get_pos_function(func_name):
 class EILinear(nn.Module):
     def __init__(self, input_size, output_size, remove_diag, zero_cols_prop,
                      e_prop=0.8, bias=True, pos_function='relu', init_spectral=None, 
-                     init_gain=None, balance_ei=False, weight_drop=0):
+                     init_gain=None, balance_ei=False):
         super().__init__()
         self.input_size = input_size
         self.output_size = output_size
-        self.weight_drop = weight_drop
         assert(e_prop<=1 and e_prop>=0)
         
         self.e_prop = e_prop
@@ -54,7 +53,6 @@ class EILinear(nn.Module):
             self.bias = nn.Parameter(torch.Tensor(output_size))
         else:
             self.register_parameter('bias', None)
-        self.mask_raw = self.mask
         self.reset_parameters(init_spectral, init_gain, balance_ei)
 
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
@@ -74,12 +72,6 @@ class EILinear(nn.Module):
             if self.bias is not None:
                 nn.init.zeros_(self.bias)
     
-    def reset_dropout(self):
-        if self.weight_drop>0:
-            self.mask = F.dropout(self.mask_raw, p=self.weight_drop, training=self.training)
-        else:
-            self.mask = self.mask_raw
-
     def effective_weight(self, w=None):
         if w is None:
             return self.pos_func(self.weight) * self.mask
@@ -102,7 +94,7 @@ class MultiChoiceRNN(nn.Module):
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 balance_ei=False, rwd_input=False, action_input=False, sep_lr=True, plas_rule='mult',
-                value_est=True, input_unit_group=None, weight_drop=0, rate_drop=0, **kwargs):
+                value_est=True, input_unit_group=None, **kwargs):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -115,8 +107,6 @@ class MultiChoiceRNN(nn.Module):
         self.weight_bound = weight_bound
         self.sep_lr = sep_lr
         self.plas_rule = plas_rule
-        self.weight_drop = weight_drop
-        self.rate_drop = rate_drop
         self.x2h = nn.ModuleList([EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
                                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=1/math.sqrt(num_choices))
                                   for _ in range(num_choices)])
@@ -128,7 +118,7 @@ class MultiChoiceRNN(nn.Module):
                                   init_gain=math.sqrt(self.aux_input_size/(hidden_size*num_choices)))
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='relu',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
-                            init_spectral=init_spectral, balance_ei=balance_ei, weight_drop=self.weight_drop)
+                            init_spectral=init_spectral, balance_ei=balance_ei)
         if value_est:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
                                 e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.5)
@@ -325,17 +315,6 @@ class MultiChoiceRNN(nn.Module):
     def forward(self, x, Rs, Vs=None, acts=None, hidden=None, save_weight=False, save_attns=False):
         if hidden is None:
             hidden = self.init_hidden(x)
-            # use variational weight dropout (also dropouts out any synaptic updates on dropped weights)
-            if self.weight_drop>0:
-                for x2hi in self.x2h:
-                    x2hi.reset_dropout()
-                self.h2h.reset_dropout()
-                self.attn_func.reset_dropout()
-            # use variational unit dropout
-            if self.rate_drop>0:
-                self.rate_mask = F.dropout(torch.ones_like(hidden[1]), p=self.rate_drop, training=self.training).detach()
-            else:
-                self.rate_mask = 1
 
         hs = []
 
@@ -347,16 +326,9 @@ class MultiChoiceRNN(nn.Module):
 
         steps = range(x.size(0))
         for i in steps:
-            if self.rate_drop>0:
-                # dropout unit
-                for i in range(0, 2):
-                    hidden[i] = hidden[i]*self.rate_mask
-                # apply dropout to the incoming weights to the droppped units
-                # shouldn't matter for training but good for later analysis
-                for i in range(len(hidden[2])):
-                    hidden[2][i] = hidden[2][i]*self.rate_mask.unsqueeze(-1)
-                hidden[3] = hidden[3]*self.rate_mask.unsqueeze(-1)
-            hidden = self.recurrence(x[i], hidden, Rs[i], Vs[i] if Vs is not None else None, acts[i] if acts is not None else None)
+            hidden = self.recurrence(x[i], hidden, Rs[i], 
+                                   Vs[i] if Vs is not None else None, 
+                                   acts[i] if acts is not None else None)
             hs.append(hidden[1])
             if save_weight:
                 wxs.append(hidden[2])
