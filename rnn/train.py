@@ -70,6 +70,7 @@ if __name__ == "__main__":
     parser.add_argument('--rpe', action='store_true', help='Whether to use reward prediction error as modulation')
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
+    parser.add_argument('--structured_conn', action='store_true', help='Whether to use restricted connectivity')
     parser.add_argument('--seed', type=int, help='Random seed')
     parser.add_argument('--save_checkpoint', action='store_true', help='Whether to save the trained model')
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to load the trained model')
@@ -150,7 +151,8 @@ if __name__ == "__main__":
                    'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 
                    'rwd_input': args.rwd_input, 'action_input': args.action_input, 'plas_rule': args.plas_rule,
                    'input_unit_group': input_unit_group, 'sep_lr': args.sep_lr, 'plastic_feedback': args.plastic_feedback,
-                   'value_est': 'policy' in args.task_type, 'num_choices': 2 if 'double' in args.task_type else 1}
+                   'value_est': 'policy' in args.task_type, 'num_choices': 2 if 'double' in args.task_type else 1,
+                   'structured_conn': args.structured_conn}
     
     if 'double' in args.task_type:
         model = MultiChoiceRNN(**model_specs)

@@ -26,8 +26,58 @@ def _get_pos_function(func_name):
     else:
         raise RuntimeError(F"{func_name} is an invalid function enforcing positive weight.")
 
+def _get_connectivity_mask(input_units, aux_units, output_units, attn_units, e_hidden_units_per_area, i_hidden_units_per_area):
+    conn_masks = {}
+    # assume two areas
+    
+    # input_to_hidden_mask
+    # allow direct connections from input to both hidden areas
+    conn_masks['input'] = None 
+
+    # recurrent connection mask
+    rec_masks = [torch.cat([torch.ones(e_hidden_units_per_area,e_hidden_units_per_area),
+                        torch.zeros(e_hidden_units_per_area,e_hidden_units_per_area),
+                        torch.ones(e_hidden_units_per_area,i_hidden_units_per_area),
+                        torch.zeros(e_hidden_units_per_area,i_hidden_units_per_area)], dim=1),
+                 torch.cat([torch.ones(e_hidden_units_per_area,e_hidden_units_per_area),
+                        torch.ones(e_hidden_units_per_area,e_hidden_units_per_area),
+                        torch.zeros(e_hidden_units_per_area,i_hidden_units_per_area),
+                        torch.ones(e_hidden_units_per_area,i_hidden_units_per_area)], dim=1),
+                 torch.cat([torch.ones(i_hidden_units_per_area,e_hidden_units_per_area),
+                        torch.zeros(i_hidden_units_per_area,e_hidden_units_per_area),
+                        torch.ones(i_hidden_units_per_area,i_hidden_units_per_area),
+                        torch.zeros(i_hidden_units_per_area,i_hidden_units_per_area)], dim=1),
+                 torch.cat([torch.ones(i_hidden_units_per_area,e_hidden_units_per_area),
+                        torch.ones(i_hidden_units_per_area,e_hidden_units_per_area),
+                        torch.zeros(i_hidden_units_per_area,i_hidden_units_per_area),
+                        torch.ones(i_hidden_units_per_area,i_hidden_units_per_area)], dim=1)]
+    conn_masks['rec'] = torch.cat(rec_masks, dim=0)
+
+    # output_connection
+    conn_masks['output'] = torch.cat([torch.zeros(output_units, e_hidden_units_per_area),
+                                    torch.ones(output_units, e_hidden_units_per_area),
+                                    torch.zeros(output_units, i_hidden_units_per_area*2)], dim=1)
+
+    # value estimation
+    conn_masks['value'] = torch.cat([torch.zeros(1, e_hidden_units_per_area),
+                                    torch.ones(1, e_hidden_units_per_area),
+                                    torch.zeros(1, i_hidden_units_per_area*2)], dim=1)
+
+    # attention modulation
+    conn_masks['attn'] = torch.cat([torch.zeros(attn_units, e_hidden_units_per_area),
+                                    torch.ones(attn_units, e_hidden_units_per_area),
+                                    torch.zeros(attn_units, i_hidden_units_per_area*2)], dim=1)
+
+    # axuiliary connections that carry reward and action input
+    conn_masks['aux'] = torch.cat([torch.zeros(e_hidden_units_per_area, aux_units),
+                                torch.ones(e_hidden_units_per_area, aux_units),
+                                torch.zeros(i_hidden_units_per_area*2, aux_units)], dim=0)
+
+    return conn_masks
+    
+
 class EILinear(nn.Module):
-    def __init__(self, input_size, output_size, remove_diag, zero_cols_prop,
+    def __init__(self, input_size, output_size, remove_diag, zero_cols_prop, conn_mask=None,
                      e_prop=0.8, bias=True, pos_function='relu', init_spectral=None, 
                      init_gain=None, balance_ei=False):
         super().__init__()
@@ -44,7 +94,12 @@ class EILinear(nn.Module):
         sign_mask = torch.FloatTensor([1]*self.e_size+[-1]*self.i_size).reshape(1, input_size)
         exist_mask = torch.cat([torch.ones(input_size-self.zero_cols), torch.zeros(self.zero_cols)]).reshape([1, input_size])
 
-        self.mask = (sign_mask*exist_mask).repeat([output_size, 1])
+        if conn_mask is None:
+            mask = (sign_mask*exist_mask).repeat([output_size, 1])
+            self.register_buffer('mask', mask)
+        else:
+            mask = (sign_mask*exist_mask).repeat([output_size, 1])*conn_mask
+            self.register_buffer('mask', mask)
         self.pos_func = _get_pos_function(pos_function)
         if remove_diag:
             assert(input_size==output_size)
@@ -94,38 +149,50 @@ class MultiChoiceRNN(nn.Module):
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 balance_ei=False, rwd_input=False, action_input=False, sep_lr=True, plas_rule='mult',
-                value_est=True, input_unit_group=None, **kwargs):
+                value_est=True, input_unit_group=None, structured_conn=False, **kwargs):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size =  output_size
         self.action_input = action_input
         self.rwd_input = rwd_input
+        self.aux_input_size = (2 if self.rwd_input else 0) + (num_choices if self.action_input else 0)
         self.input_unit_group = torch.LongTensor(input_unit_group)
         assert(num_choices>=2)
         self.num_choices = num_choices
         self.weight_bound = weight_bound
         self.sep_lr = sep_lr
         self.plas_rule = plas_rule
+        
+        if structured_conn:
+            conn_masks = _get_connectivity_mask(
+                self.input_size, self.aux_input_size, self.output_size, len(attn_group_size), 
+                round(hidden_size*e_prop/2), round(hidden_size*(1-e_prop)/2))
+
         self.x2h = nn.ModuleList([EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
-                                           e_prop=1, zero_cols_prop=0, bias=False, init_gain=1/math.sqrt(num_choices))
+                                           e_prop=1, zero_cols_prop=0, bias=False, init_gain=1/math.sqrt(num_choices),
+                                           conn_mask=conn_masks.get('input', None))
                                   for _ in range(num_choices)])
 
-        self.aux_input_size = (2 if self.rwd_input else 0) + (num_choices if self.action_input else 0)
+        
         if self.aux_input_size>0:
             self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='relu',
-                                  e_prop=1, zero_cols_prop=0, bias=False, 
+                                  e_prop=1, zero_cols_prop=0, bias=False, conn_mask=conn_masks.get('aux', None),
                                   init_gain=math.sqrt(self.aux_input_size/(hidden_size*num_choices)))
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='relu',
-                            e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
+                            e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1, 
+                            conn_mask=conn_masks.get('rec', None),
                             init_spectral=init_spectral, balance_ei=balance_ei)
         if value_est:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
+                                conn_mask=conn_masks.get('out', None),
                                 e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.5)
             self.h2v = EILinear(hidden_size, 1, remove_diag=False, pos_function='relu',
+                                conn_mask=conn_masks.get('value', None),
                                 e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.5)
         else:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
+                                conn_mask=conn_masks.get('out', None),
                                 e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
 
         self.tau_x = tau_x
@@ -156,8 +223,9 @@ class MultiChoiceRNN(nn.Module):
         if attention_type!='none':
             assert(attn_group_size is not None)
             self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, bias=False,
-                                        e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.5)
-                                        # the same attention applies to the same dimension of both stimuli
+                                    conn_mask=conn_masks.get('attn', None),
+                                    e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.5)
+                                    # the same attention applies to the same dimension of both stimuli
             self.attn_group_size = torch.LongTensor(attn_group_size)
             self.attn_lr_group = torch.LongTensor([3])
         else:
@@ -250,6 +318,8 @@ class MultiChoiceRNN(nn.Module):
                 total_input += self.x2h[i](x[:,i,:], wx[i])
         else:
             total_input = self.h2h(output)
+            for i in range(self.num_choices):
+                total_input += self.x2h[i](x[:,i,:], wx[i])
 
         if self.aux_input_size>0:
             aux = torch.zeros(batch_size, self.aux_input_size)
