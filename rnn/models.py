@@ -176,14 +176,14 @@ class MultiChoiceRNN(nn.Module):
             conn_masks = {}
 
         self.x2h = nn.ModuleList([EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
-                                           e_prop=1, zero_cols_prop=0, bias=False, init_gain=1/math.sqrt(num_choices),
+                                           e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.5/math.sqrt(num_choices),
                                            conn_mask=conn_masks.get('input', None))
                                   for _ in range(num_choices)])
         
         if self.aux_input_size>0:
             self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='relu',
                                   e_prop=1, zero_cols_prop=0, bias=False, conn_mask=conn_masks.get('aux', None),
-                                  init_gain=math.sqrt(self.aux_input_size/(hidden_size*num_choices)))
+                                  init_gain=0.5*math.sqrt(self.aux_input_size/(hidden_size*num_choices)))
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='relu',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1, 
                             conn_mask=conn_masks.get('rec', None),
@@ -191,10 +191,10 @@ class MultiChoiceRNN(nn.Module):
         if value_est:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
                                 conn_mask=conn_masks.get('output', None),
-                                e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.5)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.25)
             self.h2v = EILinear(hidden_size, 1, remove_diag=False, pos_function='relu',
                                 conn_mask=conn_masks.get('value', None),
-                                e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.5)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.25)
         else:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
                                 conn_mask=conn_masks.get('output', None),
