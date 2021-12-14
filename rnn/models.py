@@ -71,7 +71,8 @@ def _get_connectivity_mask(input_units, aux_units, output_units, attn_units, e_h
     # axuiliary connections that carry reward and action input
     conn_masks['aux'] = torch.cat([torch.zeros(e_hidden_units_per_area, aux_units),
                                 torch.ones(e_hidden_units_per_area, aux_units),
-                                torch.zeros(i_hidden_units_per_area*2, aux_units)], dim=0)
+                                torch.zeros(i_hidden_units_per_area, aux_units),
+                                torch.ones(i_hidden_units_per_area, aux_units)], dim=0)
 
     return conn_masks
     
