@@ -172,6 +172,8 @@ class MultiChoiceRNN(nn.Module):
             conn_masks = _get_connectivity_mask(
                 self.input_size, self.aux_input_size, self.output_size, len(attn_group_size), 
                 round(hidden_size*e_prop/2), round(hidden_size*(1-e_prop)/2))
+        else:
+            conn_masks = {}
 
         self.x2h = nn.ModuleList([EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
                                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=1/math.sqrt(num_choices),
