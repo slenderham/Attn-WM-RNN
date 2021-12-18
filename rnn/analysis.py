@@ -17,11 +17,13 @@ def run_pca(hs):
     low_x = pca.fit_transform(hs.reshape(trials*timesteps*batch_size, hidden_dim)).reshape(trials, timesteps, batch_size, 3)
     return low_x.reshape(trials, timesteps, batch_size, 3)
 
-def run_tca(ws):
-    trials, timesteps, batch_size, hidden_dim, hidden_dim = ws.shape
-    factors = parafac(ws.reshape(trials*timesteps*batch_size, hidden_dim, hidden_dim), rank=3)
+def run_tca(ws, rank=9):
+    trials, timesteps, batch_size, post_dim, pre_dim = ws.shape
+    factors = parafac(ws.reshape(trials*timesteps*batch_size, post_dim, pre_dim), rank=rank)
     low_w = factors[0]
-    return low_w.reshape(trials, timesteps, batch_size, 3)
+    post_factor = factors[1]
+    pre_factor = factors[1]
+    return low_w.reshape(trials, timesteps, batch_size, rank), post_factor, pre_factor
 
 def linear_regression(X, y):
     res = pg.linear_regression(X, y)

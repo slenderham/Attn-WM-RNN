@@ -185,16 +185,18 @@ class MultiChoiceRNN(nn.Module):
                                   e_prop=1, zero_cols_prop=0, bias=False, conn_mask=conn_masks.get('aux', None),
                                   init_gain=0.5*math.sqrt(self.aux_input_size/(hidden_size*num_choices)))
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='relu',
-                            e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1, 
+                            e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1 if not structured_conn else math.sqrt(2),
                             conn_mask=conn_masks.get('rec', None),
                             init_spectral=init_spectral, balance_ei=balance_ei)
         if value_est:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
                                 conn_mask=conn_masks.get('output', None),
-                                e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.25)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=True, 
+                                init_gain=0.25 if not structured_conn else math.sqrt(0.5))
             self.h2v = EILinear(hidden_size, 1, remove_diag=False, pos_function='relu',
                                 conn_mask=conn_masks.get('value', None),
-                                e_prop=1, zero_cols_prop=1-e_prop, bias=True, init_gain=0.25)
+                                e_prop=1, zero_cols_prop=1-e_prop, bias=True, 
+                                init_gain=0.25 if not structured_conn else math.sqrt(0.5))
         else:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
                                 conn_mask=conn_masks.get('output', None),
@@ -267,11 +269,13 @@ class MultiChoiceRNN(nn.Module):
                 return [h_init, h_init.relu(),
                         [x2hi.pos_func(x2hi.weight).unsqueeze(0).repeat(batch_size, 1, 1) for x2hi in self.x2h], 
                         self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1),
-                        self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0).repeat(batch_size, 1, 1), None]
+                        self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0).repeat(batch_size, 1, 1), 
+                        torch.ones(len(self.attn_group_size))/len(self.attn_group_size)]
             else:
                 return [h_init, h_init.relu(),
                         [x2hi.pos_func(x2hi.weight).unsqueeze(0).repeat(batch_size, 1, 1) for x2hi in self.x2h], 
-                        self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), None]
+                        self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), 
+                        torch.ones(len(self.attn_group_size))/len(self.attn_group_size)]
         else:
             return [h_init, h_init.relu()]
 
@@ -308,7 +312,7 @@ class MultiChoiceRNN(nn.Module):
             attn = F.gumbel_softmax(self.attn_func(output, wattn), hard=True, dim=-1)
             attn_expand = torch.repeat_interleave(attn, self.attn_group_size, dim=-1)
         else:
-            attn = None
+            attn = torch.ones(len(self.attn_group_size))/len(self.attn_group_size)
             attn_expand = None
 
 
@@ -387,15 +391,17 @@ class MultiChoiceRNN(nn.Module):
         else:
             return [new_state, new_output, attn]
 
-    def forward(self, x, Rs, Vs=None, acts=None, hidden=None, save_weight=False, save_attns=False):
+    def forward(self, x, Rs, Vs=None, acts=None, hidden=None, save_weights=False, save_attns=False):
         if hidden is None:
             hidden = self.init_hidden(x)
 
         hs = []
 
-        if save_weight:
+        if save_weights:
             wxs = []
             whs = []
+            if self.plastic_feedback:
+                wfbs = []
         if save_attns:
             attns = []
 
@@ -405,19 +411,25 @@ class MultiChoiceRNN(nn.Module):
                                    Vs[i] if Vs is not None else None, 
                                    acts[i] if acts is not None else None)
             hs.append(hidden[1])
-            if save_weight:
-                wxs.append(hidden[2])
+            if save_weights:
+                wxs.append(torch.stack(hidden[2], dim=1))
                 whs.append(hidden[3])
+                if self.plastic_feedback:
+                    wfbs.append(hidden[4])
             if save_attns:
                 attns.append(hidden[-1])
 
         hs = torch.stack(hs, dim=0)
         saved_states = {}
-        if save_weight:
+        if save_weights:
             wxs = torch.stack(wxs, dim=0)
             whs = torch.stack(whs, dim=0)
             saved_states['wxs'] = wxs
             saved_states['whs'] = whs
+            if self.plastic_feedback:
+                wfbs = torch.stack(wfbs, dim=0)
+                saved_states['wfbs'] = wfbs
+
         if save_attns:
             attns = torch.stack(attns, dim=0)
             saved_states['attns'] = attns

@@ -54,6 +54,7 @@ if __name__ == "__main__":
     parser.add_argument('--l2w', type=float, default=0.0, help='Weight for L2 reg on weight')
     parser.add_argument('--l1r', type=float, default=0.0, help='Weight for L1 reg on firing rate')
     parser.add_argument('--l1w', type=float, default=0.0, help='Weight for L1 reg on weight')
+    parser.add_argument('--attn_ent_reg', type=float, default=0.0, help='Entropy regularization for attention')
     parser.add_argument('--beta_v', type=float, default=0.5, help='Weight for value estimation loss')
     parser.add_argument('--beta_entropy', type=float, default=0.01, help='Weight for entropy regularization')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
@@ -83,9 +84,6 @@ if __name__ == "__main__":
         raise NotImplementedError
     if args.task_type=='on_policy':
         raise NotImplementedError
-
-    assert args.l1w==0 and args.l2w==0, \
-        "Weight regularization not implemented due to unknown interaction with plasticity"
 
     print(f"Parameters saved to {os.path.join(args.exp_dir, 'args.json')}")
     save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
@@ -165,7 +163,7 @@ if __name__ == "__main__":
     print(optimizer)
 
     if args.load_checkpoint:
-        load_checkpoint(model, device, folder=args.exp_dir, filename='checkpoint.pth.tar')
+        load_checkpoint(model, optimizer, device, folder=args.exp_dir, filename='checkpoint.pth.tar')
         print('Model loaded successfully')
 
     def train(iters):
@@ -184,9 +182,10 @@ if __name__ == "__main__":
                 rwds = 0
                 for i in range(len(pop_s['pre_choice'])):
                     # first phase, give stimuli and no feedback
-                    output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, 
+                    output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
                                                   Rs=0*DA_s['pre_choice'], Vs=None,
-                                                  acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'])
+                                                  acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'],
+                                                  save_weights=True, save_attns=True)
                     # use output to calculate action, reward, and record loss function
                     logprob, value = output
                     m = torch.distributions.categorical.Categorical(logits=logprob[-1])
@@ -194,10 +193,20 @@ if __name__ == "__main__":
                     rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
                     rwds += rwd.mean().item()/len(pop_s['pre_choice'])
                     advantage = (rwd-value[-1])
+
+                    reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
+                    if args.plastic_feedback:
+                        reg += args.l2w*(ss['wxs'].pow(2).sum()+ss['whs'].pow(2).sum()+ss['wfbs'].pow(2).sum())\
+                                  /(ss['wxs'].numel()+ss['whs'].numel()+ss['wfbs'].numel())
+                    else:
+                        reg += args.l2w*(ss['wxs'].pow(2).sum()+ss['whs'].pow(2).sum())\
+                                  /(ss['wxs'].numel()+ss['whs'].numel())
+                    if args.attn_type=='weight':
+                        reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
+
                     loss += - (m.log_prob(action)*advantage.detach()).mean() \
                             + args.beta_v*advantage.pow(2).mean() - args.beta_entropy*m.entropy().mean() \
-                            + (args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean())\
-                                *len(pop_s['pre_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
+                            + reg*len(pop_s['pre_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
                     
                     # use the action (optional) and reward as feedback
                     pop_post = pop_s['post_choice'][i]
@@ -209,7 +218,19 @@ if __name__ == "__main__":
                         V = value[-1]*DA_s['post_choice']
                     else:
                         V = None
-                    _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc)
+                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc, 
+                                                save_attns=True, save_weights=True)
+
+                    reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
+                    if args.plastic_feedback:
+                        reg += args.l2w*(ss['wxs'].pow(2).sum()+ss['whs'].pow(2).sum()+ss['wfbs'].pow(2).sum())\
+                                  /(ss['wxs'].numel()+ss['whs'].numel()+ss['wfbs'].numel())
+                    else:
+                        reg += args.l2w*(ss['wxs'].pow(2).sum()+ss['whs'].pow(2).sum())\
+                                  /(ss['wxs'].numel()+ss['whs'].numel())
+                    if args.attn_type=='weight':
+                        reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
+
                     loss += (args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean())\
                             *len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
             
@@ -289,7 +310,8 @@ if __name__ == "__main__":
                 metrics['best_eval_loss'] = eval_loss_means.mean().item()
             else:
                 is_best_epoch = False
-            save_checkpoint(model.state_dict(), is_best=is_best_epoch, folder=args.exp_dir, 
-                            filename='checkpoint.pth.tar', best_filename='checkpoint_best.pth.tar')
+            save_checkpoint({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict()},
+                            is_best=is_best_epoch, folder=args.exp_dir, filename='checkpoint.pth.tar', 
+                            best_filename='checkpoint_best.pth.tar')
     
     print('====> DONE')

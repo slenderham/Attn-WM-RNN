@@ -302,5 +302,9 @@ class MDPRL():
                 self.est_shppttrn, self.est_pttrnclr, self.est_shpclr, 
                 self.est_shppttrnclr]
 
+    def stim_encoding(self):
+        return self.pop_s[:, np.argwhere(self.filter_s>0.5)[0][0], :]
+
     def generalizability(self, probdata=None):
-        pass
+        raise NotImplementedError
+        return
