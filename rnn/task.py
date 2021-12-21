@@ -211,7 +211,7 @@ class MDPRL():
         if prob_index is not None:
             assert(len(prob_index.shape)==4 and prob_index.shape[1:] == (3, 3, 3))
         else:
-            prob_index = self._generate_generalizable_prob(batch_size, gen_level)
+            prob_index = self._generate_generalizable_prob(gen_level)
 
         batch_size = prob_index.shape[0]
 
