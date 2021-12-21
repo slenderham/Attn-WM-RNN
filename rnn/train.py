@@ -296,7 +296,7 @@ if __name__ == "__main__":
                 losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
                 losses_means_by_gen[curr_gen_level] = losses_means
                 losses_stds_by_gen[curr_gen_level] = losses_stds
-            print('====> Epoch {} Gen Level: {} Eval Loss: {:.4f}'.format(epoch, curr_gen_level, losses_means.mean()))
+                print('====> Epoch {} Gen Level: {} Eval Loss: {:.4f}'.format(epoch, curr_gen_level, losses_means.mean()))
             return losses_means_by_gen, losses_stds_by_gen
 
     metrics = defaultdict(list)
