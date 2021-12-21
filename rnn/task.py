@@ -77,6 +77,8 @@ class MDPRL():
         else:
             raise RuntimeError
 
+        self.gen_levels = ['feat_1', 'feat_2', 'feat_3', 'conj', 'feat+conj', 'obj']
+
         # -----------------------------------------------------------------------------------------
         # initialization
         # -----------------------------------------------------------------------------------------
@@ -148,23 +150,68 @@ class MDPRL():
         self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1)-1
         # self.test_rwd = torch.from_numpy(np.stack(self.test_rwd, axis=0).transpose(2,0,1))
 
-    def _generate_rand_prob(self, batch_size):
-        return np.random.rand(batch_size, 3, 3, 3)
+    def _generate_generalizable_prob(self, gen_level, jitter=0.001):
+        # different level of gernalizability in terms of nonlinear terms: 0 (all linear), 1 (conjunction of two features), 2 (no regularity)
+        # feat_1,2,3: all linear terms, with 2,1,0 irrelevant features
+        # conj, feat+conj: a conj of two features, with a relevant or irrelevant feature
+        # obj: a conj of all features
+        assert gen_level in self.gen_levels
+        if 'feat' in gen_level:
+            irrelevant_features = 3-int(gen_level[5])
+            log_odds = (np.random.rand(3,3)*2-1)*4
+            log_odds[:irrelevant_features] = 0 # make certain features irrelavant
+            probs = np.empty((3,3,3))
+            for i in range(3):
+                for j in range(3):
+                    for k in range(3):
+                        odd_ratio = (log_odds[0,i]+log_odds[1,j]+log_odds[2,k])/(int(gen_level[5]))
+                        probs[i,j,k] = 1/(1+np.exp(-odd_ratio))
+        elif gen_level=='conj':
+            log_odds = (np.random.rand(9)*2-1)*4
+            probs = np.empty((3,3,3))
+            for ipj in range(9):
+                i = ipj//3
+                j = ipj%3
+                odd_ratio = log_odds[ipj]
+                probs[i,j,:] = 1/(1+np.exp(-odd_ratio))
+        elif gen_level=='feat+conj':
+            feat_log_odds = (np.random.rand(3)*2-1)*4
+            conj_log_odds = (np.random.rand(9)*2-1)*4
+            probs = np.empty((3,3,3))
+            for i in range(3):
+                for jpk in range(9):
+                    j = jpk//3
+                    k = jpk%3
+                    odd_ratio = (feat_log_odds[i]+conj_log_odds[jpk])/2
+                    probs[i,j,k] = 1/(1+np.exp(-odd_ratio))
+        elif gen_level=='obj':
+            log_odds = (np.random.rand(3,3)*2-1)*4
+            probs = 1/(1+np.exp(-log_odds))
+        else:
+            raise RuntimeError
 
-    def generateinput(self, batch_size, N_s, prob_index=None, stim_order=None, scramble=True):
+        # add jitter to break draws
+        probs += np.clip(jitter*np.random.randn(*probs.shape), 0, 1)
+        
+        # permute axis to change the order of dimensoins with different levels of information
+        probs = probs.transpose(np.random.permutation(3))
+        probs = probs.reshape(1, 3, 3, 3)
+        return probs
+
+    def generateinput(self, batch_size, N_s, gen_level='obj', prob_index=None, stim_order=None, scramble=True):
         if self.task=='value' or 'single' in self.task:
             return self.generateinput_single(batch_size, N_s, prob_index, scramble)
         else:
-            return self.generateinput_double(batch_size, N_s, prob_index, stim_order)
+            return self.generateinput_double(batch_size, N_s, gen_level, prob_index, stim_order)
 
-    def generateinput_double(self, batch_size, N_s, prob_index=None, stim_order=None):
+    def generateinput_double(self, batch_size, N_s, gen_level='obj', prob_index=None, stim_order=None):
         '''
         Generate random stimuli AND choice for learning
         '''
         if prob_index is not None:
             assert(len(prob_index.shape)==4 and prob_index.shape[1:] == (3, 3, 3))
         else:
-            prob_index = self._generate_rand_prob(batch_size)
+            prob_index = self._generate_generalizable_prob(batch_size, gen_level)
 
         batch_size = prob_index.shape[0]
 
@@ -303,7 +350,7 @@ class MDPRL():
                 self.est_shppttrnclr]
 
     def stim_encoding(self):
-        return self.pop_s[:, np.argwhere(self.filter_s>0.5)[0][0], :]
+        return {'C': self.index_clr, 'P': self.index_pttrn, 'S': self.index_shp}
 
     def generalizability(self, probdata=None):
         raise NotImplementedError

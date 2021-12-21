@@ -171,7 +171,8 @@ if __name__ == "__main__":
         pbar = tqdm(total=iters)
         optimizer.zero_grad()
         for batch_idx in range(iters):
-            DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(args.batch_size, args.N_s)
+            curr_gen_level = task_mdprl.gen_levels[np.random.randint(0, len(task_mdprl.gen_levels))]
+            DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(args.batch_size, args.N_s, gen_level=curr_gen_level)
             if args.task_type=='value':
                 output, hs, _, _ = model(pop_s, DA_s)
                 loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean() \
@@ -253,53 +254,58 @@ if __name__ == "__main__":
 
     def eval(epoch):
         model.eval()
-        losses = []
+        losses_means_by_gen = {}
+        losses_stds_by_gen = {}
         with torch.no_grad():
-            for batch_idx in range(eval_samples):
-                DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(1, args.test_N_s, batch_idx)
-                if args.task_type=='value':
-                    output, hs, _ = model(pop_s, DA_s)
-                    output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], 1) # trial X T X batch size
-                    loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
-                else:
-                    loss = []
-                    hidden = None
-                    for i in range(len(pop_s['pre_choice'])):
-                        # first phase, give stimuli and no feedback
-                        output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, 
-                                                    Rs=0*DA_s['pre_choice'], Vs=None,
-                                                    acts=torch.zeros(1, output_size)*DA_s['pre_choice'])
-                        # use output to calculate action, reward, and record loss function
-                        logprob, value = output
-                        m = torch.distributions.categorical.Categorical(logits=logprob[-1])
-                        action = m.sample().reshape(1)
-                        rwd = (torch.rand(1)<prob_s[i,0,action]).float()
-                        loss.append((torch.argmax(logprob[-1], -1)==torch.argmax(prob_s[i], -1)).float())
-                        # use the action (optional) and reward as feedback
-                        pop_post = pop_s['post_choice'][i]
-                        action_enc = torch.eye(output_size)[action]
-                        pop_post = pop_post*action_enc.reshape(1,1,2,1)
-                        action_enc = action_enc*DA_s['post_choice']
-                        R = (2*rwd-1)*DA_s['post_choice']
-                        if args.rpe:
-                            V = value[-1]*DA_s['post_choice']
-                        else:
-                            V = None
-                        _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc)
-                    loss = torch.stack(loss, dim=0)
-                losses.append(loss)
-            losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
-            losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
-            print('====> Epoch {} Eval Loss: {:.4f}'.format(epoch, losses_means.mean()))
-            return losses_means, losses_stds
+            for curr_gen_level in task_mdprl.gen_levels:
+                losses = []
+                for batch_idx in range(eval_samples):
+                    DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(args.batch_size, args.test_N_s, gen_level=curr_gen_level)
+                    if args.task_type=='value':
+                        output, hs, _ = model(pop_s, DA_s)
+                        output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], 1) # trial X T X batch size
+                        loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
+                    else:
+                        loss = []
+                        hidden = None
+                        for i in range(len(pop_s['pre_choice'])):
+                            # first phase, give stimuli and no feedback
+                            output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, 
+                                                        Rs=0*DA_s['pre_choice'], Vs=None,
+                                                        acts=torch.zeros(1, output_size)*DA_s['pre_choice'])
+                            # use output to calculate action, reward, and record loss function
+                            logprob, value = output
+                            m = torch.distributions.categorical.Categorical(logits=logprob[-1])
+                            action = m.sample().reshape(1)
+                            rwd = (torch.rand(1)<prob_s[i,0,action]).float()
+                            loss.append((torch.argmax(logprob[-1], -1)==torch.argmax(prob_s[i], -1)).float())
+                            # use the action (optional) and reward as feedback
+                            pop_post = pop_s['post_choice'][i]
+                            action_enc = torch.eye(output_size)[action]
+                            pop_post = pop_post*action_enc.reshape(1,1,2,1)
+                            action_enc = action_enc*DA_s['post_choice']
+                            R = (2*rwd-1)*DA_s['post_choice']
+                            if args.rpe:
+                                V = value[-1]*DA_s['post_choice']
+                            else:
+                                V = None
+                            _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc)
+                        loss = torch.stack(loss, dim=0)
+                    losses.append(loss)
+                losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
+                losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
+                losses_means_by_gen[curr_gen_level] = losses_means
+                losses_stds_by_gen[curr_gen_level] = losses_stds
+            print('====> Epoch {} Gen Level: {} Eval Loss: {:.4f}'.format(epoch, curr_gen_level, losses_means.mean()))
+            return losses_means_by_gen, losses_stds_by_gen
 
     metrics = defaultdict(list)
     best_eval_loss = 0
     for i in range(args.epochs):
         training_loss = train(args.iters)
         eval_loss_means, eval_loss_stds = eval(i)
-        metrics['eval_losses_mean'].append(eval_loss_means.tolist())
-        metrics['eval_losses_std'].append(eval_loss_stds.tolist())
+        metrics['eval_losses_mean'].append(eval_loss_means)
+        metrics['eval_losses_std'].append(eval_loss_stds)
         metrics = dict(metrics)
         save_defaultdict_to_fs(metrics, os.path.join(args.exp_dir, 'metrics.json'))
         if args.save_checkpoint:
