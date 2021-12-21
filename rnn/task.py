@@ -156,7 +156,7 @@ class MDPRL():
         # conj, feat+conj: a conj of two features, with a relevant or irrelevant feature
         # obj: a conj of all features
         assert gen_level in self.gen_levels
-        if 'feat' in gen_level:
+        if 'feat_' in gen_level:
             irrelevant_features = 3-int(gen_level[5])
             log_odds = (np.random.rand(3,3)*2-1)*4
             log_odds[:irrelevant_features] = 0 # make certain features irrelavant
