@@ -185,7 +185,7 @@ class MDPRL():
                     odd_ratio = (feat_log_odds[i]+conj_log_odds[jpk])/2
                     probs[i,j,k] = 1/(1+np.exp(-odd_ratio))
         elif gen_level=='obj':
-            log_odds = (np.random.rand(3,3)*2-1)*4
+            log_odds = (np.random.rand(3,3,3)*2-1)*4
             probs = 1/(1+np.exp(-log_odds))
         else:
             raise RuntimeError
