@@ -225,8 +225,7 @@ if __name__ == "__main__":
                     if args.attn_type=='weight':
                         reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 
-                    loss += (args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean())\
-                            *len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
+                    loss += reg*len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
             
             (loss/args.grad_accumulation_steps/len(pop_s['pre_choice'])).backward()
             if (batch_idx+1) % args.grad_accumulation_steps == 0:
