@@ -1,29 +1,21 @@
-from argparse import Action
-import os
-import numpy as np
-from tqdm import tqdm
-from collections import defaultdict
-from sklearn.metrics import accuracy_score
 import math
+import os
+from argparse import Action
+from collections import defaultdict
 
-from utils import (
-    AverageMeter,
-    save_defaultdict_to_fs,
-    save_list_to_fs,
-    save_checkpoint,
-    load_checkpoint,
-    load_list_from_fs
-)
-
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import optim
-
-from models import SimpleRNN, MultiChoiceRNN
-from task import MDPRL, RolloutBuffer
-
 from matplotlib import pyplot as plt
+from sklearn.metrics import accuracy_score
+from torch import optim
+from tqdm import tqdm
+
+from models import MultiChoiceRNN, SimpleRNN
+from task import MDPRL, RolloutBuffer
+from utils import (AverageMeter, load_checkpoint, load_list_from_fs,
+                   save_checkpoint, save_defaultdict_to_fs, save_list_to_fs)
 
 if __name__ == "__main__":
     import argparse
@@ -172,8 +164,9 @@ if __name__ == "__main__":
         optimizer.zero_grad()
         for batch_idx in range(iters):
             curr_gen_level = task_mdprl.gen_levels[np.random.randint(0, len(task_mdprl.gen_levels))]
-            DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(batch_size=args.batch_size, N_s=args.N_s, gen_level=curr_gen_level)
-            if args.task_type=='value':
+            DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(
+                batch_size=args.batch_size, N_s=args.N_s, num_choices=output_size, gen_level=curr_gen_level,)
+            if args.task_type == 'value':
                 output, hs, _, _ = model(pop_s, DA_s)
                 loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean() \
                         + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
@@ -260,8 +253,9 @@ if __name__ == "__main__":
             for curr_gen_level in task_mdprl.gen_levels:
                 losses = []
                 for batch_idx in range(eval_samples):
-                    DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(args.batch_size, args.test_N_s, gen_level=curr_gen_level)
-                    if args.task_type=='value':
+                    DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(
+                        args.batch_size, args.test_N_s, num_choices=output_size, gen_level=curr_gen_level)
+                    if args.task_type == 'value':
                         output, hs, _ = model(pop_s, DA_s)
                         output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], 1) # trial X T X batch size
                         loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
@@ -294,8 +288,8 @@ if __name__ == "__main__":
                     losses.append(loss)
                 losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
                 losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
-                losses_means_by_gen[curr_gen_level] = losses_means
-                losses_stds_by_gen[curr_gen_level] = losses_stds
+                losses_means_by_gen[curr_gen_level] = losses_means.tolist()
+                losses_stds_by_gen[curr_gen_level] = losses_stds.tolist()
                 print('====> Epoch {} Gen Level: {} Eval Loss: {:.4f}'.format(epoch, curr_gen_level, losses_means.mean()))
             return losses_means_by_gen, losses_stds_by_gen
 

@@ -62,9 +62,6 @@ class MDPRL():
         self.s = s
         self.times = times
 
-        assert(task in ['value', 'off_policy_single', 'on_policy_single', 'on_policy_double'])
-        self.task = task
-
         assert(input_type in ['feat', 'feat+conj', 'feat+conj+obj']), 'invalid input type'
         if input_type=='feat':
             self.input_indexes = np.arange(0, 9)
@@ -150,7 +147,7 @@ class MDPRL():
         self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1)-1
         # self.test_rwd = torch.from_numpy(np.stack(self.test_rwd, axis=0).transpose(2,0,1))
 
-    def _generate_generalizable_prob(self, gen_level, jitter=0.001):
+    def _generate_generalizable_prob(self, gen_level, jitter=0.01):
         # different level of gernalizability in terms of nonlinear terms: 0 (all linear), 1 (conjunction of two features), 2 (no regularity)
         # feat_1,2,3: all linear terms, with 2,1,0 irrelevant features
         # conj, feat+conj: a conj of two features, with a relevant or irrelevant feature
@@ -158,53 +155,43 @@ class MDPRL():
         assert gen_level in self.gen_levels
         if gen_level in ['feat_1', 'feat_2', 'feat_3']:
             irrelevant_features = 3-int(gen_level[5])
-            log_odds = (np.random.rand(3,3)*2-1)*4
+            log_odds = np.random.randn(3,3)
             log_odds[:irrelevant_features] = 0 # make certain features irrelavant
             probs = np.empty((3,3,3))
             for i in range(3):
                 for j in range(3):
                     for k in range(3):
-                        odd_ratio = (log_odds[0,i]+log_odds[1,j]+log_odds[2,k])/(int(gen_level[5]))
-                        probs[i,j,k] = 1/(1+np.exp(-odd_ratio))
+                        probs[i,j,k] = (log_odds[0,i]+log_odds[1,j]+log_odds[2,k])/np.sqrt(int(gen_level[5]))
         elif gen_level=='conj':
-            log_odds = (np.random.rand(9)*2-1)*4
+            log_odds = np.random.randn(9)
             probs = np.empty((3,3,3))
             for ipj in range(9):
                 i = ipj//3
                 j = ipj%3
-                odd_ratio = log_odds[ipj]
-                probs[i,j,:] = 1/(1+np.exp(-odd_ratio))
+                probs[i,j,:] = log_odds[ipj]
         elif gen_level=='feat+conj':
-            feat_log_odds = (np.random.rand(3)*2-1)*4
-            conj_log_odds = (np.random.rand(9)*2-1)*4
+            feat_log_odds = np.random.randn(3)
+            conj_log_odds = np.random.randn(9)
             probs = np.empty((3,3,3))
             for i in range(3):
                 for jpk in range(9):
                     j = jpk//3
                     k = jpk%3
-                    odd_ratio = (feat_log_odds[i]+conj_log_odds[jpk])/2
-                    probs[i,j,k] = 1/(1+np.exp(-odd_ratio))
+                    probs[i,j,k] = (feat_log_odds[i]+conj_log_odds[jpk])/np.sqrt(2)
         elif gen_level=='obj':
-            log_odds = (np.random.rand(3,3,3)*2-1)*4
-            probs = 1/(1+np.exp(-log_odds))
+            probs = np.random.randn(3,3,3)*2
         else:
             raise RuntimeError
 
         # add jitter to break draws
-        probs += np.clip(jitter*np.random.randn(*probs.shape), 0, 1)
+        probs = 1/(1+np.exp(-(probs/2+jitter*np.random.randn(*probs.shape))))
         
         # permute axis to change the order of dimensoins with different levels of information
         probs = probs.transpose(np.random.permutation(3))
         probs = probs.reshape(1, 3, 3, 3)
         return probs
 
-    def generateinput(self, batch_size, N_s, gen_level='obj', prob_index=None, stim_order=None, scramble=True):
-        if self.task=='value' or 'single' in self.task:
-            return self.generateinput_single(batch_size, N_s, prob_index, scramble)
-        else:
-            return self.generateinput_double(batch_size, N_s, gen_level, prob_index, stim_order)
-
-    def generateinput_double(self, batch_size, N_s, gen_level='obj', prob_index=None, stim_order=None):
+    def generateinput(self, batch_size, N_s, num_choices, gen_level='obj', prob_index=None, stim_order=None):
         '''
         Generate random stimuli AND choice for learning
         '''
@@ -223,25 +210,23 @@ class MDPRL():
 
         if stim_order is None:
             index_s = np.repeat(np.arange(0,27,1), N_s)
-            index_s_1 = np.random.permutation(index_s)
-            index_s_2 = np.random.permutation(index_s)
-            while np.any(index_s_1==index_s_2):
-                index_s_1 = np.random.permutation(index_s)
-                index_s_2 = np.random.permutation(index_s)
+            index_s_i = [np.random.permutation(index_s) for _ in range(num_choices)]
+            index_s_i = np.stack(index_s_i, axis=0)
+            while np.any([len(np.unique(index_s_i[:,j])) != len(index_s_i[:,j]) for j in range(len(index_s))]):
+                index_s_i = [np.random.permutation(index_s) for _ in range(num_choices)]
+                index_s_i = np.stack(index_s_i, axis=0)
         else:
-            index_s_1 = stim_order[:,0]
-            index_s_2 = stim_order[:,1]
+            index_s_i= stim_order
 
-        pop_s = np.zeros((len_seq, len(self.T), batch_size, 2, 63))
-        ch_s = np.zeros((len_seq, len(self.T), batch_size, 2))
-        prob_s = np.stack([prob_index[:, index_s_1], prob_index[:, index_s_2]], axis=-1)
+        pop_s = np.zeros((len_seq, len(self.T), batch_size, num_choices, 63))
+        ch_s = np.zeros((len_seq, len(self.T), batch_size, num_choices))
+        prob_s = np.stack([prob_index[:, index_s_i[i]] for i in range(num_choices)], axis=-1)
         prob_s += 1e-8*np.random.random(prob_s.shape) # for random stickbreaking
 
         for i in range(batch_size):
-            pop_s[:,:,i,0,:] = self.pop_s[index_s_1,:,:]
-            pop_s[:,:,i,1,:] = self.pop_s[index_s_2,:,:]
-            ch_s[:,:,i,0] = self.filter_ch*prob_index[i, index_s_1].reshape((len_seq,1))
-            ch_s[:,:,i,1] = self.filter_ch*prob_index[i, index_s_2].reshape((len_seq,1))
+            for j in range(num_choices):
+                pop_s[:,:,i,j,:] = self.pop_s[index_s_i[j],:,:]
+                ch_s[:,:,i,j] = self.filter_ch*prob_index[i, index_s_i[j]].reshape((len_seq,1))
 
         DA_s = self.filter_da.reshape((len(self.T),1,1))
 
@@ -259,56 +244,8 @@ class MDPRL():
             'post_choice': torch.from_numpy(DA_s[self.T > self.times['choice_end']*self.s]).float()
         }
 
-        return DA_s, torch.from_numpy(ch_s).float(), pop_s, \
-               torch.stack([torch.from_numpy(index_s_1), torch.from_numpy(index_s_2)], dim=-1), \
+        return DA_s, torch.from_numpy(ch_s).float(), pop_s, torch.from_numpy(index_s_i), \
                torch.from_numpy(prob_s).transpose(0, 1), output_mask
-
-    def generateinput_single(self, batch_size, N_s, prob_index=None, scramble=True):
-        '''
-        Generate random stimuli AND choice for learning
-        '''
-        if prob_index is not None:
-            assert(len(prob_index.shape) ==4 and prob_index.shape[1:] == (3, 3, 3))
-        else:
-            prob_index = self._generate_rand_prob(batch_size)
-
-        batch_size = prob_index.shape[0]
-
-        prob_index = np.reshape(prob_index, (batch_size, 27))
-
-        if scramble:
-            index_s = np.repeat(np.arange(0,27,1), N_s)
-            index_s = np.random.permutation(index_s)
-        else:
-            index_s = np.tile(np.arange(0,27,1), N_s)
-
-        pop_s = np.zeros((len(index_s), len(self.T), batch_size, 63))
-        ch_s = np.zeros((len(index_s), len(self.T), batch_size, 1))
-        R = np.zeros((len(index_s), batch_size))
-
-        for i in range(batch_size):
-            pop_s[:,:,i,:] = self.pop_s[index_s,:,:]
-            if self.task=='on_policy':
-                R[:,i] = np.ones(1, prob_index[i, index_s]) 
-                # if on_policy learning, return the mask and decide actual reward during simulation
-            else:
-                R[:,i] = np.random.binomial(1, prob_index[i, index_s]) 
-            ch_s[:,:,i,0] = self.filter_ch*prob_index[i, index_s].reshape((27*N_s,1))
-        
-        DA_s = self.filter_da.reshape((1,len(self.T),1,1))*(2*R.reshape((len(index_s), 1, batch_size, 1))-1)
-        DA_s = DA_s.reshape((len(self.T)*len(index_s), batch_size, 1))
-        # ch_s = ch_s.reshape((len(self.T)*len(index_s), batch_size, 1))
-        pop_s = pop_s.reshape((len(self.T)*len(index_s), batch_size, 63))
-
-        if self.task=='value':
-            output_mask = torch.from_numpy(1.5*(self.T<0.0*self.s) + self.T_ch).reshape(1, len(self.T), 1)
-        else:
-            output_mask = {'fixation': torch.from_numpy((self.T<0.0*self.s)).reshape(1, len(self.T), 1), \
-                           'target': torch.from_numpy(self.T_ch).reshape(1, len(self.T), 1)}
-
-        return torch.from_numpy(DA_s).float(), torch.from_numpy(ch_s).float(), \
-            torch.from_numpy(pop_s[:,:,self.input_indexes]).float(), torch.from_numpy(index_s), \
-            torch.from_numpy(prob_index[:, index_s]).t(), output_mask
 
     def generateinputfromexp(self, batch_size, test_N_s, participant_num):
         return self.generateinput(batch_size, test_N_s, self.prob_mdprl, stim_order=self.test_stim_order[:,participant_num], scramble=False)

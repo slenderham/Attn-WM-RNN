@@ -1,12 +1,11 @@
+import math
 from collections import defaultdict
+
+import numpy as np
 import torch
-from torch.functional import einsum
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-import math
 from matplotlib import pyplot as plt
-
 
 def _get_activation_function(func_name):
     if func_name=='relu':
