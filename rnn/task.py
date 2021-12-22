@@ -212,9 +212,10 @@ class MDPRL():
             index_s = np.repeat(np.arange(0,27,1), N_s)
             index_s_i = [np.random.permutation(index_s) for _ in range(num_choices)]
             index_s_i = np.stack(index_s_i, axis=0)
-            while np.any([len(np.unique(index_s_i[:,j])) != len(index_s_i[:,j]) for j in range(len(index_s))]):
-                index_s_i = [np.random.permutation(index_s) for _ in range(num_choices)]
-                index_s_i = np.stack(index_s_i, axis=0)
+            # while np.any([len(np.unique(index_s_i[:,j])) != len(index_s_i[:,j]) for j in range(len(index_s))]):
+            #     print(np.sum([len(np.unique(index_s_i[:,j])) != len(index_s_i[:,j]) for j in range(len(index_s))]))
+            #     index_s_i = [np.random.permutation(index_s) for _ in range(num_choices)]
+            #     index_s_i = np.stack(index_s_i, axis=0)
         else:
             index_s_i= stim_order
 

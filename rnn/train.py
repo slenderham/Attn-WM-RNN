@@ -165,7 +165,7 @@ if __name__ == "__main__":
         for batch_idx in range(iters):
             curr_gen_level = task_mdprl.gen_levels[np.random.randint(0, len(task_mdprl.gen_levels))]
             DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(
-                batch_size=args.batch_size, N_s=args.N_s, num_choices=output_size, gen_level=curr_gen_level,)
+                batch_size=args.batch_size, N_s=args.N_s, num_choices=output_size, gen_level=curr_gen_level)
             if args.task_type == 'value':
                 output, hs, _, _ = model(pop_s, DA_s)
                 loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean() \
