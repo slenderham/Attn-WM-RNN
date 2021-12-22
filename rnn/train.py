@@ -302,7 +302,7 @@ if __name__ == "__main__":
                 is_best_epoch = True
                 best_eval_loss = sum([np.mean(v).item() for v in eval_loss_means.values()])
                 metrics['best_epoch'] = i
-                metrics['best_eval_loss'] = eval_loss_means.mean().item()
+                metrics['best_eval_loss'] = best_eval_loss
             else:
                 is_best_epoch = False
             save_checkpoint({'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict()},
