@@ -31,7 +31,7 @@ if __name__ == "__main__":
     parser.add_argument('--e_prop', type=float, default=4/5, help='Proportion of E neurons')
     parser.add_argument('--batch_size', type=int, help='Batch size')
     parser.add_argument('--grad_accumulation_steps', type=int, default=1, help='Steps of gradient accumulation.')
-    parser.add_argument('--eval_samples', type=int, default=60, help='Number of samples to use for evaluation.')
+    parser.add_argument('--eval_samples', type=int, default=21, help='Number of samples to use for evaluation.')
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
@@ -104,10 +104,6 @@ if __name__ == "__main__":
         device = torch.device('cuda' if args.cuda else 'cpu')
 
     task_mdprl = MDPRL(exp_times, args.input_type, args.task_type)
-    if hasattr(task_mdprl, 'test_stim_order'):
-        eval_samples = task_mdprl.test_stim_order.shape[1]
-    else:
-        eval_samples = args.eval_samples
 
     input_size = {
         'feat': args.stim_dim*args.stim_val,
@@ -251,7 +247,7 @@ if __name__ == "__main__":
         with torch.no_grad():
             for curr_gen_level in task_mdprl.gen_levels:
                 losses = []
-                for batch_idx in range(eval_samples):
+                for batch_idx in range(args.eval_samples):
                     DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(
                         args.batch_size, args.test_N_s, num_choices=output_size, gen_level=curr_gen_level)
                     if args.task_type == 'value':
