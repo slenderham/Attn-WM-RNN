@@ -298,7 +298,7 @@ if __name__ == "__main__":
         metrics = dict(metrics)
         save_defaultdict_to_fs(metrics, os.path.join(args.exp_dir, 'metrics.json'))
         if args.save_checkpoint:
-            if sum([v.mean() for v in eval_loss_means.values()]) > best_eval_loss:
+            if sum([np.mean(v) for v in eval_loss_means.values()]) > best_eval_loss:
                 is_best_epoch = True
                 best_eval_loss = eval_loss_means.mean().item()
                 metrics['best_epoch'] = i
