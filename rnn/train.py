@@ -300,7 +300,7 @@ if __name__ == "__main__":
         if args.save_checkpoint:
             if sum([np.mean(v) for v in eval_loss_means.values()]) > best_eval_loss:
                 is_best_epoch = True
-                best_eval_loss = eval_loss_means.mean().item()
+                best_eval_loss = sum([np.mean(v).item() for v in eval_loss_means.values()])
                 metrics['best_epoch'] = i
                 metrics['best_eval_loss'] = eval_loss_means.mean().item()
             else:
