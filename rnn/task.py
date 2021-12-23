@@ -184,7 +184,7 @@ class MDPRL():
             raise RuntimeError
 
         # add jitter to break draws
-        probs = 1/(1+np.exp(-(probs/2+jitter*np.random.randn(*probs.shape))))
+        probs = 1/(1+np.exp(-(probs*np.sqrt(2)+jitter*np.random.randn(*probs.shape))))
         
         # permute axis to change the order of dimensoins with different levels of information
         probs = probs.transpose(np.random.permutation(3))
