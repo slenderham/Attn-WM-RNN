@@ -148,7 +148,7 @@ class EILinear(nn.Module):
 
 class MultiChoiceRNN(nn.Module):
     def __init__(self, input_size, num_choices, hidden_size, output_size, attention_type='weight',
-                attn_group_size=None, plastic=True, plastic_feedback=True, activation='retanh', 
+                channel_group_size=None, plastic=True, plastic_feedback=True, activation='retanh', 
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 balance_ei=False, rwd_input=False, action_input=False, sep_lr=True, plas_rule='mult',
@@ -169,7 +169,7 @@ class MultiChoiceRNN(nn.Module):
         
         if structured_conn:
             conn_masks = _get_connectivity_mask(
-                self.input_size, self.aux_input_size, self.output_size, len(attn_group_size), 
+                self.input_size, self.aux_input_size, self.output_size, len(channel_group_size), 
                 round(hidden_size*e_prop/2), round(hidden_size*(1-e_prop)/2))
         else:
             conn_masks = {}
@@ -182,7 +182,7 @@ class MultiChoiceRNN(nn.Module):
         if self.aux_input_size>0:
             self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='relu',
                                   e_prop=1, zero_cols_prop=0, bias=False, conn_mask=conn_masks.get('aux', None),
-                                  init_gain=0.5*math.sqrt(self.aux_input_size/(hidden_size*num_choices)))
+                                  init_gain=0.5*math.sqrt(self.aux_input_size/(input_size*num_choices)))
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='relu',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1 if not structured_conn else math.sqrt(2),
                             conn_mask=conn_masks.get('rec', None),
@@ -227,16 +227,16 @@ class MultiChoiceRNN(nn.Module):
         self.attention_type = attention_type
 
         if attention_type!='none':
-            assert(attn_group_size is not None)
-            self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False, bias=False,
+            assert(channel_group_size is not None)
+            self.attn_func = EILinear(hidden_size, len(channel_group_size), remove_diag=False, bias=False,
                                     conn_mask=conn_masks.get('attn', None),
                                     e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.5)
                                     # the same attention applies to the same dimension of both stimuli
-            self.attn_group_size = torch.LongTensor(attn_group_size)
+            self.channel_group_size = torch.LongTensor(channel_group_size)
             self.attn_lr_group = torch.LongTensor([3])
         else:
             self.attn_func = None
-            self.attn_group_size = None
+            self.channel_group_size = None
             self.attn_lr_group = None
 
         self.activation = _get_activation_function(activation)
@@ -252,11 +252,11 @@ class MultiChoiceRNN(nn.Module):
                     kappa_count += 3
             
             if sep_lr:
-                self.kappa_in = nn.ParameterList([nn.Parameter(torch.rand(1, self.hidden_size, self.input_size)/self.tau_w+1/self.tau_w) 
+                self.kappa_in = nn.ParameterList([nn.Parameter(torch.rand(1, self.hidden_size, len(channel_group_size))/self.tau_w+1/self.tau_w) 
                                                     for _ in range(num_choices)])
                 self.kappa_rec = nn.Parameter(torch.rand(1, self.hidden_size, self.hidden_size)/self.tau_w+1/self.tau_w)
                 if plastic_feedback:
-                    self.kappa_fb = nn.Parameter(torch.rand(1, len(attn_group_size), self.hidden_size)/self.tau_w+1/self.tau_w)
+                    self.kappa_fb = nn.Parameter(torch.rand(1, len(channel_group_size), self.hidden_size)/self.tau_w+1/self.tau_w)
             else:
                 self.kappa_w = nn.Parameter(torch.zeros(kappa_count)+1e-8)
 
@@ -269,12 +269,12 @@ class MultiChoiceRNN(nn.Module):
                         [x2hi.pos_func(x2hi.weight).unsqueeze(0).repeat(batch_size, 1, 1) for x2hi in self.x2h], 
                         self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1),
                         self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0).repeat(batch_size, 1, 1), 
-                        torch.ones(len(self.attn_group_size))/len(self.attn_group_size)]
+                        torch.ones(len(self.channel_group_size))/len(self.channel_group_size)]
             else:
                 return [h_init, h_init.relu(),
                         [x2hi.pos_func(x2hi.weight).unsqueeze(0).repeat(batch_size, 1, 1) for x2hi in self.x2h], 
                         self.h2h.pos_func(self.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), 
-                        torch.ones(len(self.attn_group_size))/len(self.attn_group_size)]
+                        torch.ones(len(self.channel_group_size))/len(self.channel_group_size)]
         else:
             return [h_init, h_init.relu()]
 
@@ -306,17 +306,17 @@ class MultiChoiceRNN(nn.Module):
         
         if self.attention_type=='weight':
             attn = F.softmax(self.attn_func(output, wattn), -1)
-            attn_expand = torch.repeat_interleave(attn, self.attn_group_size, dim=-1)
+            attn_expand = torch.repeat_interleave(attn, self.channel_group_size, dim=-1)
         elif self.attention_type=='sample':
             attn = F.gumbel_softmax(self.attn_func(output, wattn), hard=True, dim=-1)
-            attn_expand = torch.repeat_interleave(attn, self.attn_group_size, dim=-1)
+            attn_expand = torch.repeat_interleave(attn, self.channel_group_size, dim=-1)
         else:
-            attn = torch.ones(len(self.attn_group_size))/len(self.attn_group_size)
+            attn = torch.ones(len(self.channel_group_size))/len(self.channel_group_size)
             attn_expand = None
 
 
         if self.attention_type=='weight' or self.attention_type=='sample':
-            x = torch.relu(x * attn_expand * len(self.attn_group_size) + self._sigma_in * torch.randn_like(x))
+            x = torch.relu(x * attn_expand * len(self.channel_group_size) + self._sigma_in * torch.randn_like(x))
         else:
             x = torch.relu(x + self._sigma_in * torch.randn_like(x))
 
@@ -352,7 +352,8 @@ class MultiChoiceRNN(nn.Module):
             if self.sep_lr:
                 for i in range(self.num_choices):
                     wx[i] = self.plasticity_func(wx[i], self.x2h[i].pos_func(self.x2h[i].weight).unsqueeze(0), R-v, x[:,i], new_output, 
-                                                 self.kappa_in[i].relu(), 0, self.weight_bound)
+                                                 torch.repeat_interleave(self.kappa_in[i].relu(), repeats=self.channel_group_size, dim=-1), 
+                                                 0, self.weight_bound)
                 wh = self.plasticity_func(wh, self.h2h.pos_func(self.h2h.weight).unsqueeze(0), R-v, output, new_output,
                                           self.kappa_rec.relu(), 0, self.weight_bound)
                 if self.plastic_feedback:
@@ -376,8 +377,8 @@ class MultiChoiceRNN(nn.Module):
                 if self.plastic_feedback:
                     wattn = wattn*self.oneminusalpha_w + self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0)*self.alpha_w + self.dt*R*(
                         self.kappa_w[6]*torch.reshape(output, (batch_size, 1, self.hidden_size)) +
-                        self.kappa_w[7]*torch.reshape(attn, (batch_size, len(self.attn_group_size), 1)) +
-                        self.kappa_w[8]*torch.einsum('bi, bj->bij', attn*len(self.attn_group_size), output))
+                        self.kappa_w[7]*torch.reshape(attn, (batch_size, len(self.channel_group_size), 1)) +
+                        self.kappa_w[8]*torch.einsum('bi, bj->bij', attn*len(self.channel_group_size), output))
                     if self._sigma_w>0:
                         wattn += self._sigma_w * torch.randn_like(wattn)
                     wattn = torch.clamp(wattn, 0, self.weight_bound)
@@ -441,7 +442,7 @@ class MultiChoiceRNN(nn.Module):
 
 class SimpleRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, attention_type='weight',
-                attn_group_size=None, plastic=True, plastic_feedback=True, activation='retanh', 
+                channel_group_size=None, plastic=True, plastic_feedback=True, activation='retanh', 
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=10.0, c_plasticity=None, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 balance_ei=False, rwd_input=False, sep_lr=True, input_unit_group=None, value_est=True, **kwargs):
@@ -497,14 +498,14 @@ class SimpleRNN(nn.Module):
         self.attention_type = attention_type
 
         if attention_type!='none':
-            assert(attn_group_size is not None)
-            self.attn_func = EILinear(hidden_size, len(attn_group_size), remove_diag=False,
+            assert(channel_group_size is not None)
+            self.attn_func = EILinear(hidden_size, len(channel_group_size), remove_diag=False,
                                         e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=1) 
                                         # the same attention applies to the same dimension of both stimuli
-            self.attn_group_size = torch.LongTensor(attn_group_size)
+            self.channel_group_size = torch.LongTensor(channel_group_size)
         else:
             self.attn_func = None
-            self.attn_group_size = None
+            self.channel_group_size = None
 
         self.activation = _get_activation_function(activation)
 
@@ -593,16 +594,16 @@ class SimpleRNN(nn.Module):
         
         if self.attention_type=='weight':
             attn = F.softmax(self.attn_func(output, wattn), -1)
-            attn_expand = torch.repeat_interleave(attn, self.attn_group_size, dim=-1)
+            attn_expand = torch.repeat_interleave(attn, self.channel_group_size, dim=-1)
         elif self.attention_type=='sample':
             attn = F.gumbel_softmax(self.attn_func(output, wattn), hard=True, dim=-1)
-            attn_expand = torch.repeat_interleave(attn, self.attn_group_size, dim=-1)
+            attn_expand = torch.repeat_interleave(attn, self.channel_group_size, dim=-1)
         else:
             attn = None
             attn_expand = None
 
         if self.attention_type=='weight' or self.attention_type=='sample':
-            x = torch.relu(x * attn_expand * len(self.attn_group_size) + self._sigma_in * torch.randn_like(x))
+            x = torch.relu(x * attn_expand * len(self.channel_group_size) + self._sigma_in * torch.randn_like(x))
         else:
             x = torch.relu(x + self._sigma_in * torch.randn_like(x))
 
@@ -652,8 +653,8 @@ class SimpleRNN(nn.Module):
                 if self.plastic_feedback:
                     wattn = wattn*self.oneminusalpha_w + self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0)*self.alpha_w + self.dt*R*(
                         self.kappa_w[6]*torch.reshape(output, (batch_size, 1, self.hidden_size)) +
-                        self.kappa_w[7]*torch.reshape(attn, (batch_size, len(self.attn_group_size), 1)) +
-                        self.kappa_w[8]*torch.einsum('bi, bj->bij', attn*len(self.attn_group_size), output))
+                        self.kappa_w[7]*torch.reshape(attn, (batch_size, len(self.channel_group_size), 1)) +
+                        self.kappa_w[8]*torch.einsum('bi, bj->bij', attn*len(self.channel_group_size), output))
                     if self._sigma_w>0:
                         wattn += self._sigma_w * torch.randn_like(wattn)
                     wattn = torch.clamp(wattn, 0, self.weight_bound)

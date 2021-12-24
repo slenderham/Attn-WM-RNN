@@ -120,19 +120,19 @@ if __name__ == "__main__":
 
     if args.attn_type!='none':
         if args.input_type=='feat':
-            attn_group_size = [args.stim_val]*args.stim_dim
+            channel_group_size = [args.stim_val]*args.stim_dim
         elif args.input_type=='feat+obj':
-            attn_group_size = [args.stim_val]*args.stim_dim + [args.stim_val**args.stim_dim]
+            channel_group_size = [args.stim_val]*args.stim_dim + [args.stim_val**args.stim_dim]
         elif args.input_type=='feat+conj+obj':
-            attn_group_size = [args.stim_val]*args.stim_dim + [args.stim_val*args.stim_val]*args.stim_dim + [args.stim_val**args.stim_dim]
+            channel_group_size = [args.stim_val]*args.stim_dim + [args.stim_val*args.stim_val]*args.stim_dim + [args.stim_val**args.stim_dim]
     else:
-        attn_group_size = [input_size]
+        channel_group_size = [input_size]
 
     output_size = 1 if args.task_type=='value' else 2
 
     model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': output_size, 
                    'plastic': args.plas_type=='all', 'attention_type': args.attn_type, 'activation': args.activ_func,
-                   'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'attn_group_size': attn_group_size,
+                   'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'channel_group_size': channel_group_size,
                    'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
                    'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 
                    'rwd_input': args.rwd_input, 'action_input': args.action_input, 'plas_rule': args.plas_rule,
