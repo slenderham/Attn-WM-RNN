@@ -22,6 +22,8 @@ def _get_activation_function(func_name):
 def _get_pos_function(func_name):
     if func_name=='relu':
         return F.relu
+    if func_name=='abs':
+        return torch.abs
     else:
         raise RuntimeError(F"{func_name} is an invalid function enforcing positive weight.")
 
@@ -174,30 +176,30 @@ class MultiChoiceRNN(nn.Module):
         else:
             conn_masks = {}
 
-        self.x2h = nn.ModuleList([EILinear(input_size, hidden_size, remove_diag=False, pos_function='relu',
+        self.x2h = nn.ModuleList([EILinear(input_size, hidden_size, remove_diag=False, pos_function='abs',
                                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.5/math.sqrt(num_choices),
                                            conn_mask=conn_masks.get('input', None))
                                   for _ in range(num_choices)])
         
         if self.aux_input_size>0:
-            self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='relu',
+            self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='abs',
                                   e_prop=1, zero_cols_prop=0, bias=False, conn_mask=conn_masks.get('aux', None),
                                   init_gain=0.5*math.sqrt(self.aux_input_size/(input_size*num_choices)))
-        self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='relu',
+        self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='abs',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1 if not structured_conn else math.sqrt(2),
                             conn_mask=conn_masks.get('rec', None),
                             init_spectral=init_spectral, balance_ei=balance_ei)
         if value_est:
-            self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
+            self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='abs',
                                 conn_mask=conn_masks.get('output', None),
                                 e_prop=1, zero_cols_prop=1-e_prop, bias=True, 
                                 init_gain=0.25 if not structured_conn else math.sqrt(0.5))
-            self.h2v = EILinear(hidden_size, 1, remove_diag=False, pos_function='relu',
+            self.h2v = EILinear(hidden_size, 1, remove_diag=False, pos_function='abs',
                                 conn_mask=conn_masks.get('value', None),
                                 e_prop=1, zero_cols_prop=1-e_prop, bias=True, 
                                 init_gain=0.25 if not structured_conn else math.sqrt(0.5))
         else:
-            self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='relu',
+            self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='abs',
                                 conn_mask=conn_masks.get('output', None),
                                 e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
 
@@ -352,13 +354,13 @@ class MultiChoiceRNN(nn.Module):
             if self.sep_lr:
                 for i in range(self.num_choices):
                     wx[i] = self.plasticity_func(wx[i], self.x2h[i].pos_func(self.x2h[i].weight).unsqueeze(0), R-v, x[:,i], new_output, 
-                                                 torch.repeat_interleave(self.kappa_in[i].relu(), repeats=self.channel_group_size, dim=-1), 
+                                                 torch.repeat_interleave(self.kappa_in[i].abs(), repeats=self.channel_group_size, dim=-1), 
                                                  0, self.weight_bound)
                 wh = self.plasticity_func(wh, self.h2h.pos_func(self.h2h.weight).unsqueeze(0), R-v, output, new_output,
-                                          self.kappa_rec.relu(), 0, self.weight_bound)
+                                          self.kappa_rec.abs(), 0, self.weight_bound)
                 if self.plastic_feedback:
                     wattn = self.plasticity_func(wattn, self.attn_func.pos_func(self.attn_func.weight).unsqueeze(0), R-v, output, attn,
-                                                 self.kappa_fb.relu(), 0, self.weight_bound)
+                                                 self.kappa_fb.abs(), 0, self.weight_bound)
             else:
                 wx = wx*self.oneminusalpha_w + self.x2h.pos_func(self.x2h.weight).unsqueeze(0)*self.alpha_w + self.dt*R*(
                     self.kappa_w[0]*torch.reshape(x, (batch_size, 1, self.input_size)) +
