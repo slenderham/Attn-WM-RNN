@@ -3,6 +3,7 @@ import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.svm import LinearSVC
 from sklearn.model_selection import cross_val_score
+from sklearn.cluster import KMeans
 from scipy.optimize import curve_fit
 import pingouin as pg
 from joblib import Parallel, delayed
@@ -27,6 +28,10 @@ def run_tca(ws, rank=9):
 
 def linear_regression(X, y):
     res = pg.linear_regression(X, y)
+    return res
+
+def anova(X, dv):
+    res = pg.anova(X, dv)
     return res
 
 def linear_classification_cv(X, y):
@@ -76,3 +81,7 @@ def hierarchical_clustering(x):
     dmat = pdist(x)
     Z = sch.linkage(dmat, method='centroid')
     return Z
+
+def cluster(x, n_clusters=3):
+    kmeans = KMeans(n_clusters=n_clusters).fit(x)
+    return kmeans.labels_

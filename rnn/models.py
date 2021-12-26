@@ -232,14 +232,12 @@ class MultiChoiceRNN(nn.Module):
             assert(channel_group_size is not None)
             self.attn_func = EILinear(hidden_size, len(channel_group_size), remove_diag=False, bias=False,
                                     conn_mask=conn_masks.get('attn', None),
-                                    e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.5)
+                                    e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.25)
                                     # the same attention applies to the same dimension of both stimuli
             self.channel_group_size = torch.LongTensor(channel_group_size)
-            self.attn_lr_group = torch.LongTensor([3])
         else:
             self.attn_func = None
             self.channel_group_size = None
-            self.attn_lr_group = None
 
         self.activation = _get_activation_function(activation)
 
