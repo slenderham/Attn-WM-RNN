@@ -306,10 +306,10 @@ class MultiChoiceRNN(nn.Module):
         
         if self.attention_type=='weight':
             attn = F.softmax(self.attn_func(output, wattn), -1)
-            attn_expand = torch.repeat_interleave(attn, self.channel_group_size, dim=-1)
+            attn_expand = torch.repeat_interleave(attn, self.channel_group_size, dim=-1).unsqueeze(1)
         elif self.attention_type=='sample':
             attn = F.gumbel_softmax(self.attn_func(output, wattn), hard=True, dim=-1)
-            attn_expand = torch.repeat_interleave(attn, self.channel_group_size, dim=-1)
+            attn_expand = torch.repeat_interleave(attn, self.channel_group_size, dim=-1).unsqueeze(1)
         else:
             attn = torch.ones(len(self.channel_group_size))/len(self.channel_group_size)
             attn_expand = None
@@ -327,7 +327,7 @@ class MultiChoiceRNN(nn.Module):
         else:
             total_input = self.h2h(output)
             for i in range(self.num_choices):
-                total_input += self.x2h[i](x[:,i,:], wx[i])
+                total_input += self.x2h[i](x[:,i,:])
 
         if self.aux_input_size>0:
             aux = torch.zeros(batch_size, self.aux_input_size)

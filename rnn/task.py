@@ -33,7 +33,7 @@ class RolloutBuffer:
         self.values.append(v)
 
 class MDPRL():
-    def __init__(self, times, input_type, task):
+    def __init__(self, times, input_type):
         self.prob_mdprl = np.zeros((1, 3, 3, 3))
         self.prob_mdprl[:, :, :, 0] = ([0.92, 0.75, 0.43], [0.50, 0.50, 0.50], [0.57, 0.25, 0.08])
         self.prob_mdprl[:, :, :, 1] = ([0.16, 0.75, 0.98], [0.50, 0.50, 0.50], [0.02, 0.25, 0.84])
@@ -114,7 +114,6 @@ class MDPRL():
         # generate input population activity
         # -----------------------------------------------------------------------------------------
         index_s = np.arange(0, 27, 1)
-        pop_o = np.zeros((len(index_s), len(self.T), 27))
         pop_s = np.zeros((len(index_s), len(self.T), 63))
         for n in range(len(index_s)):
             pop_s[n, :, self.index_shp[index_s[n]]] = self.filter_s*1
@@ -126,10 +125,8 @@ class MDPRL():
             pop_s[n, :, 27+self.index_shpclr[index_s[n]]] = self.filter_s*1
 
             pop_s[n, :, 36+index_s[n]] = self.filter_s*1
-            pop_o[n, :, index_s[n]] = self.filter_s*1
 
         self.pop_s = pop_s
-        self.pop_o = pop_o
         
         # -----------------------------------------------------------------------------------------
         # loading experimental conditions
@@ -179,7 +176,7 @@ class MDPRL():
                     k = jpk%3
                     probs[i,j,k] = (feat_log_odds[i]+conj_log_odds[jpk])/np.sqrt(2)
         elif gen_level=='obj':
-            probs = np.random.randn(3,3,3)*2
+            probs = np.random.randn(3,3,3)
         else:
             raise RuntimeError
 
@@ -211,7 +208,7 @@ class MDPRL():
         if stim_order is None:
             index_s = np.repeat(np.arange(0,27,1), N_s)
             index_s_i = [np.random.permutation(index_s) for _ in range(num_choices)]
-            index_s_i = np.stack(index_s_i, axis=0)
+            index_s_i = np.stack(index_s_i, axis=1)
             # while np.any([len(np.unique(index_s_i[:,j])) != len(index_s_i[:,j]) for j in range(len(index_s))]):
             #     print(np.sum([len(np.unique(index_s_i[:,j])) != len(index_s_i[:,j]) for j in range(len(index_s))]))
             #     index_s_i = [np.random.permutation(index_s) for _ in range(num_choices)]
@@ -221,13 +218,13 @@ class MDPRL():
 
         pop_s = np.zeros((len_seq, len(self.T), batch_size, num_choices, 63))
         ch_s = np.zeros((len_seq, len(self.T), batch_size, num_choices))
-        prob_s = np.stack([prob_index[:, index_s_i[i]] for i in range(num_choices)], axis=-1)
-        prob_s += 1e-8*np.random.random(prob_s.shape) # for random stickbreaking
+        prob_s = np.stack([prob_index[:, index_s_i[:,i]] for i in range(num_choices)], axis=-1)
+        prob_s += 1e-8*np.random.rand(*prob_s.shape) # for random stickbreaking
 
         for i in range(batch_size):
             for j in range(num_choices):
-                pop_s[:,:,i,j,:] = self.pop_s[index_s_i[j],:,:]
-                ch_s[:,:,i,j] = self.filter_ch*prob_index[i, index_s_i[j]].reshape((len_seq,1))
+                pop_s[:,:,i,j,:] = self.pop_s[index_s_i[:,j],:,:]
+                ch_s[:,:,i,j] = self.filter_ch*prob_index[i, index_s_i[:,j]].reshape((len_seq,1))
 
         DA_s = self.filter_da.reshape((len(self.T),1,1))
 
@@ -248,8 +245,8 @@ class MDPRL():
         return DA_s, torch.from_numpy(ch_s).float(), pop_s, torch.from_numpy(index_s_i), \
                torch.from_numpy(prob_s).transpose(0, 1), output_mask
 
-    def generateinputfromexp(self, batch_size, test_N_s, participant_num):
-        return self.generateinput(batch_size, test_N_s, self.prob_mdprl, stim_order=self.test_stim_order[:,participant_num], scramble=False)
+    def generateinputfromexp(self, batch_size, test_N_s, num_choices, participant_num):
+        return self.generateinput(batch_size, test_N_s, prob_index=self.prob_mdprl, num_choices=num_choices, stim_order=self.test_stim_order[:,participant_num])
 
     def value_est(self, probdata=None):
         if probdata is None:
