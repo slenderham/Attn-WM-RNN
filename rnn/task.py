@@ -101,7 +101,7 @@ class MDPRL():
 
             index_shppttrn[:, :, d] = index_shp[:, :, d] * 3 + index_pttrn[:, :, d]
             index_pttrnclr[:, :, d] = index_pttrn[:, :, d] * 3 + index_clr[:, :, d]
-            index_shpclr[:, :, d] = index_shp[:, :, d]*3 + index_clr[:, :, d]
+            index_shpclr[:, :, d] = index_shp[:, :, d] * 3 + index_clr[:, :, d]
 
         self.index_shp = index_shp.flatten().astype(int)
         self.index_pttrn = index_pttrn.flatten().astype(int)
@@ -195,7 +195,10 @@ class MDPRL():
         if prob_index is not None:
             assert(len(prob_index.shape)==4 and prob_index.shape[1:] == (3, 3, 3))
         else:
-            prob_index = self._generate_generalizable_prob(gen_level)
+            if gen_level is not None:
+                prob_index = self._generate_generalizable_prob(gen_level)
+            else:
+                prob_index = np.random.rand(1,3,3,3)
 
         batch_size = prob_index.shape[0]
 
