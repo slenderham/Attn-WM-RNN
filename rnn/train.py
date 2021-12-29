@@ -185,11 +185,11 @@ if __name__ == "__main__":
 
                     reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
                     if args.plastic_feedback:
-                        reg += args.l2w*(ss['wxs'].pow(2).sum()+ss['whs'].pow(2).sum()+ss['wfbs'].pow(2).sum())\
-                                  /(ss['wxs'].numel()+ss['whs'].numel()+ss['wfbs'].numel())
+                        reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()+ss['whs'].pow(2).sum(dim=(-2,-1)).mean()+ss['wfbs'].pow(2).sum(dim=(-2,-1)).mean())\
+                            /(ss['wxs'].numel()+ss['whs'].numel()+ss['wfbs'].numel())
                     else:
-                        reg += args.l2w*(ss['wxs'].pow(2).sum()+ss['whs'].pow(2).sum())\
-                                  /(ss['wxs'].numel()+ss['whs'].numel())
+                        reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()+ss['whs'].pow(2).sum(dim=(-2,-1)).mean())\
+                            /(ss['wxs'].numel()+ss['whs'].numel())
                     if args.attn_type=='weight':
                         reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 
@@ -212,11 +212,11 @@ if __name__ == "__main__":
 
                     reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
                     if args.plastic_feedback:
-                        reg += args.l2w*(ss['wxs'].pow(2).sum()+ss['whs'].pow(2).sum()+ss['wfbs'].pow(2).sum())\
-                                  /(ss['wxs'].numel()+ss['whs'].numel()+ss['wfbs'].numel())
+                        reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()+ss['whs'].pow(2).sum(dim=(-2, -1)).mean()+ss['wfbs'].pow(2).sum(dim=(-2, -1)).mean())\
+                            /(ss['wxs'].numel()+ss['whs'].numel()+ss['wfbs'].numel())
                     else:
-                        reg += args.l2w*(ss['wxs'].pow(2).sum()+ss['whs'].pow(2).sum())\
-                                  /(ss['wxs'].numel()+ss['whs'].numel())
+                        reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()+ss['whs'].pow(2).sum(dim=(-2, -1)).mean())\
+                            /(ss['wxs'].numel()+ss['whs'].numel())
                     if args.attn_type=='weight':
                         reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 
