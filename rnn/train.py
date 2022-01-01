@@ -159,8 +159,9 @@ if __name__ == "__main__":
         pbar = tqdm(total=iters)
         optimizer.zero_grad()
         for batch_idx in range(iters):
+            curr_gen_lvl = np.random.choice(task_mdprl.gen_levels)
             DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(
-                batch_size=args.batch_size, N_s=args.N_s, num_choices=output_size, gen_level=None)
+                batch_size=args.batch_size, N_s=args.N_s, num_choices=output_size, gen_level=curr_gen_lvl)
             if args.task_type == 'value':
                 output, hs, _, _ = model(pop_s, DA_s)
                 loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean() \
@@ -185,11 +186,14 @@ if __name__ == "__main__":
 
                     reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
                     if args.plastic_feedback:
-                        reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()+ss['whs'].pow(2).sum(dim=(-2,-1)).mean()+ss['wfbs'].pow(2).sum(dim=(-2,-1)).mean())\
-                            /(ss['wxs'].numel()+ss['whs'].numel()+ss['wfbs'].numel())
+                        reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()\
+                                        +ss['whs'].pow(2).sum(dim=(-2,-1)).mean()\
+                                        +ss['wfbs'].pow(2).sum(dim=(-2,-1)).mean())\
+                                /(ss['wxs'].numel()+ss['whs'].numel()+ss['wfbs'].numel())
                     else:
-                        reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()+ss['whs'].pow(2).sum(dim=(-2,-1)).mean())\
-                            /(ss['wxs'].numel()+ss['whs'].numel())
+                        reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()\
+                                        +ss['whs'].pow(2).sum(dim=(-2,-1)).mean())\
+                                /(ss['wxs'].numel()+ss['whs'].numel())
                     if args.attn_type=='weight':
                         reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 
@@ -212,11 +216,14 @@ if __name__ == "__main__":
 
                     reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
                     if args.plastic_feedback:
-                        reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()+ss['whs'].pow(2).sum(dim=(-2, -1)).mean()+ss['wfbs'].pow(2).sum(dim=(-2, -1)).mean())\
-                            /(ss['wxs'].numel()+ss['whs'].numel()+ss['wfbs'].numel())
+                        reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()\
+                                        +ss['whs'].pow(2).sum(dim=(-2, -1)).mean()\
+                                        +ss['wfbs'].pow(2).sum(dim=(-2, -1)).mean())\
+                                /(ss['wxs'].numel()+ss['whs'].numel()+ss['wfbs'].numel())
                     else:
-                        reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()+ss['whs'].pow(2).sum(dim=(-2, -1)).mean())\
-                            /(ss['wxs'].numel()+ss['whs'].numel())
+                        reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()\
+                                        +ss['whs'].pow(2).sum(dim=(-2, -1)).mean())\
+                                /(ss['wxs'].numel()+ss['whs'].numel())
                     if args.attn_type=='weight':
                         reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 
