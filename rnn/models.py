@@ -101,7 +101,6 @@ class EILinear(nn.Module):
             if init_gain is not None:
                 self.weight.data *= init_gain
             if init_spectral is not None:
-                print(torch.linalg.eigvals(self.effective_weight()).real.max())
                 self.weight.data *= init_spectral / torch.linalg.eigvals(self.effective_weight()).real.max()
 
             if self.bias is not None:
@@ -844,14 +843,14 @@ class MultiAreaRNN(nn.Module):
                                        balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks)
 
         # choice and value output
-        self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, zero_cols_prop=1-e_prop, bias=True, init_gain=0.25)
-        self.h2v = EILinear(self.e_size, self.output_size, remove_diag=False, zero_cols_prop=1-e_prop, bias=True, init_gain=0.25)
+        self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, zero_cols_prop=1-e_prop, bias=True)
+        self.h2v = EILinear(self.e_size, self.output_size, remove_diag=False, zero_cols_prop=1-e_prop, bias=True)
 
         # feature attention output
-        self.h2fa = EILinear(self.e_size, self.num_channels, remove_diag=False, zero_cols_prop=1-e_prop, bias=True, init_gain=0.25)
+        self.h2fa = EILinear(self.e_size, self.num_channels, remove_diag=False, zero_cols_prop=1-e_prop, bias=True)
 
         # network in charge of outputting attention to location
-        self.h2sa = EILinear(self.e_size, output_size, remove_diag=False, zero_cols_prop=1-e_prop, bias=True, init_gain=0.25)
+        self.h2sa = EILinear(self.e_size, output_size, remove_diag=False, zero_cols_prop=1-e_prop, bias=True)
 
         # init state
         if train_init_state:
@@ -925,7 +924,7 @@ class MultiAreaRNN(nn.Module):
                 wxs.append(hidden[2])
                 whs.append(hidden[3])
             if save_attns:
-                sas.append(loc)
+                sas.append(sa.softmax(-1))
                 fas.append(attn)
 
         hs = torch.stack(hs, dim=0)
