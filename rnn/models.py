@@ -1,5 +1,6 @@
 import math
 from collections import defaultdict
+from tkinter import E
 
 import numpy as np
 import torch
@@ -27,64 +28,37 @@ def _get_pos_function(func_name):
     else:
         raise RuntimeError(F"{func_name} is an invalid function enforcing positive weight.")
 
-def _get_connectivity_mask(input_units, aux_units, output_units, attn_units, e_hidden_units_per_area, i_hidden_units_per_area):
-    conn_masks = {}
-    # assume two areas
-    
-    # input_to_hidden_mask
-    # allow direct connections from input to both hidden areas
-    conn_masks['input'] = torch.cat([torch.ones(e_hidden_units_per_area, input_units),
-                                torch.zeros(e_hidden_units_per_area, input_units),
-                                torch.ones(i_hidden_units_per_area, input_units),
-                                torch.zeros(i_hidden_units_per_area, input_units)], dim=0)
+def _get_connectivity_mask(num_areas, input_units, aux_input_units, e_hidden_units_per_area, i_hidden_units_per_area):
+    conn_mask = {}
+
+    in_mask_e = torch.cat([torch.ones(e_hidden_units_per_area, input_units), 
+                            *[torch.zeros(e_hidden_units_per_area, input_units) for _ in range(num_areas-1)]], dim=0)
+    in_mask_i = torch.cat([torch.ones(i_hidden_units_per_area, input_units), 
+                            *[torch.zeros(i_hidden_units_per_area, input_units) for _ in range(num_areas-1)]], dim=0)
+    conn_mask['in'] = torch.cat([in_mask_e, in_mask_i], dim=0)
+
+    aux_mask_e = torch.cat([torch.ones(e_hidden_units_per_area, aux_input_units), 
+                            *[torch.zeros(e_hidden_units_per_area, aux_input_units) for _ in range(num_areas-1)]], dim=0)
+    aux_mask_i = torch.cat([torch.ones(i_hidden_units_per_area, aux_input_units), 
+                            *[torch.zeros(i_hidden_units_per_area, aux_input_units) for _ in range(num_areas-1)]], dim=0)
+    conn_mask['aux'] = torch.cat([aux_mask_e, aux_mask_i], dim=0)
 
     # recurrent connection mask
-    rec_masks = [torch.cat([torch.ones(e_hidden_units_per_area,e_hidden_units_per_area),
-                        torch.zeros(e_hidden_units_per_area,e_hidden_units_per_area),
-                        torch.ones(e_hidden_units_per_area,i_hidden_units_per_area),
-                        torch.zeros(e_hidden_units_per_area,i_hidden_units_per_area)], dim=1),
-                 torch.cat([torch.ones(e_hidden_units_per_area,e_hidden_units_per_area),
-                        torch.ones(e_hidden_units_per_area,e_hidden_units_per_area),
-                        torch.zeros(e_hidden_units_per_area,i_hidden_units_per_area),
-                        torch.ones(e_hidden_units_per_area,i_hidden_units_per_area)], dim=1),
-                 torch.cat([torch.ones(i_hidden_units_per_area,e_hidden_units_per_area),
-                        torch.zeros(i_hidden_units_per_area,e_hidden_units_per_area),
-                        torch.ones(i_hidden_units_per_area,i_hidden_units_per_area),
-                        torch.zeros(i_hidden_units_per_area,i_hidden_units_per_area)], dim=1),
-                 torch.cat([torch.ones(i_hidden_units_per_area,e_hidden_units_per_area),
-                        torch.ones(i_hidden_units_per_area,e_hidden_units_per_area),
-                        torch.zeros(i_hidden_units_per_area,i_hidden_units_per_area),
-                        torch.ones(i_hidden_units_per_area,i_hidden_units_per_area)], dim=1)]
-    conn_masks['rec'] = torch.cat(rec_masks, dim=0)
+    rec_mask_ee = torch.ones(num_areas*e_hidden_units_per_area, num_areas*e_hidden_units_per_area)
+    rec_mask_ie = torch.ones(num_areas*i_hidden_units_per_area, num_areas*e_hidden_units_per_area)
+    rec_mask_ei = torch.kron(torch.eye(num_areas), torch.ones(e_hidden_units_per_area, i_hidden_units_per_area))
+    rec_mask_ii = torch.kron(torch.eye(num_areas), torch.ones(i_hidden_units_per_area, i_hidden_units_per_area))
+    conn_mask['rec'] = torch.cat([
+                    torch.cat([rec_mask_ee, rec_mask_ei], dim=1),
+                    torch.cat([rec_mask_ie, rec_mask_ii], dim=1)], dim=0)
 
-    # output_connection
-    conn_masks['output'] = torch.cat([torch.zeros(output_units, e_hidden_units_per_area),
-                                    torch.ones(output_units, e_hidden_units_per_area),
-                                    torch.zeros(output_units, i_hidden_units_per_area*2)], dim=1)
-
-    # value estimation
-    conn_masks['value'] = torch.cat([torch.zeros(1, e_hidden_units_per_area),
-                                    torch.ones(1, e_hidden_units_per_area),
-                                    torch.zeros(1, i_hidden_units_per_area*2)], dim=1)
-
-    # attention modulation
-    conn_masks['attn'] = torch.cat([torch.zeros(attn_units, e_hidden_units_per_area),
-                                    torch.ones(attn_units, e_hidden_units_per_area),
-                                    torch.zeros(attn_units, i_hidden_units_per_area*2)], dim=1)
-
-    # axuiliary connections that carry reward and action input
-    conn_masks['aux'] = torch.cat([torch.zeros(e_hidden_units_per_area, aux_units),
-                                torch.ones(e_hidden_units_per_area, aux_units),
-                                torch.zeros(i_hidden_units_per_area, aux_units),
-                                torch.ones(i_hidden_units_per_area, aux_units)], dim=0)
-
-    return conn_masks
-    
+    return conn_mask
 
 class EILinear(nn.Module):
-    def __init__(self, input_size, output_size, remove_diag, zero_cols_prop, conn_mask=None,
-                     e_prop=0.8, bias=True, pos_function='relu', init_spectral=None, 
-                     init_gain=None, balance_ei=False):
+    def __init__(self, input_size, output_size, remove_diag, zero_cols_prop, 
+                 num_areas=1, conn_mask=None,
+                 e_prop=0.8, bias=True, pos_function='abs', init_spectral=None, 
+                 init_gain=None, balance_ei=False):
         super().__init__()
         self.input_size = input_size
         self.output_size = output_size
@@ -113,20 +87,21 @@ class EILinear(nn.Module):
             self.bias = nn.Parameter(torch.Tensor(output_size))
         else:
             self.register_parameter('bias', None)
-        self.reset_parameters(init_spectral, init_gain, balance_ei)
+        self.reset_parameters(init_spectral, init_gain, balance_ei, num_areas)
 
-    def reset_parameters(self, init_spectral, init_gain, balance_ei):
+    def reset_parameters(self, init_spectral, init_gain, balance_ei, num_areas):
         with torch.no_grad():
             nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
             # nn.init.kaiming_normal_(self.weight)
             # self.weight.abs_()
             # Scale E weight by E-I ratio
             if balance_ei and self.i_size!=0:
-                self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
+                self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)*num_areas
 
             if init_gain is not None:
                 self.weight.data *= init_gain
             if init_spectral is not None:
+                print(torch.linalg.eigvals(self.effective_weight()).real.max())
                 self.weight.data *= init_spectral / torch.linalg.eigvals(self.effective_weight()).real.max()
 
             if self.bias is not None:
@@ -147,6 +122,113 @@ class EILinear(nn.Module):
             if self.bias is not None:
                 result += self.bias
             return result
+
+class PlasticLeakyRNNCell(nn.Module):
+    def __init__(self, input_size, hidden_size, aux_input_size, plastic=True, 
+                activation='retanh', dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, train_init_state=False,
+                e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
+                balance_ei=False, plas_rule='mult', conn_mask=None, **kwargs):
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.aux_input_size = aux_input_size
+        self.weight_bound = weight_bound
+        self.plas_rule = plas_rule
+
+        self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='abs',
+                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.5,
+                            conn_mask=conn_mask.get('in', None))
+        
+        if self.aux_input_size>0:
+            self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='abs',
+                                  e_prop=1, zero_cols_prop=0, bias=False,
+                                  init_gain=0.5*math.sqrt(self.aux_input_size/(input_size)),
+                                  conn_mask=conn_mask.get('aux', None))
+        self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='abs',
+                            e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
+                            init_spectral=init_spectral, balance_ei=balance_ei,
+                            conn_mask=conn_mask.get('rec', None))
+
+        self.tau_x = tau_x
+        self.tau_w = tau_w
+        self.dt = dt
+        if dt is None:
+            alpha_x = 1
+            alpha_w = 1
+        else:
+            alpha_x = dt / self.tau_x
+            alpha_w = dt / self.tau_w
+        self.alpha_x = alpha_x
+        self.alpha_w = alpha_w
+        self.oneminusalpha_x = 1 - alpha_x
+        self.oneminusalpha_w = 1 - alpha_w
+        self._sigma_rec = np.sqrt(2*alpha_x) * sigma_rec
+        self._sigma_in = np.sqrt(2*alpha_x) * sigma_in
+        self._sigma_w = np.sqrt(2*alpha_w) * sigma_w
+
+        if train_init_state:
+            self.x0 = nn.Parameter(torch.zeros(1, hidden_size))
+        else:
+            self.x0 = torch.zeros(1, hidden_size)
+
+        self.activation = _get_activation_function(activation)
+
+        self.plastic = plastic
+        if plastic:
+            # separate lr for different neurons
+            self.kappa_in = nn.Parameter(torch.rand(1, self.hidden_size, self.input_size)/self.tau_w)
+            self.kappa_rec = nn.Parameter(torch.rand(1, self.hidden_size, self.hidden_size)/self.tau_w)
+
+    def plasticity_func(self, w, baseline, R, pre, post, kappa, lb, ub):
+        if self.plas_rule=='add':
+            new_w = baseline*self.alpha_w + w*self.oneminusalpha_w + self.dt*R*kappa*torch.einsum('bi, bj->bij', post, pre)
+            if self._sigma_w>0:
+                new_w += self._sigma_w * torch.randn_like(new_w)
+        elif self.plas_rule=='mult':
+            expnt = 0.4
+            new_w = baseline*self.alpha_w + w*self.oneminusalpha_w \
+                  + self.dt*R*kappa*(w**expnt)*torch.einsum('bi, bj->bij', post**expnt, pre**expnt)
+            if self._sigma_w>0:
+                new_w += w * self._sigma_w * torch.randn_like(new_w)
+        new_w = torch.clamp(new_w, lb, ub)
+        return new_w
+
+    def forward(self, x, h, R, v, aux_x):
+        batch_size = x.shape[0]
+        
+        if self.plastic:
+            state, output, wx, wh = h
+        else:
+            state, output = h
+        
+        x = torch.relu(x + self._sigma_in * torch.randn_like(x))
+
+        if self.plastic:
+            total_input = self.h2h(output, wh) + self.x2h(x, wx)
+        else:
+            total_input = self.h2h(output) + self.x2h(x)
+
+        if self.aux_input_size>0:
+            aux = torch.relu(aux_x + self._sigma_in * torch.randn_like(aux_x))
+            total_input += self.aux2h(aux)
+
+        new_state = state * self.oneminusalpha_x + total_input * self.alpha_x + self._sigma_rec * torch.randn_like(state)
+        new_output = self.activation(new_state)
+
+        if self.plastic:
+            if v is None:
+                R = R.unsqueeze(-1)
+                v = 0
+            else:
+                R = (R!=0)*(R.unsqueeze(-1)+1)/2
+                v = v.unsqueeze(-1)
+            wx = self.plasticity_func(wx, self.x2h.pos_func(self.x2h.weight).unsqueeze(0), R-v, x, new_output, 
+                                                self.kappa_in.abs(), 0, self.weight_bound)
+            wh = self.plasticity_func(wh, self.h2h.pos_func(self.h2h.weight).unsqueeze(0), R-v, output, new_output,
+                                        self.kappa_rec.abs(), 0, self.weight_bound)
+            return [new_state, new_output, wx, wh]
+        else:
+            return [new_state, new_output]
 
 class MultiChoiceRNN(nn.Module):
     def __init__(self, input_size, num_choices, hidden_size, output_size, attention_type='weight',
@@ -169,38 +251,27 @@ class MultiChoiceRNN(nn.Module):
         self.sep_lr = sep_lr
         self.plas_rule = plas_rule
         
-        if structured_conn:
-            conn_masks = _get_connectivity_mask(
-                self.input_size, self.aux_input_size, self.output_size, len(channel_group_size), 
-                round(hidden_size*e_prop/2), round(hidden_size*(1-e_prop)/2))
-        else:
-            conn_masks = {}
 
         self.x2h = nn.ModuleList([EILinear(input_size, hidden_size, remove_diag=False, pos_function='abs',
-                                           e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.5/math.sqrt(num_choices),
-                                           conn_mask=conn_masks.get('input', None))
+                                           e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.5/math.sqrt(num_choices))
                                   for _ in range(num_choices)])
         
         if self.aux_input_size>0:
             self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='abs',
-                                  e_prop=1, zero_cols_prop=0, bias=False, conn_mask=conn_masks.get('aux', None),
+                                  e_prop=1, zero_cols_prop=0, bias=False,
                                   init_gain=0.5*math.sqrt(self.aux_input_size/(input_size*num_choices)))
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='abs',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1 if not structured_conn else math.sqrt(2),
-                            conn_mask=conn_masks.get('rec', None),
                             init_spectral=init_spectral, balance_ei=balance_ei)
         if value_est:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='abs',
-                                conn_mask=conn_masks.get('output', None),
                                 e_prop=1, zero_cols_prop=1-e_prop, bias=True, 
                                 init_gain=0.25 if not structured_conn else math.sqrt(0.5))
             self.h2v = EILinear(hidden_size, 1, remove_diag=False, pos_function='abs',
-                                conn_mask=conn_masks.get('value', None),
                                 e_prop=1, zero_cols_prop=1-e_prop, bias=True, 
                                 init_gain=0.25 if not structured_conn else math.sqrt(0.5))
         else:
             self.h2o = EILinear(hidden_size, output_size, remove_diag=False, pos_function='abs',
-                                conn_mask=conn_masks.get('output', None),
                                 e_prop=1, zero_cols_prop=1-e_prop, bias=False, init_gain=0.5)
 
         self.tau_x = tau_x
@@ -231,7 +302,6 @@ class MultiChoiceRNN(nn.Module):
         if attention_type!='none':
             assert(channel_group_size is not None)
             self.attn_func = EILinear(hidden_size, len(channel_group_size), remove_diag=False, bias=False,
-                                    conn_mask=conn_masks.get('attn', None),
                                     e_prop=e_prop, zero_cols_prop=1-e_prop, init_gain=0.25)
                                     # the same attention applies to the same dimension of both stimuli
             self.channel_group_size = torch.LongTensor(channel_group_size)
@@ -740,3 +810,138 @@ class SimpleRNN(nn.Module):
             return (os, vs), hs, hidden, saved_states
         else:
             return os, hs, hidden, saved_states
+
+class MultiAreaRNN(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, num_areas, 
+                channel_group_size=None, plastic=True, activation='retanh', 
+                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, train_init_state=False,
+                e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
+                action_input=True, rwd_input=True, loc_input=True,
+                balance_ei=False, plas_rule='add', **kwargs):
+        super().__init__()
+
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size =  output_size
+        self.num_areas = num_areas
+        self.action_input = action_input
+        self.rwd_input = rwd_input
+        self.loc_input = loc_input
+        self.e_size = int(e_prop * hidden_size)
+        self.aux_input_size = 0 + (2 if self.rwd_input else 0) \
+                                + (output_size if self.action_input else 0) \
+                                + (output_size if self.loc_input else 0)
+        self.channel_group_size = torch.LongTensor(channel_group_size)
+        self.num_channels = len(channel_group_size)
+        self.plastic = plastic
+        self.weight_bound = weight_bound
+        self.plas_rule = plas_rule
+        self.conn_masks = _get_connectivity_mask(num_areas, input_size, self.aux_input_size, self.e_size, hidden_size-self.e_size)
+
+        self.rnn = PlasticLeakyRNNCell(input_size=input_size, hidden_size=hidden_size*num_areas, aux_input_size=self.aux_input_size, plastic=plastic, 
+                                       activation=activation, dt=dt, tau_x=tau_x, tau_w=tau_w, weight_bound=weight_bound, train_init_state=train_init_state, 
+                                       e_prop=e_prop, sigma_rec=sigma_rec, sigma_in=sigma_in, sigma_w=sigma_w, init_spectral=init_spectral,
+                                       balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks)
+
+        # choice and value output
+        self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, zero_cols_prop=1-e_prop, bias=True, init_gain=0.25)
+        self.h2v = EILinear(self.e_size, self.output_size, remove_diag=False, zero_cols_prop=1-e_prop, bias=True, init_gain=0.25)
+
+        # feature attention output
+        self.h2fa = EILinear(self.e_size, self.num_channels, remove_diag=False, zero_cols_prop=1-e_prop, bias=True, init_gain=0.25)
+
+        # network in charge of outputting attention to location
+        self.h2sa = EILinear(self.e_size, output_size, remove_diag=False, zero_cols_prop=1-e_prop, bias=True, init_gain=0.25)
+
+        # init state
+        if train_init_state:
+            self.x0 = nn.Parameter(torch.zeros(1, hidden_size*num_areas))
+        else:
+            self.x0 = torch.zeros(1, hidden_size*num_areas)
+
+        self.output_unit_maps = {
+            'spatial_attn': ((num_areas-3)*self.e_size, (num_areas-2)*self.e_size),
+            'feat_attn': ((num_areas-2)*self.e_size, (num_areas-1)*self.e_size),
+            'choice': ((num_areas-1)*self.e_size, num_areas*self.e_size),
+        }
+
+    def init_hidden(self, x):
+        batch_size = x.shape[1]
+        h_init = self.x0.to(x.device) + self.rnn._sigma_rec * torch.randn(batch_size, self.num_areas*self.hidden_size)
+        if self.plastic:
+            return [h_init, h_init.relu(),
+                    self.rnn.x2h.pos_func(self.rnn.x2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), 
+                    self.rnn.h2h.pos_func(self.rnn.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1)]
+        else:
+            return [h_init, h_init.relu()]
+
+    def forward(self, x, Rs, Vs=None, acts=None, hidden=None, loc=None, save_weights=False, save_attns=False):
+        steps, batch_size = x.shape[:2]
+        if hidden is None:
+            hidden = self.init_hidden(x)
+
+        hs = []
+
+        if save_weights:
+            wxs = []
+            whs = []
+
+        if save_attns:
+            sas = []
+            fas = []
+        
+        for i in range(steps):
+            # modulate input by spatial attention
+            sa = self.h2sa(hidden[1][:,self.output_unit_maps['spatial_attn'][0]:self.output_unit_maps['spatial_attn'][1]])
+            loc = F.gumbel_softmax(logits=sa, hard=True, dim=-1)
+            curr_x = (x[i]*loc.reshape(batch_size, self.output_size, 1)).sum(1) # batch_size, input_size
+            
+            # modulate input by feature attention
+            fa = self.h2fa(hidden[1][:,self.output_unit_maps['feat_attn'][0]:self.output_unit_maps['feat_attn'][1]])
+            attn = F.softmax(input=fa, dim=-1)
+            attn = torch.repeat_interleave(attn, self.channel_group_size, dim=-1)*self.num_channels
+            curr_x = curr_x*attn
+
+            if self.aux_input_size>0:
+                aux_x = []
+                if self.rwd_input:
+                    r_aux = torch.zeros(batch_size, 2)
+                    r_aux = torch.cat([(Rs[i]!=0)*(Rs[i]+1)/2, (Rs[i]!=0)*(1-Rs[i])/2], dim=-1)
+                    aux_x.append(r_aux)
+                if self.action_input:
+                    a_aux = acts[i]
+                    aux_x.append(a_aux)
+                if self.loc_input:
+                    loc_aux = loc
+                    aux_x.append(loc_aux)
+                aux_x = torch.cat(aux_x, dim=-1)
+                aux_x = aux_x.relu()
+            else:
+                aux_x = None
+
+            hidden = self.rnn(curr_x, hidden, Rs[i], Vs[i] if Vs is not None else None, aux_x)
+            hs.append(hidden[1])
+            if save_weights:
+                wxs.append(hidden[2])
+                whs.append(hidden[3])
+            if save_attns:
+                sas.append(loc)
+                fas.append(attn)
+
+        hs = torch.stack(hs, dim=0)
+        saved_states = {}
+        if save_weights:
+            wxs = torch.stack(wxs, dim=0)
+            whs = torch.stack(whs, dim=0)
+            saved_states['wxs'] = wxs
+            saved_states['whs'] = whs
+
+        if save_attns:
+            sas = torch.stack(sas, dim=0)
+            saved_states['sas'] = sas
+            fas = torch.stack(fas, dim=0)
+            saved_states['fas'] = fas
+
+        os = self.h2o(hs[:,:,self.output_unit_maps['choice'][0]:self.output_unit_maps['choice'][1]])
+        vs = self.h2v(hs[:,:,self.output_unit_maps['choice'][0]:self.output_unit_maps['choice'][1]])
+        return (os, vs), hs, hidden, saved_states

@@ -51,9 +51,9 @@ def save_checkpoint(state, is_best, folder='./',
                         os.path.join(folder, best_filename))
 
 def load_checkpoint(model, optimizer, device, folder='./', filename='checkpoint.pth.tar'):
-    checkpoint = torch.load(os.path.join(folder, filename))
-    model.load_state_dict(checkpoint['model_state_dict'], map_location=device)
-    optimizer.load_state_dict(checkpoint['model_state_dict'], map_location=device)
+    checkpoint = torch.load(os.path.join(folder, filename), map_location=device)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
 def merge_args_with_dict(args, dic):
     for k, v in list(dic.items()):

@@ -198,7 +198,7 @@ class MDPRL():
             if gen_level is not None:
                 prob_index = self._generate_generalizable_prob(gen_level)
             else:
-                prob_index = np.random.rand(1,3,3,3)
+                prob_index = np.random.rand(batch_size,3,3,3)
 
         batch_size = prob_index.shape[0]
 

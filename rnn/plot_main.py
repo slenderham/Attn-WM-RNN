@@ -5,9 +5,9 @@ from collections import defaultdict
 
 import numpy as np
 import scipy.cluster.hierarchy as sch
-from sklearn import cluster
 import torch
 from matplotlib import pyplot as plt
+from sklearn import cluster
 from statsmodels.formula.api import ols
 from statsmodels.stats.anova import anova_lm
 from torch.nn.functional import interpolate
@@ -33,11 +33,11 @@ def convert_pvalue_to_asterisks(pvalue):
         return "*"
     return "ns"
 
-def plot_mean_and_std(ax, m, sd, label):
+def plot_mean_and_std(ax, m, sd, label, alpha=1):
     if label is not None:
-        ax.plot(m, label=label)
+        ax.plot(m, alpha=alpha, label=label)
     else:
-        ax.plot(m)
+        ax.plot(m, alpha=alpha)
     ax.fill_between(range(len(m)), m-sd, m+sd, alpha=0.1)
 
 def plot_imag_centered_cm(ax, im):
@@ -52,7 +52,7 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, h2ob, h2vw, h2vb, h2at
     # selectivity = h2ow[0,:e_size]-h2ow[1,:e_size]
     # sort_inds = torch.argsort(selectivity)
     # sort_inds = torch.cat([sort_inds, torch.arange(e_size, h2hw.shape[0])])
-    vbound = 0.1
+    vbound = 0.15
     # fig, axes = plt.subplots(2, 3, \
         # gridspec_kw={'width_ratios': [h2hw.shape[1], x2hw.shape[1], 1], 'height_ratios': [h2hw.shape[0], 1]})
     fig = plt.figure('connectivity')
@@ -155,34 +155,34 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, h2ob, h2vw, h2vb, h2at
     plt.show()
     # plt.savefig(f'plots/{plot_args.exp_dir}/connectivity')
 
-    vbound = 1
+    vbound = 0.6
     fig = plt.figure('learning_rates')
     ims = []
-    ax01 = fig.add_axes((LEFT, BOTTOM+attn_size+MARGIN, PLOT_W, hidden_size))
-    ims.append(ax01.imshow(kappa_in[0][sort_inds].unsqueeze(1), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    ax01 = fig.add_axes((LEFT, BOTTOM+attn_size+MARGIN, input_size, hidden_size))
+    ims.append(ax01.imshow(kappa_in[0][sort_inds].squeeze(), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax01.set_xticks([])
     ax01.set_yticks([])
     ax01.axis('off')
     ax01.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    ax02 = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+attn_size+MARGIN*1, PLOT_W, hidden_size))
-    ims.append(ax02.imshow(kappa_in[1][sort_inds].unsqueeze(1), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    ax02 = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+attn_size+MARGIN*1, input_size, hidden_size))
+    ims.append(ax02.imshow(kappa_in[1][sort_inds].squeeze(), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax02.set_xticks([])
     ax02.set_yticks([])
     ax02.axis('off')
     ax02.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    vbound = 0.02
+    vbound = 0.1
     ax1w = fig.add_axes((LEFT+input_size*2+MARGIN*2, BOTTOM+attn_size+MARGIN*1, hidden_size, hidden_size))
-    ims.append(ax1w.imshow(kappa_rec[sort_inds][:,sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    ims.append(ax1w.imshow(kappa_rec[sort_inds][:,sort_inds].squeeze(), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax1w.set_xticks([])
     ax1w.set_yticks([])
     ax1w.axis('off')
     ax1w.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     ax1w.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    axfb = fig.add_axes((LEFT+input_size*2+MARGIN*2, BOTTOM, hidden_size, PLOT_W))
-    ims.append(axfb.imshow(kappa_fb[sort_inds].unsqueeze(0), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    axfb = fig.add_axes((LEFT+input_size*2+MARGIN*2, BOTTOM, hidden_size, attn_size))
+    ims.append(axfb.imshow(kappa_fb[:,sort_inds].squeeze(), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     axfb.set_xticks([])
     axfb.set_yticks([])
     axfb.axis('off')
@@ -197,20 +197,15 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, h2ob, h2vw, h2vb, h2at
 
 def plot_output_analysis(output, stim_order, stim_probs, splits=8):
     n_trials, n_timesteps, n_batch, n_output = output.shape
-    output = output.mean(1).softmax(-1)
+    output = output[:,-1]
+    output = output[...,0]-output[...,1] # use difference in value
     n_steps_par_split = n_trials//splits
-    stim_probs_ordered = []
-    for est in stim_probs:
-        stim_probs_ordered.append([])
-        for i in range(n_batch):
-            stim_probs_ordered[-1].append(est[stim_order[:,i,0]]-est[stim_order[:,i,1]])
-        stim_probs_ordered[-1] = np.stack(stim_probs_ordered[-1], axis=-1)
+    stim_probs_ordered = order_stim_probs(stim_order, stim_probs)
     reg_results = []
     for i in range(splits-1):
         xs = np.concatenate([est[i*n_steps_par_split:(i+1)*n_steps_par_split] for est in stim_probs_ordered])
-        res0 = linear_regression(xs, output[i*n_steps_par_split:(i+1)*n_steps_par_split,0])
-        res1 = linear_regression(xs, output[i*n_steps_par_split:(i+1)*n_steps_par_split,1])
-        reg_results.append([res0, res1])
+        res = linear_regression(xs, output[i*n_steps_par_split:(i+1)*n_steps_par_split])
+        reg_results.append(res)
     
     fig = plt.figure('rsa_coeffs')
     labels = ['Shape', 'Pattern', 'Color', 'Shape+Pattern', 'Pattern+Color', 'Shape+Color', 'Shape+Pattern+Color']
@@ -233,7 +228,8 @@ def plot_learning_curve(all_l, lm, lsd):
     ax.set_xlabel('Trials')
     ax.set_ylabel('Episodes')
     plt.tight_layout()
-    plt.savefig(f'plots/{plot_args.exp_dir}/performance_all')
+    # plt.savefig(f'plots/{plot_args.exp_dir}/performance_all')
+    plt.show()
 
     fig_summ = plt.figure('perf_summary')
     ax = fig_summ.add_subplot()
@@ -245,7 +241,8 @@ def plot_learning_curve(all_l, lm, lsd):
     ax.set_xlabel('Trials')
     ax.set_ylabel('Percent Correct')
     plt.tight_layout()
-    plt.savefig(f'plots/{plot_args.exp_dir}/learning_curve')
+    # plt.savefig(f'plots/{plot_args.exp_dir}/learning_curve')
+    plt.show()
 
 def plot_attn_entropy(attns):
     log_attns = np.log(attns+1e-6)
@@ -266,7 +263,7 @@ def plot_attn_distribution(attns):
     ax = fig.add_subplot()
     labels = ['Shape (C1)', 'Pattern (F)', 'Color (C2)']
     for i in range(attns.shape[-1]):
-        plot_mean_and_std(ax, mean_attns[:,i], std_attns[:,i], labels[i])
+        plot_mean_and_std(ax, mean_attns[:,i], std_attns[:,i], labels[i], alpha=0.6)
     ax.legend()
     ax.set_xlabel('Time step')
     ax.set_ylabel('Attention Weight')
@@ -276,6 +273,11 @@ def plot_attn_distribution(attns):
     plt.tight_layout()
     plt.show()
     # plt.savefig(f'plots/{plot_args.exp_dir}/attn_dist')
+
+def plot_attn_selectivity(attns, stim_order, stim_probs, pre_choice_time):
+    n_trials, n_timesteps, n_batch, n_channels = attns.shape
+    # analyze separately for pre and post choice and feedback
+    raise NotImplementedError
 
 def plot_sorted_matrix(w, e_size, w_type):
     # from https://github.com/gyyang/nn-brain/blob/master/EI_RNN.ipynb
@@ -308,19 +310,15 @@ def plot_sorted_matrix(w, e_size, w_type):
 
 def plot_single_unit_val_selectivity(hs, stim_order, stim_probs):
     n_trials, n_timesteps, n_batch, n_hidden = hs.shape
-    hs = hs.mean(1)
-    stim_probs_ordered = []
-    for est in stim_probs:
-        stim_probs_ordered.append([])
-        for i in range(n_batch):
-            stim_probs_ordered[-1].append(est[stim_order[:,i,0]]-est[stim_order[:,i,1]])
-        stim_probs_ordered[-1] = np.stack(stim_probs_ordered[-1], axis=-1)
+    stim_probs_ordered = order_stim_probs(stim_order, stim_probs)
     
     reg_results = []
     xs = np.stack(stim_probs_ordered, -1)
     reg_results.append([])
-    for j in range(n_hidden):
-        reg_results[-1].append(linear_regression(xs, hs[:,:,j].reshape(n_trials*n_batch)))
+    for i in range(n_trials):
+        for j in range(n_timesteps):
+            for k in range(n_hidden):
+                reg_results[-1].append(linear_regression(xs, hs[i,j,:,k].reshape(n_batch)))
 
     fig = fig = plt.figure('rsa_coeffs')
     labels = ['Shape', 'Pattern', 'Color', 'Shape+Pattern', 'Pattern+Color', 'Shape+Color', 'Shape+Pattern+Color']
@@ -380,39 +378,55 @@ def unit_selectivity(hs, target, e_size):
     plt.ylabel('Frequency')
     plt.show()
     sort_inds = np.concatenate((np.argsort(selectivity[:e_size]), np.argsort(selectivity[e_size:])+e_size))
-    cluster_label = cluster(selectivity.reshape(n_hidden, 1))
-    return selectivity, sort_inds, cluster_label
+    cluster_labels = cluster(selectivity.reshape(n_hidden, 1))
+    cluster_labels = cluster_labels[sort_inds]
+    sorted_cluster_labels = cluster_labels.copy()
+    sorted_cluster_labels[cluster_labels==cluster_labels[0]] = 0
+    sorted_cluster_labels[cluster_labels==cluster_labels[-1]] = 2
+    sorted_cluster_labels[(cluster_labels!=cluster_labels[0]) & (cluster_labels!=cluster_labels[-1])] = 1
+    print(sorted_cluster_labels)
+    return selectivity, sort_inds, sorted_cluster_labels
 
-def plot_rsa(hs, stim_order, stim_probs, splits=8):
+def plot_rsa(hs, stim_order, stim_probs, cluster_label, e_size, splits=8):
     n_trials, n_timesteps, n_batch, n_hidden = hs.shape
     hs = hs.mean(1)
+    ehs = hs[:,:,:e_size]
+    ihs = hs[:,:,e_size:]
     n_steps_par_split = n_trials//splits
-    stim_probs_ordered = []
-    for est in stim_probs:
-        stim_probs_ordered.append([])
-        for i in range(n_batch):
-            stim_probs_ordered[-1].append(est[stim_order[:,i,0]]-est[stim_order[:,i,1]])
-        stim_probs_ordered[-1] = np.stack(stim_probs_ordered[-1], axis=-1)
+    stim_probs_ordered = order_stim_probs(stim_order, stim_probs) # 7, n_trials, n_batch, n_choice
     rnn_sims = []
     input_sims = []
     reg_results = []
     for i in range(splits-1):
-        xs = [est[i*n_steps_par_split:(i+1)*n_steps_par_split] for est in stim_probs_ordered]
-        rnn_sim, input_sim, reg_result = representational_similarity_analysis(xs, hs[i*n_steps_par_split:(i+1)*n_steps_par_split])
-        rnn_sims.append(rnn_sim)
-        input_sims.append(input_sim)
-        reg_results.append(reg_result)
-    
+        xs = [est[i*n_steps_par_split:(i+1)*n_steps_par_split, :, 0]-est[i*n_steps_par_split:(i+1)*n_steps_par_split, :, 1] 
+              for est in stim_probs_ordered]
+        rnn_sims.append([])
+        input_sims.append([])
+        reg_results.append([])
+        for l in range(cluster_label.max()+1):
+            rnn_sim, input_sim, reg_result = representational_similarity_analysis(xs, ehs[i*n_steps_par_split:(i+1)*n_steps_par_split,:,cluster_label[:e_size]==l])
+            rnn_sims[-1].append(rnn_sim)
+            input_sims[-1].append(input_sim)
+            reg_results[-1].append(reg_result)
+            rnn_sim, input_sim, reg_result = representational_similarity_analysis(xs, ihs[i*n_steps_par_split:(i+1)*n_steps_par_split,:,cluster_label[e_size:]==l])
+            rnn_sims[-1].append(rnn_sim)
+            input_sims[-1].append(input_sim)
+            reg_results[-1].append(reg_result)
+
     fig = plt.figure('rsa_coeffs')
     labels = ['Shape', 'Pattern', 'Color', 'Shape+Pattern', 'Pattern+Color', 'Shape+Color', 'Shape+Pattern+Color']
-    ax = fig.add_subplot()
-    for i in range(7):
-        coeffs = [res.coef[i+1] for res in reg_results]
-        ses = [res.se[i+1] for res in reg_results]
-        plot_mean_and_std(ax, np.array(coeffs), np.array(ses), labels[i])
-    ax.legend()
-    ax.set_xlabel('Time Segment')
-    ax.set_ylabel('Regression Coefficient of RDM')
+    titles = ['Exc Left', 'Inh Left', 'Exc Nonsel', 'Inh Nonsel', 'Exc Right', 'Inh Right']
+    for j in range(2*(cluster_label.max()+1)):
+        ax = fig.add_subplot(320+j+1)
+        for i in range(7):
+            coeffs = [res[j].coef[i+1] for res in reg_results]
+            ses = [res[j].se[i+1] for res in reg_results]
+            plot_mean_and_std(ax, np.array(coeffs), np.array(ses), labels[i])
+        ax.set_title(titles[j])
+    fig.supxlabel('Time Segment')
+    fig.supylabel('Regression Coefficient of RDM')
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='center right')
     plt.tight_layout()
     # plt.savefig(f'plots/{plot_args.exp_dir}/rsa_coeffs')
     plt.show()
@@ -432,7 +446,7 @@ def run_model(args, model, task_mdprl):
     all_saved_states_post = defaultdict(list)
     n_samples = plot_args.n_samples
     with torch.no_grad():
-        for batch_idx in range(n_samples):
+        for batch_idx in range(10,10+n_samples):
             print(batch_idx)
             DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(
                 batch_size=1, test_N_s=args['test_N_s'], num_choices=2 if 'double' in args['task_type'] else 1, participant_num=batch_idx)
@@ -496,10 +510,13 @@ def run_model(args, model, task_mdprl):
         all_indices = torch.stack(all_indices, dim=1) # trials X batch size X 2
         return [accs, rwds], [accs_means, rwds_means], [accs_stds, rwds_stds], all_saved_states, all_indices
 
-# TODO: use FC to characterize feature and object selection neurons, as predicted by the hierarchical model
-# def plot_functional_connectivity(args, hs):
-    # for _ in range(args['test_N_s']*args['stim_val']**args['stim_dim']):
-
+def order_stim_probs(stim_order, stim_probs):
+    n_trials, n_batch, n_choices = stim_order.shape
+    assert len(stim_probs)==7 and len(stim_probs[0])==27
+    stim_probs_ordered = []
+    for est in stim_probs:
+        stim_probs_ordered.append(est[stim_order]) # output[t, b, c] = stim_probs[stim_order[t, b, c]]
+    return stim_probs_ordered
 
 if __name__=='__main__':
     import argparse
@@ -507,12 +524,14 @@ if __name__=='__main__':
     parser.add_argument('--exp_dir', type=str, help='Directory of trained model')
     parser.add_argument('--connectivity_and_lr', action='store_true')
     parser.add_argument('--n_samples', type=int, default=21)
+    parser.add_argument('--n_runs_per_sample', type=int, default=1)
     parser.add_argument('--learning_rates', action='store_true')
     parser.add_argument('--sort_rec_w', action='store_true')
     parser.add_argument('--sort_rec_lr', action='store_true')
-    parser.add_argument('--tensor_decomp', action='store_true')
+    parser.add_argument('--tca', action='store_true')
     parser.add_argument('--pca', action='store_true')
     parser.add_argument('--rsa', action='store_true')
+    parser.add_argument('--tdr', action='store_true')
     parser.add_argument('--learning_curve', action='store_true')
     parser.add_argument('--attn_entropy', action='store_true')
     parser.add_argument('--attn_distribution', action='store_true')
@@ -534,7 +553,7 @@ if __name__=='__main__':
         'choice_end': 0.5,
         'total_time': 1}
     exp_times['dt'] = args['dt']
-    task_mdprl = MDPRL(exp_times, args['input_type'], args['task_type'])
+    task_mdprl = MDPRL(exp_times, args['input_type'])
     print('loaded task')
 
     input_size = {
@@ -551,17 +570,17 @@ if __name__=='__main__':
 
     if args['attn_type']!='none':
         if args['input_type']=='feat':
-            attn_group_size = [args['stim_val']]*args['stim_dim']
+            channel_group_size = [args['stim_val']]*args['stim_dim']
         elif args['input_type']=='feat+obj':
-            attn_group_size = [args['stim_val']]*args['stim_dim'] + [args['stim_val']**args['stim_dim']]
+            channel_group_size = [args['stim_val']]*args['stim_dim'] + [args['stim_val']**args['stim_dim']]
         elif args['input_type']=='feat+conj+obj':
-            attn_group_size = [args['stim_val']]*args['stim_dim'] + [args['stim_val']*args['stim_val']]*args['stim_dim'] + [args['stim_val']**args['stim_dim']]
+            channel_group_size = [args['stim_val']]*args['stim_dim'] + [args['stim_val']*args['stim_val']]*args['stim_dim'] + [args['stim_val']**args['stim_dim']]
     else:
-        attn_group_size = [input_size]
+        channel_group_size = [input_size]
     
     model_specs = {'input_size': input_size, 'hidden_size': args['hidden_size'], 'output_size': 2 if 'double' in args['task_type'] else 1, 
             'plastic': args['plas_type']=='all', 'attention_type': args['attn_type'], 'activation': args['activ_func'],
-            'dt': args['dt'], 'tau_x': args['tau_x'], 'tau_w': args['tau_w'], 'attn_group_size': attn_group_size,
+            'dt': args['dt'], 'tau_x': args['tau_x'], 'tau_w': args['tau_w'], 'channel_group_size': channel_group_size,
             'c_plasticity': None, 'e_prop': args['e_prop'], 'init_spectral': args['init_spectral'], 'balance_ei': args['balance_ei'],
             'sigma_rec': args['sigma_rec'], 'sigma_in': args['sigma_in'], 'sigma_w': args['sigma_w'], 
             'rwd_input': args.get('rwd_input', False), 'action_input': args['action_input'], 
@@ -571,7 +590,7 @@ if __name__=='__main__':
         model = MultiChoiceRNN(**model_specs)
     else:
         model = SimpleRNN(**model_specs)
-    state_dict = torch.load(os.path.join(plot_args.exp_dir, 'checkpoint_best.pth.tar'), map_location=torch.device('cpu'))
+    state_dict = torch.load(os.path.join(plot_args.exp_dir, 'checkpoint.pth.tar'), map_location=torch.device('cpu'))['model_state_dict']
     model.load_state_dict(state_dict)
     print('loaded model')
 
@@ -583,17 +602,18 @@ if __name__=='__main__':
     
     losses, losses_means, losses_stds, all_saved_states, all_indices = run_model(args, model, task_mdprl)
     print('simulation complete')
+
+    stim_probs_ordered = []
+    for i in range(plot_args.n_samples):
+        stim_probs_ordered.append(np.array([task_mdprl.prob_mdprl.reshape(27)[all_indices[:,i,0]], task_mdprl.prob_mdprl.reshape(27)[all_indices[:,i,1]]]).T)
+    stim_probs_ordered = np.stack(stim_probs_ordered, axis=1)
+
+    selectivity, sort_inds, cluster_label = unit_selectivity(all_saved_states['hs'], np.argmax(stim_probs_ordered, axis=-1), 
+                                                        e_size=int(args['e_prop']*args['hidden_size']))
     
     # load metrics
     metrics = json.load(open(os.path.join(plot_args.exp_dir, 'metrics.json'), 'r'))
     if plot_args.connectivity_and_lr:
-        stim_probs_ordered = []
-        for i in range(plot_args.n_samples):
-            stim_probs_ordered.append(np.array([task_mdprl.prob_mdprl.reshape(27)[all_indices[:,i,0]], task_mdprl.prob_mdprl.reshape(27)[all_indices[:,i,1]]]).T)
-        stim_probs_ordered = np.stack(stim_probs_ordered, axis=1)
-
-        selectivity, sort_inds, cluster_label = unit_selectivity(all_saved_states['hs'], np.argmax(stim_probs_ordered, axis=-1), 
-                                                  e_size=int(args['e_prop']*args['hidden_size']))
         plot_connectivity_lr(sort_inds, x2hw=[mx2h.effective_weight().detach() for mx2h in model.x2h],
                              h2hw=model.h2h.effective_weight().detach(),
                              hb=state_dict['h2h.bias'].detach(),
@@ -604,9 +624,9 @@ if __name__=='__main__':
                              h2attnw=model.attn_func.effective_weight().detach(),
                              h2attnb=torch.zeros(model.attn_func.weight.shape[0]),
                              aux2h=model.aux2h.effective_weight().detach(),
-                             kappa_in=[ki.squeeze().relu().detach()*model.x2h[0].mask[:,0] for ki in model.kappa_in],
-                             kappa_rec=model.kappa_rec.squeeze().relu().detach()*model.h2h.mask,
-                             kappa_fb=model.kappa_fb.squeeze().relu().detach()*model.attn_func.mask[0],
+                             kappa_in=[ki.squeeze().abs().detach()*model.x2h[0].mask for ki in model.kappa_in],
+                             kappa_rec=model.kappa_rec.squeeze().abs().detach()*model.h2h.mask,
+                             kappa_fb=model.kappa_fb.squeeze().abs().detach()*model.attn_func.mask,
                              e_size=int(args['e_prop']*args['hidden_size']))
     if plot_args.learning_curve:
         plot_learning_curve(losses, losses_means, losses_stds)
@@ -615,6 +635,5 @@ if __name__=='__main__':
     if plot_args.attn_distribution:
         plot_attn_distribution(all_saved_states['attns'])
     if plot_args.rsa:
-        # split e and i
-        plot_rsa(all_saved_states['hs'][:,:,:,:int(args['e_prop']*args['hidden_size'])], stim_probs=task_mdprl.value_est(), stim_order=all_indices)
-        plot_rsa(all_saved_states['hs'][:,:,:,int(args['e_prop']*args['hidden_size']):], stim_probs=task_mdprl.value_est(), stim_order=all_indices)
+        print(cluster_label*0)
+        plot_rsa(all_saved_states['hs'], stim_probs=task_mdprl.value_est(), stim_order=all_indices, cluster_label=cluster_label*0, e_size=model.h2h.e_size)

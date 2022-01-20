@@ -1,3 +1,4 @@
+from asyncio import log
 import math
 import os
 from argparse import Action
@@ -12,7 +13,7 @@ from sklearn.metrics import accuracy_score
 from torch import optim
 from tqdm import tqdm
 
-from models import MultiChoiceRNN, SimpleRNN
+from models import MultiChoiceRNN, SimpleRNN, MultiAreaRNN
 from task import MDPRL, RolloutBuffer
 from utils import (AverageMeter, load_checkpoint, load_list_from_fs,
                    save_checkpoint, save_defaultdict_to_fs, save_list_to_fs)
@@ -24,6 +25,7 @@ if __name__ == "__main__":
     parser.add_argument('--iters', type=int, help='Training iterations')
     parser.add_argument('--epochs', type=int, default=1, help='Training epochs')
     parser.add_argument('--hidden_size', type=int, default=150, help='Size of recurrent layer')
+    parser.add_argument('--num_areas', type=int, default=6, help='Number of recurrent areas')
     parser.add_argument('--stim_dim', type=int, default=3, choices=[2, 3], help='Number of features')
     parser.add_argument('--stim_val', type=int, default=3, help='Possible values of features')
     parser.add_argument('--N_s', type=int, default=6, help='Number of times to repeat the entire stim set')
@@ -36,7 +38,7 @@ if __name__ == "__main__":
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
     parser.add_argument('--sigma_rec', type=float, default=0.1, help='Std for recurrent noise')
-    parser.add_argument('--sigma_w', type=float, default=0.001, help='Std for weight noise')
+    parser.add_argument('--sigma_w', type=float, default=0.0, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=None, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
@@ -111,7 +113,6 @@ if __name__ == "__main__":
         'feat+conj+obj': args.stim_dim*args.stim_val+args.stim_dim*args.stim_val*args.stim_val+args.stim_val**args.stim_dim,
     }[args.input_type]
 
-
     input_unit_group = {
         'feat': [args.stim_dim*args.stim_val], 
         'feat+obj': [args.stim_dim*args.stim_val, args.stim_val**args.stim_dim], 
@@ -140,7 +141,11 @@ if __name__ == "__main__":
                    'value_est': 'policy' in args.task_type, 'num_choices': 2 if 'double' in args.task_type else 1,
                    'structured_conn': args.structured_conn}
     
-    if 'double' in args.task_type:
+    if args.num_areas>1:
+        model_specs['num_areas'] = args.num_areas
+        model_specs['loc_input'] = True
+        model = MultiAreaRNN(**model_specs)
+    elif 'double' in args.task_type:
         model = MultiChoiceRNN(**model_specs)
     else:
         model = SimpleRNN(**model_specs)
@@ -182,7 +187,8 @@ if __name__ == "__main__":
                     action = m.sample().reshape(args.batch_size)
                     rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
                     rwds += rwd.mean().item()/len(pop_s['pre_choice'])
-                    advantage = (rwd-value[-1])
+                    value_est = (value[-1]*logprob[-1].softmax(-1)).sum()
+                    advantage = (rwd-value_est)
 
                     reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
                     if args.plastic_feedback:
@@ -195,7 +201,11 @@ if __name__ == "__main__":
                                         +ss['whs'].pow(2).sum(dim=(-2,-1)).mean())\
                                 /(ss['wxs'].numel()+ss['whs'].numel())
                     if args.attn_type=='weight':
-                        reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
+                        if args.num_areas>1:
+                            reg += args.attn_ent_reg*((ss['sas']*torch.log(ss['sas'])).sum(-1).mean() \
+                                                     +(ss['fas']*torch.log(ss['fas'])).sum(-1).mean())
+                        else:
+                            reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 
                     loss += - (m.log_prob(action)*advantage.detach()).mean() \
                             + args.beta_v*advantage.pow(2).mean() - args.beta_entropy*m.entropy().mean() \
@@ -208,7 +218,7 @@ if __name__ == "__main__":
                     action_enc = action_enc*DA_s['post_choice']
                     R = (2*rwd-1)*DA_s['post_choice']
                     if args.rpe:
-                        V = value[-1]*DA_s['post_choice']
+                        V = value_est*DA_s['post_choice']
                     else:
                         V = None
                     _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc, 
@@ -225,7 +235,11 @@ if __name__ == "__main__":
                                         +ss['whs'].pow(2).sum(dim=(-2, -1)).mean())\
                                 /(ss['wxs'].numel()+ss['whs'].numel())
                     if args.attn_type=='weight':
-                        reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
+                        if args.num_areas>1:
+                            reg += args.attn_ent_reg*((ss['sas']*torch.log(ss['sas'])).sum(-1).mean() \
+                                                     +(ss['fas']*torch.log(ss['fas'])).sum(-1).mean())
+                        else:
+                            reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 
                     loss += reg*len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
             
@@ -280,8 +294,9 @@ if __name__ == "__main__":
                             pop_post = pop_post*action_enc.reshape(1,1,2,1)
                             action_enc = action_enc*DA_s['post_choice']
                             R = (2*rwd-1)*DA_s['post_choice']
+                            value_est = (value[-1]*logprob[-1].softmax(-1)).sum()
                             if args.rpe:
-                                V = value[-1]*DA_s['post_choice']
+                                V = value_est[-1]*DA_s['post_choice']
                             else:
                                 V = None
                             _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc)

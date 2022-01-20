@@ -1,16 +1,19 @@
-from joblib.parallel import delayed
-import numpy as np
-from sklearn.decomposition import PCA
-from sklearn.svm import LinearSVC
-from sklearn.model_selection import cross_val_score
-from sklearn.cluster import KMeans
-from scipy.optimize import curve_fit
-import pingouin as pg
-from joblib import Parallel, delayed
-from scipy.spatial.distance import pdist
-import scipy.cluster.hierarchy as sch
 import math
+
+import numpy as np
+import pingouin as pg
+import scipy.cluster.hierarchy as sch
+from joblib import Parallel, delayed
+from joblib.parallel import delayed
+from scipy.optimize import curve_fit
+from scipy.spatial.distance import pdist
+from scipy.stats import zscore
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from sklearn.model_selection import cross_val_score
+from sklearn.svm import LinearSVC
 from tensorly.decomposition import parafac
+from dPCA import dPCA
 
 def run_pca(hs):
     trials, timesteps, batch_size, hidden_dim = hs.shape
@@ -85,3 +88,32 @@ def hierarchical_clustering(x):
 def cluster(x, n_clusters=3):
     kmeans = KMeans(n_clusters=n_clusters).fit(x)
     return kmeans.labels_
+
+def targeted_dimensionality_reduction(hs, xs, ortho=False):
+    n_time_steps, n_trials, n_hidden = hs.shape
+    assert(xs.shape[0]==n_trials)
+    n_vars = xs.shape[-1]
+
+    # z-score the hidden activity
+    hs = zscore(hs.reshape(n_time_steps*n_trials, n_hidden), axis=0).reshape(n_time_steps, n_trials, n_hidden)
+
+    # denoise with PCA
+    # U, S, Vh = np.linalg.svd(hs) # n_time_steps*n_trials x n_hidden, n_hidden X n_hidden, n_hidden X n_hidden
+    # npca = 0
+    # while np.cumsum(S[:npca]**2)/np.sum(S**2) < 0.9:
+    #     npca += 1
+    
+    # D = Vh[:npca].T@Vh[:npca]
+
+    hat = xs@np.linalg.inv((xs@xs.T)) # n_trials X n_feats
+    betas = (hs.transpose(0,2,1)@hat.reshape(1, n_trials, n_vars)) # n_time_steps X n_hidden X n_feats
+    
+    coeff_norms = np.linalg.norm(betas, axis=1) # n_time_steps X n_feats
+    coeff_max = betas[np.argmax(coeff_norms, axis=0), :, np.arange(n_vars)] # argmax has size n_feats
+    assert coeff_max.shape==(n_hidden, n_vars)
+
+    if ortho:
+        Q, R = np.linalg.qr(coeff_max)
+        coeff_max = Q
+
+    return betas, coeff_max
