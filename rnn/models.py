@@ -863,6 +863,7 @@ class MultiAreaRNN(nn.Module):
             'feat_attn': ((num_areas-2)*self.e_size, (num_areas-1)*self.e_size),
             'choice': ((num_areas-1)*self.e_size, num_areas*self.e_size),
         }
+        print(self.output_unit_maps)
 
     def init_hidden(self, x):
         batch_size = x.shape[1]

@@ -296,7 +296,7 @@ if __name__ == "__main__":
                             R = (2*rwd-1)*DA_s['post_choice']
                             value_est = (value[-1]*logprob[-1].softmax(-1)).sum()
                             if args.rpe:
-                                V = value_est[-1]*DA_s['post_choice']
+                                V = value_est*DA_s['post_choice']
                             else:
                                 V = None
                             _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc)
