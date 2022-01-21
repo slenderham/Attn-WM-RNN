@@ -123,7 +123,7 @@ class EILinear(nn.Module):
             return result
 
 class PlasticLeakyRNNCell(nn.Module):
-    def __init__(self, input_size, hidden_size, aux_input_size, plastic=True, 
+    def __init__(self, input_size, hidden_size, aux_input_size, num_areas, plastic=True, 
                 activation='retanh', dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 balance_ei=False, plas_rule='mult', conn_mask=None, **kwargs):
@@ -146,7 +146,7 @@ class PlasticLeakyRNNCell(nn.Module):
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='abs',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
                             init_spectral=init_spectral, balance_ei=balance_ei,
-                            conn_mask=conn_mask.get('rec', None))
+                            conn_mask=conn_mask.get('rec', None), num_areas=num_areas)
 
         self.tau_x = tau_x
         self.tau_w = tau_w
@@ -840,7 +840,7 @@ class MultiAreaRNN(nn.Module):
         self.rnn = PlasticLeakyRNNCell(input_size=input_size, hidden_size=hidden_size*num_areas, aux_input_size=self.aux_input_size, plastic=plastic, 
                                        activation=activation, dt=dt, tau_x=tau_x, tau_w=tau_w, weight_bound=weight_bound, train_init_state=train_init_state, 
                                        e_prop=e_prop, sigma_rec=sigma_rec, sigma_in=sigma_in, sigma_w=sigma_w, init_spectral=init_spectral,
-                                       balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks)
+                                       balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks, num_areas=num_areas)
 
         # choice and value output
         self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, zero_cols_prop=1-e_prop, bias=True)
