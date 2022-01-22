@@ -8,9 +8,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
 
-def truncate_state(hs):
-    return [h.detach() for h in hs]
-
 def _get_activation_function(func_name):
     if func_name=='relu':
         return F.relu
