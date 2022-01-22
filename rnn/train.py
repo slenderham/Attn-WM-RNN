@@ -29,6 +29,7 @@ if __name__ == "__main__":
     parser.add_argument('--stim_dim', type=int, default=3, choices=[2, 3], help='Number of features')
     parser.add_argument('--stim_val', type=int, default=3, help='Possible values of features')
     parser.add_argument('--N_s', type=int, default=6, help='Number of times to repeat the entire stim set')
+    parser.add_argument('--N_stim_train', type=int, default=27, help='Number of stimuli to train the network on each episode')
     parser.add_argument('--test_N_s', type=int, default=10, help='Number of times to repeat the entire stim set during eval')
     parser.add_argument('--e_prop', type=float, default=4/5, help='Proportion of E neurons')
     parser.add_argument('--batch_size', type=int, help='Batch size')
@@ -88,7 +89,7 @@ if __name__ == "__main__":
         'stim_onset': 0.0,
         'stim_end': 0.6,
         'rwd_onset': 0.5,
-        'rwd_end': 0.6,
+        'rwd_end': 0.75,
         'choice_onset': 0.35,
         'choice_end': 0.5,
         'total_time': 1,
@@ -166,7 +167,7 @@ if __name__ == "__main__":
         for batch_idx in range(iters):
             curr_gen_lvl = np.random.choice(task_mdprl.gen_levels)
             DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(
-                batch_size=args.batch_size, N_s=args.N_s, num_choices=output_size, gen_level=curr_gen_lvl)
+                batch_size=args.batch_size, N_s=args.N_s, num_choices=output_size, gen_level=curr_gen_lvl, subsample_stims=args.N_stim_train)
             if args.task_type == 'value':
                 output, hs, _, _ = model(pop_s, DA_s)
                 loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean() \

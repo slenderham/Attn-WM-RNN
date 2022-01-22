@@ -899,7 +899,7 @@ class MultiAreaRNN(nn.Module):
             
             # modulate input by feature attention
             fa = self.h2fa(hidden[1][:,self.output_unit_maps['feat_attn'][0]:self.output_unit_maps['feat_attn'][1]])
-            attr_attn = F.gumbel_softmax(logits=fa, hard=True, dim=-1)
+            attr_attn = F.softmax(input=fa, dim=-1)
             attr_attn = torch.repeat_interleave(attr_attn, self.channel_group_size, dim=-1)*self.num_channels
             curr_x = curr_x*attr_attn
 
