@@ -245,6 +245,8 @@ if __name__ == "__main__":
                     loss += reg*len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
 
                     if (i+1)%args.truncate_interval==0:
+                        if torch.isnan(loss):
+                            quit()
                         (loss/args.grad_accumulation_steps/args.truncate_interval).backward()
                         hidden = truncate_state(hidden)
                         loss = 0
@@ -255,8 +257,6 @@ if __name__ == "__main__":
                 optimizer.zero_grad()
 
             if (batch_idx+1) % log_interval == 0:
-                if torch.isnan(loss):
-                    quit()
                 pbar.set_description('Iteration {} Loss: {:.6f}'.format(
                     batch_idx, loss.item() if 'policy' not in args.task_type else rwds))
                 pbar.refresh()
