@@ -188,7 +188,7 @@ class MDPRL():
         probs = probs.reshape(1, 3, 3, 3)
         return probs
 
-    def generateinput(self, batch_size, N_s, num_choices, gen_level='obj', prob_index=None, stim_order=None):
+    def generateinput(self, batch_size, N_s, num_choices, subsample_stims=27, gen_level='obj', prob_index=None, stim_order=None):
         '''
         Generate random stimuli AND choice for learning
         '''
@@ -206,10 +206,10 @@ class MDPRL():
         if stim_order is not None:
             len_seq = len(stim_order)
         else:
-            len_seq = N_s*27
+            len_seq = N_s*subsample_stims
 
         if stim_order is None:
-            index_s = np.repeat(np.arange(0,27,1), N_s)
+            index_s = np.repeat(np.random.permutation(27)[:subsample_stims], N_s)
             index_s_i = [np.random.permutation(index_s) for _ in range(num_choices)]
             index_s_i = np.stack(index_s_i, axis=1)
             # while np.any([len(np.unique(index_s_i[:,j])) != len(index_s_i[:,j]) for j in range(len(index_s))]):
