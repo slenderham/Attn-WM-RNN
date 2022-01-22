@@ -13,7 +13,7 @@ from sklearn.metrics import accuracy_score
 from torch import optim
 from tqdm import tqdm
 
-from models import MultiChoiceRNN, SimpleRNN, MultiAreaRNN
+from models import MultiChoiceRNN, SimpleRNN, MultiAreaRNN, truncate_state
 from task import MDPRL, RolloutBuffer
 from utils import (AverageMeter, load_checkpoint, load_list_from_fs,
                    save_checkpoint, save_defaultdict_to_fs, save_list_to_fs)
@@ -29,6 +29,7 @@ if __name__ == "__main__":
     parser.add_argument('--stim_dim', type=int, default=3, choices=[2, 3], help='Number of features')
     parser.add_argument('--stim_val', type=int, default=3, help='Possible values of features')
     parser.add_argument('--N_s', type=int, default=6, help='Number of times to repeat the entire stim set')
+    parser.add_argument('--truncate_interval', type=int, default=27, help='Number of trials between each truncation')
     parser.add_argument('--test_N_s', type=int, default=10, help='Number of times to repeat the entire stim set during eval')
     parser.add_argument('--e_prop', type=float, default=4/5, help='Proportion of E neurons')
     parser.add_argument('--batch_size', type=int, help='Batch size')
@@ -83,15 +84,15 @@ if __name__ == "__main__":
     save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
     exp_times = {
-        'start_time': -0.25,
-        'end_time': 0.75,
+        'start_time': -0.5,
+        'end_time': 1.5,
         'stim_onset': 0.0,
-        'stim_end': 0.6,
-        'rwd_onset': 0.5,
-        'rwd_end': 0.6,
-        'choice_onset': 0.35,
-        'choice_end': 0.5,
-        'total_time': 1,
+        'stim_end': 1.5,
+        'rwd_onset': 1.0,
+        'rwd_end': 1.5,
+        'choice_onset': 0.7,
+        'choice_end': 1.0,
+        'total_time': 2,
         'dt': args.dt}
     log_interval = 1
 
@@ -242,8 +243,12 @@ if __name__ == "__main__":
                             reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 
                     loss += reg*len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
+
+                    if (i+1)%args.truncate_interval==0:
+                        (loss/args.grad_accumulation_steps/args.truncate_interval).backward()
+                        hidden = truncate_state(hidden)
+                        loss = 0
             
-            (loss/args.grad_accumulation_steps/len(pop_s['pre_choice'])).backward()
             if (batch_idx+1) % args.grad_accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
                 optimizer.step()
