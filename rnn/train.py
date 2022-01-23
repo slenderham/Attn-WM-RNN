@@ -239,8 +239,8 @@ if __name__ == "__main__":
                         if args.num_areas>1:
                             reg += args.attn_ent_reg*((ss['sas']*torch.log(ss['sas'])).sum(-1).mean() \
                                                      +(ss['fas']*torch.log(ss['fas'])).sum(-1).mean())
-                            reshaped_action = action.reshape(1, args.batch_size).repeat(ss['sas'].shape[0], 1).flatten()
-                            reg += F.cross_entropy(input=ss['sas'].flatten(-2), target=reshaped_action)
+                            # reshaped_action = action.reshape(1, args.batch_size).repeat(ss['sas'].shape[0], 1).flatten()
+                            # reg += F.cross_entropy(input=ss['sas'].flatten(-2), target=reshaped_action)
                         else:
                             reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 

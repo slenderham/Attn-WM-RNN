@@ -40,8 +40,8 @@ def _get_connectivity_mask(in_mask, aux_mask, rec_mask, input_units, aux_input_u
     in_mask_i = torch.kron(in_mask, torch.ones(i_hidden_units_per_area, input_units))
     conn_mask['in'] = torch.cat([in_mask_e, in_mask_i], dim=0)
 
-    aux_mask_e = torch.kron(in_mask, torch.ones(e_hidden_units_per_area, aux_input_units))
-    aux_mask_i = torch.kron(in_mask, torch.ones(i_hidden_units_per_area, aux_input_units))
+    aux_mask_e = torch.kron(aux_mask, torch.ones(e_hidden_units_per_area, aux_input_units))
+    aux_mask_i = torch.kron(aux_mask, torch.ones(i_hidden_units_per_area, aux_input_units))
     conn_mask['aux'] = torch.cat([aux_mask_e, aux_mask_i], dim=0)
 
     # recurrent connection mask
