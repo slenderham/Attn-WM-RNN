@@ -84,15 +84,15 @@ if __name__ == "__main__":
     save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
     exp_times = {
-        'start_time': -0.25,
-        'end_time': 0.75,
+        'start_time': -0.5,
+        'end_time': 1.5,
         'stim_onset': 0.0,
-        'stim_end': 0.6,
-        'rwd_onset': 0.5,
-        'rwd_end': 0.75,
-        'choice_onset': 0.35,
-        'choice_end': 0.5,
-        'total_time': 1,
+        'stim_end': 1.5,
+        'rwd_onset': 1.0,
+        'rwd_end': 1.5,
+        'choice_onset': 0.7,
+        'choice_end': 1.0,
+        'total_time': 2,
         'dt': args.dt}
     log_interval = 1
 
@@ -239,6 +239,8 @@ if __name__ == "__main__":
                         if args.num_areas>1:
                             reg += args.attn_ent_reg*((ss['sas']*torch.log(ss['sas'])).sum(-1).mean() \
                                                      +(ss['fas']*torch.log(ss['fas'])).sum(-1).mean())
+                            reshaped_action = action.reshape(1, args.batch_size).repeat(ss['sas'].shape[0], 1).flatten()
+                            reg += F.cross_entropy(input=ss['sas'].flatten(-2), target=reshaped_action)
                         else:
                             reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 

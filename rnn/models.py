@@ -28,24 +28,25 @@ def _get_pos_function(func_name):
     else:
         raise RuntimeError(F"{func_name} is an invalid function enforcing positive weight.")
 
-def _get_connectivity_mask(num_areas, input_units, aux_input_units, e_hidden_units_per_area, i_hidden_units_per_area):
+def _get_connectivity_mask(in_mask, aux_mask, rec_mask, input_units, aux_input_units, e_hidden_units_per_area, i_hidden_units_per_area):
     conn_mask = {}
 
-    in_mask_e = torch.cat([*[torch.ones(e_hidden_units_per_area, input_units) for _ in range(3)], 
-                        *[torch.zeros(e_hidden_units_per_area, input_units) for _ in range(num_areas-3)]], dim=0)
-    in_mask_i = torch.cat([*[torch.ones(i_hidden_units_per_area, input_units) for _ in range(3)], 
-                            *[torch.zeros(i_hidden_units_per_area, input_units) for _ in range(num_areas-3)]], dim=0)
+    num_areas = in_mask.shape[0]
+    assert(aux_mask.shape==(num_areas,1))
+    assert(in_mask.shape==(num_areas,1))
+    assert(rec_mask.shape==(num_areas,num_areas))
+
+    in_mask_e = torch.kron(in_mask, torch.ones(e_hidden_units_per_area, input_units))
+    in_mask_i = torch.kron(in_mask, torch.ones(i_hidden_units_per_area, input_units))
     conn_mask['in'] = torch.cat([in_mask_e, in_mask_i], dim=0)
 
-    aux_mask_e = torch.cat([*[torch.ones(e_hidden_units_per_area, aux_input_units) for _ in range(3)], 
-                            *[torch.zeros(e_hidden_units_per_area, aux_input_units) for _ in range(num_areas-3)]], dim=0)
-    aux_mask_i = torch.cat([*[torch.ones(i_hidden_units_per_area, aux_input_units) for _ in range(3)], 
-                            *[torch.zeros(i_hidden_units_per_area, aux_input_units) for _ in range(num_areas-3)]], dim=0)
+    aux_mask_e = torch.kron(in_mask, torch.ones(e_hidden_units_per_area, aux_input_units))
+    aux_mask_i = torch.kron(in_mask, torch.ones(i_hidden_units_per_area, aux_input_units))
     conn_mask['aux'] = torch.cat([aux_mask_e, aux_mask_i], dim=0)
 
     # recurrent connection mask
-    rec_mask_ee = torch.ones(num_areas*e_hidden_units_per_area, num_areas*e_hidden_units_per_area)
-    rec_mask_ie = torch.ones(num_areas*i_hidden_units_per_area, num_areas*e_hidden_units_per_area)
+    rec_mask_ee = torch.kron(rec_mask, torch.ones(e_hidden_units_per_area, e_hidden_units_per_area))
+    rec_mask_ie = torch.kron(rec_mask, torch.ones(i_hidden_units_per_area, e_hidden_units_per_area))
     rec_mask_ei = torch.kron(torch.eye(num_areas), torch.ones(e_hidden_units_per_area, i_hidden_units_per_area))
     rec_mask_ii = torch.kron(torch.eye(num_areas), torch.ones(i_hidden_units_per_area, i_hidden_units_per_area))
     conn_mask['rec'] = torch.cat([
@@ -101,7 +102,6 @@ class EILinear(nn.Module):
             if init_gain is not None:
                 self.weight.data *= init_gain
             if init_spectral is not None:
-                print(torch.linalg.eigvals(self.effective_weight()).real.max())
                 self.weight.data *= init_spectral / torch.linalg.eigvals(self.effective_weight()).real.max()
 
             if self.bias is not None:
@@ -836,7 +836,15 @@ class MultiAreaRNN(nn.Module):
         self.plastic = plastic
         self.weight_bound = weight_bound
         self.plas_rule = plas_rule
-        self.conn_masks = _get_connectivity_mask(num_areas, input_size, self.aux_input_size, self.e_size, hidden_size-self.e_size)
+
+        # specify connectivity
+        in_mask = torch.FloatTensor([*[1]*1, *[0]*(num_areas-1)]).unsqueeze(-1)
+        aux_mask = torch.FloatTensor([*[1]*1, *[0]*(num_areas-1)]).unsqueeze(-1)
+        rec_mask = torch.ones(num_areas, num_areas)
+
+        self.conn_masks = _get_connectivity_mask(in_mask=in_mask, aux_mask=aux_mask, rec_mask=rec_mask,
+                                                 input_units=input_size, aux_input_units=self.aux_input_size, 
+                                                 e_hidden_units_per_area=self.e_size, i_hidden_units_per_area=hidden_size-self.e_size)
 
         self.rnn = PlasticLeakyRNNCell(input_size=input_size, hidden_size=hidden_size*num_areas, aux_input_size=self.aux_input_size, plastic=plastic, 
                                        activation=activation, dt=dt, tau_x=tau_x, tau_w=tau_w, weight_bound=weight_bound, train_init_state=train_init_state, 
@@ -899,7 +907,7 @@ class MultiAreaRNN(nn.Module):
             
             # modulate input by feature attention
             fa = self.h2fa(hidden[1][:,self.output_unit_maps['feat_attn'][0]:self.output_unit_maps['feat_attn'][1]])
-            attr_attn = F.softmax(input=fa, dim=-1)
+            attr_attn = F.gumbel_softmax(logits=fa, hard=True, dim=-1)
             attr_attn = torch.repeat_interleave(attr_attn, self.channel_group_size, dim=-1)*self.num_channels
             curr_x = curr_x*attr_attn
 
