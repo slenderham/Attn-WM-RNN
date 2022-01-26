@@ -87,9 +87,9 @@ if __name__ == "__main__":
         'start_time': -0.5,
         'end_time': 1.5,
         'stim_onset': 0.0,
-        'stim_end': 1.5,
+        'stim_end': 1.2,
         'rwd_onset': 1.0,
-        'rwd_end': 1.5,
+        'rwd_end': 1.2,
         'choice_onset': 0.7,
         'choice_end': 1.0,
         'total_time': 2,
@@ -188,7 +188,7 @@ if __name__ == "__main__":
                     action = m.sample().reshape(args.batch_size)
                     rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
                     rwds += rwd.mean().item()/len(pop_s['pre_choice'])
-                    value_est = (value[-1]*logprob[-1].softmax(-1)).sum()
+                    value_est = value[-1]
                     advantage = (rwd-value_est)
 
                     reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
@@ -215,7 +215,8 @@ if __name__ == "__main__":
                     # use the action (optional) and reward as feedback
                     pop_post = pop_s['post_choice'][i]
                     action_enc = torch.eye(output_size)[action]
-                    pop_post = pop_post*action_enc.reshape(1,1,2,1)
+                    if args.num_areas==1:
+                        pop_post = pop_post*action_enc.reshape(1,1,2,1)
                     action_enc = action_enc*DA_s['post_choice']
                     R = (2*rwd-1)*DA_s['post_choice']
                     if args.rpe:
@@ -294,10 +295,11 @@ if __name__ == "__main__":
                             # use the action (optional) and reward as feedback
                             pop_post = pop_s['post_choice'][i]
                             action_enc = torch.eye(output_size)[action]
-                            pop_post = pop_post*action_enc.reshape(1,1,2,1)
+                            if args.num_areas==1:
+                                pop_post = pop_post*action_enc.reshape(1,1,2,1)                            
                             action_enc = action_enc*DA_s['post_choice']
                             R = (2*rwd-1)*DA_s['post_choice']
-                            value_est = (value[-1]*logprob[-1].softmax(-1)).sum()
+                            value_est = value[-1]
                             if args.rpe:
                                 V = value_est*DA_s['post_choice']
                             else:

@@ -820,6 +820,16 @@ class MultiAreaRNN(nn.Module):
                 balance_ei=False, plas_rule='add', **kwargs):
         super().__init__()
 
+        # state -> value -> choice
+        #       -> spatial attention
+        #       -> feature attention
+
+        # state representation learns a hidden layer representation (lOFC)
+        # value layer implements attention-guided value comparison (mOFC, vmPFC)
+        # spatial attention executes saccade to focus on different options (DLPFC)
+        # feature attention executes covert attention to focus on different attributes (DLPFC, IPS, ...)
+        # choice layer implements choice, needs spatial and value signal simultaneously (ACC, DLPFC, ...)
+
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size =  output_size
@@ -838,8 +848,9 @@ class MultiAreaRNN(nn.Module):
         self.plas_rule = plas_rule
 
         # specify connectivity
-        in_mask = torch.FloatTensor([*[1]*1, *[0]*(num_areas-1)]).unsqueeze(-1)
-        aux_mask = torch.FloatTensor([*[1]*1, *[0]*(num_areas-1)]).unsqueeze(-1)
+        assert num_areas >= 5
+        in_mask = torch.FloatTensor([*[1]*2, *[0]*(num_areas-2)]).unsqueeze(-1)
+        aux_mask = torch.FloatTensor([*[1]*num_areas]).unsqueeze(-1)
         rec_mask = torch.ones(num_areas, num_areas)
 
         self.conn_masks = _get_connectivity_mask(in_mask=in_mask, aux_mask=aux_mask, rec_mask=rec_mask,
@@ -853,7 +864,7 @@ class MultiAreaRNN(nn.Module):
 
         # choice and value output
         self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True)
-        self.h2v = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True)
+        self.h2v = EILinear(self.e_size, 1, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True)
 
         # feature attention output
         self.h2fa = EILinear(self.e_size, self.num_channels, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True)
@@ -868,6 +879,7 @@ class MultiAreaRNN(nn.Module):
             self.x0 = torch.zeros(1, hidden_size*num_areas)
 
         self.output_unit_maps = {
+            'value': ((num_areas-4)*self.e_size, (num_areas-3)*self.e_size),
             'spatial_attn': ((num_areas-3)*self.e_size, (num_areas-2)*self.e_size),
             'feat_attn': ((num_areas-2)*self.e_size, (num_areas-1)*self.e_size),
             'choice': ((num_areas-1)*self.e_size, num_areas*self.e_size),
@@ -884,7 +896,7 @@ class MultiAreaRNN(nn.Module):
         else:
             return [h_init, h_init.relu()]
 
-    def forward(self, x, Rs, Vs=None, acts=None, hidden=None, loc=None, save_weights=False, save_attns=False):
+    def forward(self, x, Rs, Vs=None, acts=None, hidden=None, save_weights=False, save_attns=False):
         steps, batch_size = x.shape[:2]
         if hidden is None:
             hidden = self.init_hidden(x)
@@ -921,7 +933,7 @@ class MultiAreaRNN(nn.Module):
                     a_aux = acts[i]
                     aux_x.append(a_aux)
                 if self.loc_input:
-                    loc_aux = loc_attn
+                    loc_aux = loc_attn.detach()
                     aux_x.append(loc_aux)
                 aux_x = torch.cat(aux_x, dim=-1)
                 aux_x = aux_x.relu()
@@ -952,5 +964,5 @@ class MultiAreaRNN(nn.Module):
             saved_states['fas'] = fas
 
         os = self.h2o(hs[:,:,self.output_unit_maps['choice'][0]:self.output_unit_maps['choice'][1]])
-        vs = self.h2v(hs[:,:,self.output_unit_maps['choice'][0]:self.output_unit_maps['choice'][1]])
+        vs = self.h2v(hs[:,:,self.output_unit_maps['value'][0]:self.output_unit_maps['value'][1]])
         return (os, vs), hs, hidden, saved_states
