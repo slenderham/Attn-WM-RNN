@@ -136,13 +136,13 @@ class PlasticLeakyRNNCell(nn.Module):
         self.plas_rule = plas_rule
 
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='abs',
-                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.5,
+                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=1,
                             conn_mask=conn_mask.get('in', None))
         
         if self.aux_input_size>0:
             self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='abs',
                                   e_prop=1, zero_cols_prop=0, bias=False,
-                                  init_gain=0.5*math.sqrt(self.aux_input_size/(input_size)),
+                                  init_gain=math.sqrt(self.aux_input_size/input_size),
                                   conn_mask=conn_mask.get('aux', None))
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='abs',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
@@ -916,11 +916,10 @@ class MultiAreaRNN(nn.Module):
             sa = self.h2sa(hidden[1][:,self.output_unit_maps['spatial_attn'][0]:self.output_unit_maps['spatial_attn'][1]])
             loc_attn = F.gumbel_softmax(logits=sa, hard=True, dim=-1)
             curr_x = (x[i]*loc_attn.reshape(batch_size, self.output_size, 1)).sum(1) # batch_size, input_size
-            
             # modulate input by feature attention
             fa = self.h2fa(hidden[1][:,self.output_unit_maps['feat_attn'][0]:self.output_unit_maps['feat_attn'][1]])
             attr_attn = F.gumbel_softmax(logits=fa, hard=True, dim=-1)
-            attr_attn = torch.repeat_interleave(attr_attn, self.channel_group_size, dim=-1)*self.num_channels
+            attr_attn = torch.repeat_interleave(attr_attn, self.channel_group_size, dim=-1)
             curr_x = curr_x*attr_attn
 
             if self.aux_input_size>0:
@@ -930,13 +929,12 @@ class MultiAreaRNN(nn.Module):
                     r_aux = torch.cat([(Rs[i]!=0)*(Rs[i]+1)/2, (Rs[i]!=0)*(1-Rs[i])/2], dim=-1)
                     aux_x.append(r_aux)
                 if self.action_input:
-                    a_aux = acts[i]
+                    a_aux = (Rs[i]!=0)*acts[i]
                     aux_x.append(a_aux)
                 if self.loc_input:
-                    loc_aux = loc_attn.detach()
+                    loc_aux = (x[i]!=0).any()*loc_attn
                     aux_x.append(loc_aux)
                 aux_x = torch.cat(aux_x, dim=-1)
-                aux_x = aux_x.relu()
             else:
                 aux_x = None
 
@@ -946,8 +944,8 @@ class MultiAreaRNN(nn.Module):
                 wxs.append(hidden[2])
                 whs.append(hidden[3])
             if save_attns:
-                sas.append(sa.softmax(-1))
-                fas.append(fa.softmax(-1))
+                sas.append(sa)
+                fas.append(fa)
 
         hs = torch.stack(hs, dim=0)
         saved_states = {}

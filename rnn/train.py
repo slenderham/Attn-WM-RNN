@@ -135,7 +135,7 @@ if __name__ == "__main__":
     model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': output_size, 
                    'plastic': args.plas_type=='all', 'attention_type': args.attn_type, 'activation': args.activ_func,
                    'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'channel_group_size': channel_group_size,
-                   'c_plasticity': None, 'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
+                   'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
                    'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 
                    'rwd_input': args.rwd_input, 'action_input': args.action_input, 'plas_rule': args.plas_rule,
                    'input_unit_group': input_unit_group, 'sep_lr': args.sep_lr, 'plastic_feedback': args.plastic_feedback,
@@ -164,6 +164,7 @@ if __name__ == "__main__":
         model.train()
         pbar = tqdm(total=iters)
         optimizer.zero_grad()
+        total_acc = 0
         for batch_idx in range(iters):
             curr_gen_lvl = np.random.choice(task_mdprl.gen_levels)
             DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(
@@ -190,6 +191,16 @@ if __name__ == "__main__":
                     rwds += rwd.mean().item()/len(pop_s['pre_choice'])
                     value_est = value[-1]
                     advantage = (rwd-value_est)
+                    
+                    total_acc += (torch.argmax(logprob[-1], -1)==torch.argmax(prob_s[i], -1)).float()
+
+                    # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
+                    # plt.colorbar()
+                    # plt.plot(logprob.squeeze().detach())
+                    # plt.plot(value.squeeze().detach())
+                    # plt.plot(ss['sas'].squeeze().detach())
+                    # plt.plot(ss['fas'].squeeze().detach())
+                    # plt.show()
 
                     reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
                     if args.plastic_feedback:
@@ -203,8 +214,8 @@ if __name__ == "__main__":
                                 /(ss['wxs'].numel()+ss['whs'].numel())
                     if args.attn_type=='weight':
                         if args.num_areas>1:
-                            reg += args.attn_ent_reg*((ss['sas']*torch.log(ss['sas'])).sum(-1).mean() \
-                                                     +(ss['fas']*torch.log(ss['fas'])).sum(-1).mean())
+                            reg += args.attn_ent_reg*((ss['sas']*torch.exp(ss['sas'])).sum(-1).mean() \
+                                                     +(ss['fas']*torch.exp(ss['fas'])).sum(-1).mean())
                         else:
                             reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 
@@ -226,6 +237,14 @@ if __name__ == "__main__":
                     _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc, 
                                                 save_attns=True, save_weights=True)
 
+                    # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
+                    # plt.colorbar()
+                    # plt.plot(logprob.squeeze().detach())
+                    # plt.plot(value.squeeze().detach())
+                    # plt.plot(ss['sas'].squeeze().detach())
+                    # plt.plot(ss['fas'].squeeze().detach())
+                    # plt.show()
+
                     reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
                     if args.plastic_feedback:
                         reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()\
@@ -238,8 +257,8 @@ if __name__ == "__main__":
                                 /(ss['wxs'].numel()+ss['whs'].numel())
                     if args.attn_type=='weight':
                         if args.num_areas>1:
-                            reg += args.attn_ent_reg*((ss['sas']*torch.log(ss['sas'])).sum(-1).mean() \
-                                                     +(ss['fas']*torch.log(ss['fas'])).sum(-1).mean())
+                            reg += args.attn_ent_reg*((ss['sas']*torch.exp(ss['sas'])).sum(-1).mean() \
+                                                     +(ss['fas']*torch.exp(ss['fas'])).sum(-1).mean())
                             # reshaped_action = action.reshape(1, args.batch_size).repeat(ss['sas'].shape[0], 1).flatten()
                             # reg += F.cross_entropy(input=ss['sas'].flatten(-2), target=reshaped_action)
                         else:
@@ -262,6 +281,8 @@ if __name__ == "__main__":
                 
             pbar.update()
         pbar.close()
+        total_acc = total_acc/len(pop_s['pre_choice'])/iters
+        print(f'Training Acc: {total_acc}')
         return loss.item()
 
     def eval(epoch):
