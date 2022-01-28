@@ -57,9 +57,8 @@ def _get_connectivity_mask(in_mask, aux_mask, rec_mask, input_units, aux_input_u
 
 class EILinear(nn.Module):
     def __init__(self, input_size, output_size, remove_diag, zero_cols_prop, 
-                 num_areas=1, conn_mask=None,
-                 e_prop=0.8, bias=True, pos_function='abs', init_spectral=None, 
-                 init_gain=None, balance_ei=False):
+                 conn_mask=None, e_prop=0.8, bias=True, pos_function='abs', 
+                 init_spectral=None, init_gain=None, balance_ei=False):
         super().__init__()
         self.input_size = input_size
         self.output_size = output_size
@@ -88,16 +87,16 @@ class EILinear(nn.Module):
             self.bias = nn.Parameter(torch.Tensor(output_size))
         else:
             self.register_parameter('bias', None)
-        self.reset_parameters(init_spectral, init_gain, balance_ei, num_areas)
+        self.reset_parameters(init_spectral, init_gain, balance_ei)
 
-    def reset_parameters(self, init_spectral, init_gain, balance_ei, num_areas):
+    def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
             nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
             # nn.init.kaiming_normal_(self.weight)
             # self.weight.abs_()
             # Scale E weight by E-I ratio
             if balance_ei and self.i_size!=0:
-                self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)*num_areas
+                self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
 
             if init_gain is not None:
                 self.weight.data *= init_gain
@@ -124,7 +123,7 @@ class EILinear(nn.Module):
             return result
 
 class PlasticLeakyRNNCell(nn.Module):
-    def __init__(self, input_size, hidden_size, aux_input_size, num_areas, plastic=True, 
+    def __init__(self, input_size, hidden_size, aux_input_size, plastic=True, 
                 activation='retanh', dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 balance_ei=False, plas_rule='mult', conn_mask=None, **kwargs):
@@ -147,7 +146,7 @@ class PlasticLeakyRNNCell(nn.Module):
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='abs',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
                             init_spectral=init_spectral, balance_ei=balance_ei,
-                            conn_mask=conn_mask.get('rec', None), num_areas=num_areas)
+                            conn_mask=conn_mask.get('rec', None))
 
         self.tau_x = tau_x
         self.tau_w = tau_w
@@ -860,7 +859,7 @@ class MultiAreaRNN(nn.Module):
         self.rnn = PlasticLeakyRNNCell(input_size=input_size, hidden_size=hidden_size*num_areas, aux_input_size=self.aux_input_size, plastic=plastic, 
                                        activation=activation, dt=dt, tau_x=tau_x, tau_w=tau_w, weight_bound=weight_bound, train_init_state=train_init_state, 
                                        e_prop=e_prop, sigma_rec=sigma_rec, sigma_in=sigma_in, sigma_w=sigma_w, init_spectral=init_spectral,
-                                       balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks, num_areas=num_areas)
+                                       balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks)
 
         # choice and value output
         self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True)
