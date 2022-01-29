@@ -52,7 +52,7 @@ if __name__ == "__main__":
     parser.add_argument('--attn_ent_reg', type=float, default=0.0, help='Entropy regularization for attention')
     parser.add_argument('--beta_v', type=float, default=0.5, help='Weight for value estimation loss')
     parser.add_argument('--beta_entropy', type=float, default=0.01, help='Weight for entropy regularization')
-    parser.add_argument('--beta_attn_chosen', type=float, default=0.5, help='Weight for forcing attention on chosen stimuli')
+    parser.add_argument('--beta_attn_chosen', type=float, default=1.0, help='Weight for forcing attention on chosen stimuli')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
     parser.add_argument('--plas_rule', type=str, choices=['add', 'mult'], default='add', help='Plasticity rule')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
@@ -85,15 +85,15 @@ if __name__ == "__main__":
     save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
     exp_times = {
-        'start_time': -0.5,
-        'end_time': 1.5,
+        'start_time': -0.25,
+        'end_time': 0.75,
         'stim_onset': 0.0,
-        'stim_end': 1.2,
-        'rwd_onset': 1.0,
-        'rwd_end': 1.2,
-        'choice_onset': 0.7,
-        'choice_end': 1.0,
-        'total_time': 2,
+        'stim_end': 0.6,
+        'rwd_onset': 0.5,
+        'rwd_end': 0.6,
+        'choice_onset': 0.35,
+        'choice_end': 0.5,
+        'total_time': 1,
         'dt': args.dt}
     log_interval = 1
 
@@ -218,8 +218,10 @@ if __name__ == "__main__":
                         reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
                     if args.attn_type=='weight':
                         if args.num_areas>1:
-                            reg += args.attn_ent_reg*((ss['sas']*torch.exp(ss['sas'])).sum(-1).mean() \
-                                                     +(ss['fas']*torch.exp(ss['fas'])).sum(-1).mean())
+                            sas = F.log_softmax(ss['sas'], -1)
+                            fas = F.log_softmax(ss['fas'], -1)
+                            reg += args.attn_ent_reg*((sas*torch.exp(sas)).sum(-1).mean() \
+                                                     +(fas*torch.exp(fas)).sum(-1).mean())
                         else:
                             reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 
@@ -260,10 +262,12 @@ if __name__ == "__main__":
                         reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
                     if args.attn_type=='weight':
                         if args.num_areas>1:
-                            reg += args.attn_ent_reg*((ss['sas']*torch.exp(ss['sas'])).sum(-1).mean() \
-                                                     +(ss['fas']*torch.exp(ss['fas'])).sum(-1).mean())
+                            sas = F.log_softmax(ss['sas'], -1)
+                            fas = F.log_softmax(ss['fas'], -1)
+                            reg += args.attn_ent_reg*((sas*torch.exp(sas)).sum(-1).mean() \
+                                                     +(fas*torch.exp(fas)).sum(-1).mean())
                             reshaped_action = action.reshape(1, args.batch_size).repeat(ss['sas'].shape[0], 1).flatten()
-                            reg += args.beta_attn_chosen*F.cross_entropy(input=ss['sas'].flatten(-2), target=reshaped_action)
+                            reg += args.beta_attn_chosen*F.cross_entropy(input=(ss['sas']*DA_s['post_choice']).flatten(-2), target=reshaped_action)
                         else:
                             reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 
@@ -278,7 +282,7 @@ if __name__ == "__main__":
             if (batch_idx+1) % log_interval == 0:
                 if torch.isnan(loss):
                     quit()
-                pbar.set_description('Iteration {} Loss: {:.6f}'.format(
+                pbar.set_description('Iteration {} Loss: {:.4f}'.format(
                     batch_idx, loss.item() if 'policy' not in args.task_type else rwds))
                 pbar.refresh()
                 
