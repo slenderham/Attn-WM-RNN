@@ -52,6 +52,7 @@ if __name__ == "__main__":
     parser.add_argument('--attn_ent_reg', type=float, default=0.0, help='Entropy regularization for attention')
     parser.add_argument('--beta_v', type=float, default=0.5, help='Weight for value estimation loss')
     parser.add_argument('--beta_entropy', type=float, default=0.01, help='Weight for entropy regularization')
+    parser.add_argument('--beta_attn_chosen', type=float, default=0.5, help='Weight for forcing attention on chosen stimuli')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
     parser.add_argument('--plas_rule', type=str, choices=['add', 'mult'], default='add', help='Plasticity rule')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
@@ -144,7 +145,8 @@ if __name__ == "__main__":
     
     if args.num_areas>1:
         model_specs['num_areas'] = args.num_areas
-        model_specs['loc_input'] = True
+        model_specs['loc_input'] = False
+        model_specs['inter_regional_sparsity'] = 0.25
         model = MultiAreaRNN(**model_specs)
     elif 'double' in args.task_type:
         model = MultiChoiceRNN(**model_specs)
@@ -177,6 +179,9 @@ if __name__ == "__main__":
                 loss = 0
                 hidden = None
                 rwds = 0
+                # plt.imshow(model.rnn.h2h.effective_weight().detach())
+                # plt.colorbar()
+                # plt.show()
                 for i in range(len(pop_s['pre_choice'])):
                     # first phase, give stimuli and no feedback
                     output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
@@ -206,12 +211,11 @@ if __name__ == "__main__":
                     if args.plastic_feedback:
                         reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()\
                                         +ss['whs'].pow(2).sum(dim=(-2,-1)).mean()\
-                                        +ss['wfbs'].pow(2).sum(dim=(-2,-1)).mean())\
-                                /(ss['wxs'].numel()+ss['whs'].numel()+ss['wfbs'].numel())
+                                        +ss['wfbs'].pow(2).sum(dim=(-2,-1)).mean())
                     else:
                         reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()\
-                                        +ss['whs'].pow(2).sum(dim=(-2,-1)).mean())\
-                                /(ss['wxs'].numel()+ss['whs'].numel())
+                                        +ss['whs'].pow(2).sum(dim=(-2,-1)).mean())
+                        reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
                     if args.attn_type=='weight':
                         if args.num_areas>1:
                             reg += args.attn_ent_reg*((ss['sas']*torch.exp(ss['sas'])).sum(-1).mean() \
@@ -249,18 +253,17 @@ if __name__ == "__main__":
                     if args.plastic_feedback:
                         reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()\
                                         +ss['whs'].pow(2).sum(dim=(-2, -1)).mean()\
-                                        +ss['wfbs'].pow(2).sum(dim=(-2, -1)).mean())\
-                                /(ss['wxs'].numel()+ss['whs'].numel()+ss['wfbs'].numel())
+                                        +ss['wfbs'].pow(2).sum(dim=(-2, -1)).mean())
                     else:
                         reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()\
-                                        +ss['whs'].pow(2).sum(dim=(-2, -1)).mean())\
-                                /(ss['wxs'].numel()+ss['whs'].numel())
+                                        +ss['whs'].pow(2).sum(dim=(-2, -1)).mean())
+                        reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
                     if args.attn_type=='weight':
                         if args.num_areas>1:
                             reg += args.attn_ent_reg*((ss['sas']*torch.exp(ss['sas'])).sum(-1).mean() \
                                                      +(ss['fas']*torch.exp(ss['fas'])).sum(-1).mean())
-                            # reshaped_action = action.reshape(1, args.batch_size).repeat(ss['sas'].shape[0], 1).flatten()
-                            # reg += F.cross_entropy(input=ss['sas'].flatten(-2), target=reshaped_action)
+                            reshaped_action = action.reshape(1, args.batch_size).repeat(ss['sas'].shape[0], 1).flatten()
+                            reg += args.beta_attn_chosen*F.cross_entropy(input=ss['sas'].flatten(-2), target=reshaped_action)
                         else:
                             reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 

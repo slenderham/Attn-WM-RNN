@@ -53,6 +53,15 @@ def _get_connectivity_mask(in_mask, aux_mask, rec_mask, input_units, aux_input_u
                     torch.cat([rec_mask_ee, rec_mask_ei], dim=1),
                     torch.cat([rec_mask_ie, rec_mask_ii], dim=1)], dim=0)
 
+    # within region and cross_region connectivity
+    rec_mask_ee_intra = torch.kron(torch.eye(num_areas), torch.ones(e_hidden_units_per_area, e_hidden_units_per_area))
+    rec_mask_ie_intra = torch.kron(torch.eye(num_areas), torch.ones(i_hidden_units_per_area, e_hidden_units_per_area))
+    conn_mask['rec_intra'] = torch.cat([
+                    torch.cat([rec_mask_ee_intra, rec_mask_ei], dim=1),
+                    torch.cat([rec_mask_ie_intra, rec_mask_ii], dim=1)], dim=0)
+
+    conn_mask['rec_inter'] = conn_mask['rec']-conn_mask['rec_intra']
+
     return conn_mask
 
 class EILinear(nn.Module):
@@ -141,7 +150,7 @@ class PlasticLeakyRNNCell(nn.Module):
         if self.aux_input_size>0:
             self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='abs',
                                   e_prop=1, zero_cols_prop=0, bias=False,
-                                  init_gain=math.sqrt(self.aux_input_size/input_size),
+                                  init_gain=math.sqrt(self.aux_input_size/input_size)/2,
                                   conn_mask=conn_mask.get('aux', None))
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='abs',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
@@ -812,8 +821,8 @@ class SimpleRNN(nn.Module):
 
 class MultiAreaRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, num_areas, 
-                channel_group_size=None, plastic=True, activation='retanh', 
-                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, train_init_state=False,
+                channel_group_size=None, plastic=True, activation='retanh', train_init_state=False,
+                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, inter_regional_sparsity=0.1,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 action_input=True, rwd_input=True, loc_input=True,
                 balance_ei=False, plas_rule='add', **kwargs):
@@ -860,6 +869,11 @@ class MultiAreaRNN(nn.Module):
                                        activation=activation, dt=dt, tau_x=tau_x, tau_w=tau_w, weight_bound=weight_bound, train_init_state=train_init_state, 
                                        e_prop=e_prop, sigma_rec=sigma_rec, sigma_in=sigma_in, sigma_w=sigma_w, init_spectral=init_spectral,
                                        balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks)
+
+        # sparsify inter-regional connectivity, but not enforeced
+        self.rnn.h2h.weight.data[self.conn_masks['rec_inter'].abs()>0.5] *= (torch.rand((self.conn_masks['rec_inter'].abs().sum().long(),))<inter_regional_sparsity)
+        if init_spectral is not None:
+            self.rnn.h2h.weight.data *= init_spectral / torch.linalg.eigvals(self.rnn.h2h.effective_weight()).real.max()
 
         # choice and value output
         self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True)
@@ -913,11 +927,11 @@ class MultiAreaRNN(nn.Module):
         for i in range(steps):
             # modulate input by spatial attention
             sa = self.h2sa(hidden[1][:,self.output_unit_maps['spatial_attn'][0]:self.output_unit_maps['spatial_attn'][1]])
-            loc_attn = F.gumbel_softmax(logits=sa, hard=True, dim=-1)
+            loc_attn = F.softmax(input=sa, dim=-1)
             curr_x = (x[i]*loc_attn.reshape(batch_size, self.output_size, 1)).sum(1) # batch_size, input_size
             # modulate input by feature attention
             fa = self.h2fa(hidden[1][:,self.output_unit_maps['feat_attn'][0]:self.output_unit_maps['feat_attn'][1]])
-            attr_attn = F.gumbel_softmax(logits=fa, hard=True, dim=-1)
+            attr_attn = F.softmax(input=fa, dim=-1)
             attr_attn = torch.repeat_interleave(attr_attn, self.channel_group_size, dim=-1)
             curr_x = curr_x*attr_attn
 
