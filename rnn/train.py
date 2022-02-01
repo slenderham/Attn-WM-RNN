@@ -52,7 +52,7 @@ if __name__ == "__main__":
     parser.add_argument('--attn_ent_reg', type=float, default=0.0, help='Entropy regularization for attention')
     parser.add_argument('--beta_v', type=float, default=0.5, help='Weight for value estimation loss')
     parser.add_argument('--beta_entropy', type=float, default=0.01, help='Weight for entropy regularization')
-    parser.add_argument('--beta_attn_chosen', type=float, default=1.0, help='Weight for forcing attention on chosen stimuli')
+    parser.add_argument('--beta_attn_chosen', type=float, default=0.5, help='Weight for forcing attention on chosen stimuli')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
     parser.add_argument('--plas_rule', type=str, choices=['add', 'mult'], default='add', help='Plasticity rule')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')

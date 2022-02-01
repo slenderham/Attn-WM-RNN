@@ -101,8 +101,6 @@ class EILinear(nn.Module):
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
             nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
-            # nn.init.kaiming_normal_(self.weight)
-            # self.weight.abs_()
             # Scale E weight by E-I ratio
             if balance_ei and self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -193,6 +191,7 @@ class PlasticLeakyRNNCell(nn.Module):
             if self._sigma_w>0:
                 new_w += self._sigma_w * torch.randn_like(new_w)
         elif self.plas_rule=='mult':
+            raise NotImplementedError
             expnt = 0.4
             new_w = baseline*self.alpha_w + w*self.oneminusalpha_w \
                   + self.dt*R*kappa*(w**expnt)*torch.einsum('bi, bj->bij', post**expnt, pre**expnt)
@@ -231,7 +230,7 @@ class PlasticLeakyRNNCell(nn.Module):
                 R = (R!=0)*(R.unsqueeze(-1)+1)/2
                 v = v.unsqueeze(-1)
             wx = self.plasticity_func(wx, self.x2h.pos_func(self.x2h.weight).unsqueeze(0), R-v, x, new_output, 
-                                                self.kappa_in.abs(), 0, self.weight_bound)
+                                        self.kappa_in.abs(), 0, self.weight_bound)
             wh = self.plasticity_func(wh, self.h2h.pos_func(self.h2h.weight).unsqueeze(0), R-v, output, new_output,
                                         self.kappa_rec.abs(), 0, self.weight_bound)
             return [new_state, new_output, wx, wh]
