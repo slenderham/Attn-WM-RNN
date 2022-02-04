@@ -62,7 +62,7 @@ class MDPRL():
         self.s = s
         self.times = times
 
-        assert(input_type in ['feat', 'feat+conj', 'feat+conj+obj']), 'invalid input type'
+        assert(input_type in ['feat', 'feat+conj', 'feat+obj', 'feat+conj+obj']), 'invalid input type'
         if input_type=='feat':
             self.input_indexes = np.arange(0, 9)
         elif input_type=='feat+conj':
@@ -70,7 +70,7 @@ class MDPRL():
         elif input_type=='feat+conj+obj':
             self.input_indexes = np.arange(0, 63)
         elif input_type=='feat+obj':
-            self.input_indexes = np.concat([np.arange(0, 9), np.arange(36, 63)])
+            self.input_indexes = np.concatenate([np.arange(0, 9), np.arange(36, 63)])
         else:
             raise RuntimeError
 
