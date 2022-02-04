@@ -125,7 +125,7 @@ if __name__ == "__main__":
         if args.input_type=='feat':
             channel_group_size = [args.stim_val]*args.stim_dim
         elif args.input_type=='feat+obj':
-            channel_group_size = [args.stim_val]*args.stim_dim + [args.stim_val**args.stim_dim]
+            channel_group_size = [args.stim_val]*args.stim_dim
         elif args.input_type=='feat+conj+obj':
             channel_group_size = [args.stim_val]*args.stim_dim + [args.stim_val*args.stim_val]*args.stim_dim + [args.stim_val**args.stim_dim]
     else:
@@ -146,13 +146,13 @@ if __name__ == "__main__":
     if args.num_areas>1:
         model_specs['num_areas'] = args.num_areas
         model_specs['loc_input'] = False
-        model_specs['inter_regional_sparsity'] = 0.25
+        model_specs['inter_regional_sparsity'] = 0.1
         model = MultiAreaRNN(**model_specs)
     elif 'double' in args.task_type:
         model = MultiChoiceRNN(**model_specs)
     else:
         model = SimpleRNN(**model_specs)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-4 if 'policy' in args.task_type else 1e-8)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     print(model)
     for n, p in model.named_parameters():
         print(n, p.numel())
@@ -267,7 +267,9 @@ if __name__ == "__main__":
                             reg += args.attn_ent_reg*((sas*torch.exp(sas)).sum(-1).mean() \
                                                      +(fas*torch.exp(fas)).sum(-1).mean())
                             reshaped_action = action.reshape(1, args.batch_size).repeat(ss['sas'].shape[0], 1).flatten()
-                            reg += args.beta_attn_chosen*F.cross_entropy(input=(ss['sas']*DA_s['post_choice']).flatten(-2), target=reshaped_action)
+                            reshaped_gaze = ss['sas'][(DA_s['post_choice']>0.5).squeeze()]
+                            reshaped_action = action.reshape(1, args.batch_size).repeat(reshaped_gaze.shape[0], 1).flatten()
+                            reg += args.beta_attn_chosen*F.cross_entropy(input=(reshaped_gaze).flatten(-2), target=reshaped_action)
                         else:
                             reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 
@@ -276,6 +278,11 @@ if __name__ == "__main__":
             (loss/args.grad_accumulation_steps/len(pop_s['pre_choice'])).backward()
             if (batch_idx+1) % args.grad_accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
+                # for n, p in model.named_parameters():
+                    # print(n, p.grad.pow(2).sum())
+                # plt.imshow(model.rnn.h2h.weight.grad)
+                # plt.colorbar()
+                # plt.show()
                 optimizer.step()
                 optimizer.zero_grad()
 

@@ -60,6 +60,7 @@ def _get_connectivity_mask(in_mask, aux_mask, rec_mask, input_units, aux_input_u
                     torch.cat([rec_mask_ee_intra, rec_mask_ei], dim=1),
                     torch.cat([rec_mask_ie_intra, rec_mask_ii], dim=1)], dim=0)
 
+    # feedforward and feedback connectivity
     conn_mask['rec_inter'] = conn_mask['rec']-conn_mask['rec_intra']
 
     return conn_mask
@@ -142,7 +143,7 @@ class PlasticLeakyRNNCell(nn.Module):
         self.plas_rule = plas_rule
 
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='abs',
-                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=1,
+                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.5,
                             conn_mask=conn_mask.get('in', None))
         
         if self.aux_input_size>0:
@@ -849,14 +850,15 @@ class MultiAreaRNN(nn.Module):
                                 + (output_size if self.action_input else 0) \
                                 + (output_size if self.loc_input else 0)
         self.channel_group_size = torch.LongTensor(channel_group_size)
+        self.size_to_modulate = self.channel_group_size.sum() # the length of the feature based inputs
         self.num_channels = len(channel_group_size)
         self.plastic = plastic
         self.weight_bound = weight_bound
         self.plas_rule = plas_rule
 
         # specify connectivity
-        assert num_areas >= 5
-        in_mask = torch.FloatTensor([*[1]*2, *[0]*(num_areas-2)]).unsqueeze(-1)
+        assert num_areas >= 4
+        in_mask = torch.FloatTensor([*[1]*num_areas]).unsqueeze(-1)
         aux_mask = torch.FloatTensor([*[1]*num_areas]).unsqueeze(-1)
         rec_mask = torch.ones(num_areas, num_areas)
 
@@ -932,8 +934,7 @@ class MultiAreaRNN(nn.Module):
             fa = self.h2fa(hidden[1][:,self.output_unit_maps['feat_attn'][0]:self.output_unit_maps['feat_attn'][1]])
             attr_attn = F.softmax(input=fa, dim=-1)
             attr_attn = torch.repeat_interleave(attr_attn, self.channel_group_size, dim=-1)
-            curr_x = curr_x*attr_attn
-
+            curr_x = torch.cat([curr_x[:,:self.size_to_modulate]*attr_attn, curr_x[:,self.size_to_modulate:]], dim=-1)
             if self.aux_input_size>0:
                 aux_x = []
                 if self.rwd_input:
