@@ -145,7 +145,7 @@ if __name__ == "__main__":
     
     if args.num_areas>1:
         model_specs['num_areas'] = args.num_areas
-        model_specs['loc_input'] = False
+        model_specs['loc_input'] = True
         model_specs['inter_regional_sparsity'] = 0.1
         model = MultiAreaRNN(**model_specs)
     elif 'double' in args.task_type:
