@@ -824,7 +824,7 @@ class MultiAreaRNN(nn.Module):
                 channel_group_size=None, plastic=True, activation='retanh', train_init_state=False,
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, inter_regional_sparsity=0.1,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
-                action_input=True, rwd_input=True, loc_input=True,
+                action_input=True, rwd_input=True, loc_input=True, task_phase_input=True,
                 balance_ei=False, plas_rule='add', **kwargs):
         super().__init__()
 
@@ -845,10 +845,12 @@ class MultiAreaRNN(nn.Module):
         self.action_input = action_input
         self.rwd_input = rwd_input
         self.loc_input = loc_input
+        self.task_phase_input = task_phase_input
         self.e_size = int(e_prop * hidden_size)
         self.aux_input_size = 0 + (2 if self.rwd_input else 0) \
                                 + (output_size if self.action_input else 0) \
-                                + (output_size if self.loc_input else 0)
+                                + (output_size if self.loc_input else 0) \
+                                + (2 if self.task_phase_input else 0)
         self.channel_group_size = torch.LongTensor(channel_group_size)
         self.size_to_modulate = self.channel_group_size.sum() # the length of the feature based inputs
         self.num_channels = len(channel_group_size)
@@ -935,6 +937,7 @@ class MultiAreaRNN(nn.Module):
             attr_attn = F.softmax(input=fa, dim=-1)
             attr_attn = torch.repeat_interleave(attr_attn, self.channel_group_size, dim=-1)
             curr_x = torch.cat([curr_x[:,:self.size_to_modulate]*attr_attn, curr_x[:,self.size_to_modulate:]], dim=-1)
+            # curr_x = torch.cat(torch.split(curr_x, 1, dim=1), dim=-1).squeeze(1)
             if self.aux_input_size>0:
                 aux_x = []
                 if self.rwd_input:
@@ -947,6 +950,9 @@ class MultiAreaRNN(nn.Module):
                 if self.loc_input:
                     loc_aux = (x[i]!=0).any()*loc_attn
                     aux_x.append(loc_aux)
+                if self.task_phase_input:
+                    task_aux = torch.cat([(x[i]!=0).any().float().reshape(batch_size, 1), (Rs[i]!=0).float()], dim=-1)
+                    aux_x.append(task_aux)
                 aux_x = torch.cat(aux_x, dim=-1)
             else:
                 aux_x = None
