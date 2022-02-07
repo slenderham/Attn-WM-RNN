@@ -857,7 +857,7 @@ class MultiAreaRNN(nn.Module):
         self.plas_rule = plas_rule
 
         # specify connectivity
-        assert num_areas >= 4
+        assert num_areas >= 3
         in_mask = torch.FloatTensor([*[1]*num_areas]).unsqueeze(-1)
         aux_mask = torch.FloatTensor([*[1]*num_areas]).unsqueeze(-1)
         rec_mask = torch.ones(num_areas, num_areas)
@@ -893,10 +893,10 @@ class MultiAreaRNN(nn.Module):
             self.x0 = torch.zeros(1, hidden_size*num_areas)
 
         self.output_unit_maps = {
-            'value': ((num_areas-4)*self.e_size, (num_areas-3)*self.e_size),
+            'value': ((num_areas-1)*self.e_size, (num_areas)*self.e_size),
             'spatial_attn': ((num_areas-3)*self.e_size, (num_areas-2)*self.e_size),
             'feat_attn': ((num_areas-2)*self.e_size, (num_areas-1)*self.e_size),
-            'choice': ((num_areas-1)*self.e_size, num_areas*self.e_size),
+            'choice': ((num_areas-1)*self.e_size, (num_areas)*self.e_size),
         }
         print(self.output_unit_maps)
 
