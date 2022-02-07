@@ -52,7 +52,7 @@ if __name__ == "__main__":
     parser.add_argument('--attn_ent_reg', type=float, default=0.0, help='Entropy regularization for attention')
     parser.add_argument('--beta_v', type=float, default=0.5, help='Weight for value estimation loss')
     parser.add_argument('--beta_entropy', type=float, default=0.01, help='Weight for entropy regularization')
-    parser.add_argument('--beta_attn_chosen', type=float, default=0.5, help='Weight for forcing attention on chosen stimuli')
+    parser.add_argument('--beta_attn_chosen', type=float, default=0.0, help='Weight for forcing attention on chosen stimuli')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
     parser.add_argument('--plas_rule', type=str, choices=['add', 'mult'], default='add', help='Plasticity rule')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
@@ -146,6 +146,7 @@ if __name__ == "__main__":
     if args.num_areas>1:
         model_specs['num_areas'] = args.num_areas
         model_specs['loc_input'] = True
+        model_specs['task_phase_input'] = True
         model_specs['inter_regional_sparsity'] = 0.1
         model = MultiAreaRNN(**model_specs)
     elif 'double' in args.task_type:
@@ -206,6 +207,9 @@ if __name__ == "__main__":
                     # plt.plot(ss['sas'].squeeze().detach())
                     # plt.plot(ss['fas'].squeeze().detach())
                     # plt.show()
+                    # print(hs.shape)
+                    # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
+                    # plt.show()
 
                     reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
                     if args.plastic_feedback:
@@ -249,6 +253,8 @@ if __name__ == "__main__":
                     # plt.plot(value.squeeze().detach())
                     # plt.plot(ss['sas'].squeeze().detach())
                     # plt.plot(ss['fas'].squeeze().detach())
+                    # plt.show()
+                    # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
                     # plt.show()
 
                     reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
