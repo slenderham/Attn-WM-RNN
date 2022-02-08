@@ -825,7 +825,7 @@ class MultiAreaRNN(nn.Module):
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, inter_regional_sparsity=0.1,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 action_input=True, rwd_input=True, loc_input=True, task_phase_input=True,
-                balance_ei=False, plas_rule='add', **kwargs):
+                balance_ei=False, plas_rule='add', spatial_attn_agg='avg', **kwargs):
         super().__init__()
 
         # state -> value -> choice
@@ -857,6 +857,9 @@ class MultiAreaRNN(nn.Module):
         self.plastic = plastic
         self.weight_bound = weight_bound
         self.plas_rule = plas_rule
+        self.spatial_attn_agg = spatial_attn_agg
+        if spatial_attn_agg=='concat':
+            input_size = input_size*output_size
 
         # specify connectivity
         assert num_areas >= 3
@@ -931,13 +934,22 @@ class MultiAreaRNN(nn.Module):
             # modulate input by spatial attention
             sa = self.h2sa(hidden[1][:,self.output_unit_maps['spatial_attn'][0]:self.output_unit_maps['spatial_attn'][1]])
             loc_attn = F.softmax(input=sa, dim=-1)
-            curr_x = (x[i]*loc_attn.reshape(batch_size, self.output_size, 1)).sum(1) # batch_size, input_size
+            if self.spatial_attn_agg=='avg':
+                curr_x = (x[i]*loc_attn.reshape(batch_size, self.output_size, 1)).sum(1) # batch_size, input_size
+                fa = self.h2fa(hidden[1][:,self.output_unit_maps['feat_attn'][0]:self.output_unit_maps['feat_attn'][1]])
+                attr_attn = F.softmax(input=fa, dim=-1)
+                attr_attn = torch.repeat_interleave(attr_attn, self.channel_group_size, dim=-1)
+                curr_x = torch.cat([curr_x[:,:self.size_to_modulate]*attr_attn, curr_x[:,self.size_to_modulate:]], dim=-1)
+            elif self.spatial_attn_agg=='concat':
+                curr_x = (x[i]*loc_attn.reshape(batch_size, self.output_size, 1)) # batch_size, input_size
+                fa = self.h2fa(hidden[1][:,self.output_unit_maps['feat_attn'][0]:self.output_unit_maps['feat_attn'][1]])
+                attr_attn = F.softmax(input=fa, dim=-1)
+                attr_attn = torch.repeat_interleave(attr_attn, self.channel_group_size, dim=-1)
+                curr_x = torch.cat([curr_x[:,:,:self.size_to_modulate]*attr_attn, curr_x[:,:,self.size_to_modulate:]], dim=-1)
+                curr_x = torch.cat(torch.split(curr_x, 1, dim=1), dim=-1).squeeze(1)
+            else:
+                raise ValueError
             # modulate input by feature attention
-            fa = self.h2fa(hidden[1][:,self.output_unit_maps['feat_attn'][0]:self.output_unit_maps['feat_attn'][1]])
-            attr_attn = F.softmax(input=fa, dim=-1)
-            attr_attn = torch.repeat_interleave(attr_attn, self.channel_group_size, dim=-1)
-            curr_x = torch.cat([curr_x[:,:self.size_to_modulate]*attr_attn, curr_x[:,self.size_to_modulate:]], dim=-1)
-            # curr_x = torch.cat(torch.split(curr_x, 1, dim=1), dim=-1).squeeze(1)
             if self.aux_input_size>0:
                 aux_x = []
                 if self.rwd_input:

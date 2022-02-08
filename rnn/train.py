@@ -58,6 +58,7 @@ if __name__ == "__main__":
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
     parser.add_argument('--attn_type', type=str, choices=['none', 'bias', 'weight', 'sample'], 
                         default='weight', help='Type of attn. None, additive feedback, multiplicative weighing, gumbel-max sample')
+    parser.add_argument('--spatial_attn_agg', type=str, choices=['concat', 'avg'], default='avg', help='How to aggregate input objects after spatial attn.')
     parser.add_argument('--sep_lr', action='store_true', help='Use different lr between diff type of units')
     parser.add_argument('--plastic_feedback', action='store_true', help='Plastic feedback weights')
     parser.add_argument('--task_type', type=str, choices=['value', 'off_policy_single', 'on_policy_double'],
@@ -141,7 +142,7 @@ if __name__ == "__main__":
                    'rwd_input': args.rwd_input, 'action_input': args.action_input, 'plas_rule': args.plas_rule,
                    'input_unit_group': input_unit_group, 'sep_lr': args.sep_lr, 'plastic_feedback': args.plastic_feedback,
                    'value_est': 'policy' in args.task_type, 'num_choices': 2 if 'double' in args.task_type else 1,
-                   'structured_conn': args.structured_conn}
+                   'structured_conn': args.structured_conn, 'spatial_attn_agg': args.spatial_attn_agg}
     
     if args.num_areas>1:
         model_specs['num_areas'] = args.num_areas
@@ -153,7 +154,7 @@ if __name__ == "__main__":
         model = MultiChoiceRNN(**model_specs)
     else:
         model = SimpleRNN(**model_specs)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-4)
     print(model)
     for n, p in model.named_parameters():
         print(n, p.numel())
@@ -180,7 +181,7 @@ if __name__ == "__main__":
                 loss = 0
                 hidden = None
                 rwds = 0
-                # plt.imshow(model.rnn.h2h.effective_weight().detach())
+                # plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.05, vmin=-0.05, cmap='seismic')
                 # plt.colorbar()
                 # plt.show()
                 for i in range(len(pop_s['pre_choice'])):
@@ -200,11 +201,12 @@ if __name__ == "__main__":
                     
                     total_acc += (torch.argmax(logprob[-1], -1)==torch.argmax(prob_s[i], -1)).float()
 
-                    # plt.plot(hs.squeeze().detach())
+                    # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
+                    # plt.colorbar()
                     # plt.plot(logprob.squeeze().detach())
                     # plt.plot(value.squeeze().detach())
-                    # plt.plot(ss['sas'].squeeze().detach())
-                    # plt.plot(ss['fas'].squeeze().detach())
+                    # plt.plot(ss['sas'].squeeze().detach().softmax(-1))
+                    # plt.plot(ss['fas'].squeeze().detach().softmax(-1))
                     # plt.show()
                     # print(hs.shape)
                     # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
@@ -246,9 +248,10 @@ if __name__ == "__main__":
                     _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc, 
                                                 save_attns=True, save_weights=True)
 
-                    # plt.plot(hs.squeeze().detach())
-                    # plt.plot(ss['sas'].squeeze().detach())
-                    # plt.plot(ss['fas'].squeeze().detach())
+                    # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
+                    # plt.colorbar()                    
+                    # plt.plot(ss['sas'].squeeze().detach().softmax(-1))
+                    # plt.plot(ss['fas'].squeeze().detach().softmax(-1))
                     # plt.show()
                     # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
                     # plt.show()
