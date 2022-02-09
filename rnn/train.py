@@ -37,8 +37,8 @@ if __name__ == "__main__":
     parser.add_argument('--eval_samples', type=int, default=21, help='Number of samples to use for evaluation.')
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
-    parser.add_argument('--sigma_rec', type=float, default=0.01, help='Std for recurrent noise')
+    parser.add_argument('--sigma_in', type=float, default=0.005, help='Std for input noise')
+    parser.add_argument('--sigma_rec', type=float, default=0.05, help='Std for recurrent noise')
     parser.add_argument('--sigma_w', type=float, default=0.0, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=None, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
@@ -86,15 +86,15 @@ if __name__ == "__main__":
     save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
     exp_times = {
-        'start_time': -0.25,
-        'end_time': 0.75,
+        'start_time': -0.5,
+        'end_time': 1.5,
         'stim_onset': 0.0,
-        'stim_end': 0.6,
-        'rwd_onset': 0.5,
-        'rwd_end': 0.6,
-        'choice_onset': 0.35,
-        'choice_end': 0.5,
-        'total_time': 1,
+        'stim_end': 1.2,
+        'rwd_onset': 1.0,
+        'rwd_end': 1.2,
+        'choice_onset': 0.7,
+        'choice_end': 1.0,
+        'total_time': 2,
         'dt': args.dt}
     log_interval = 1
 
@@ -154,7 +154,7 @@ if __name__ == "__main__":
         model = MultiChoiceRNN(**model_specs)
     else:
         model = SimpleRNN(**model_specs)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-5)
     print(model)
     for n, p in model.named_parameters():
         print(n, p.numel())
@@ -181,7 +181,7 @@ if __name__ == "__main__":
                 loss = 0
                 hidden = None
                 rwds = 0
-                # plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.05, vmin=-0.05, cmap='seismic')
+                # plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.1, vmin=-0.1, cmap='seismic')
                 # plt.colorbar()
                 # plt.show()
                 for i in range(len(pop_s['pre_choice'])):
@@ -205,8 +205,8 @@ if __name__ == "__main__":
                     # plt.colorbar()
                     # plt.plot(logprob.squeeze().detach())
                     # plt.plot(value.squeeze().detach())
-                    # plt.plot(ss['sas'].squeeze().detach().softmax(-1))
-                    # plt.plot(ss['fas'].squeeze().detach().softmax(-1))
+                    # plt.plot(ss['sas'].squeeze().detach())
+                    # plt.plot(ss['fas'].squeeze().detach())
                     # plt.show()
                     # print(hs.shape)
                     # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
@@ -223,10 +223,10 @@ if __name__ == "__main__":
                         reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
                     if args.attn_type=='weight':
                         if args.num_areas>1:
-                            sas = F.log_softmax(ss['sas'], -1)
-                            fas = F.log_softmax(ss['fas'], -1)
-                            reg += args.attn_ent_reg*((sas*torch.exp(sas)).sum(-1).mean() \
-                                                     +(fas*torch.exp(fas)).sum(-1).mean())
+                            sas = F.softmax(ss['sas'], -1).mean([0,1])
+                            fas = F.softmax(ss['fas'], -1).mean([0,1])
+                            reg += args.attn_ent_reg*((sas*torch.log(sas)).sum() \
+                                                     +(fas*torch.log(fas)).sum())
                         else:
                             reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 
@@ -267,10 +267,10 @@ if __name__ == "__main__":
                         reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
                     if args.attn_type=='weight':
                         if args.num_areas>1:
-                            sas = F.log_softmax(ss['sas'], -1)
-                            fas = F.log_softmax(ss['fas'], -1)
-                            reg += args.attn_ent_reg*((sas*torch.exp(sas)).sum(-1).mean() \
-                                                     +(fas*torch.exp(fas)).sum(-1).mean())
+                            sas = F.softmax(ss['sas'], -1).mean([0,1])
+                            fas = F.softmax(ss['fas'], -1).mean([0,1])
+                            reg += args.attn_ent_reg*((sas*torch.log(sas)).sum() \
+                                                     +(fas*torch.log(fas)).sum())
                             reshaped_action = action.reshape(1, args.batch_size).repeat(ss['sas'].shape[0], 1).flatten()
                             reshaped_gaze = ss['sas'][(DA_s['post_choice']>0.5).squeeze()]
                             reshaped_action = action.reshape(1, args.batch_size).repeat(reshaped_gaze.shape[0], 1).flatten()

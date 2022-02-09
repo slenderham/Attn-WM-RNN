@@ -170,7 +170,7 @@ class PlasticLeakyRNNCell(nn.Module):
         self.oneminusalpha_x = 1 - alpha_x
         self.oneminusalpha_w = 1 - alpha_w
         self._sigma_rec = np.sqrt(2*alpha_x) * sigma_rec
-        self._sigma_in = np.sqrt(2*alpha_x) * sigma_in
+        self._sigma_in = np.sqrt(2/alpha_x) * sigma_in
         self._sigma_w = np.sqrt(2*alpha_w) * sigma_w
 
         if train_init_state:
