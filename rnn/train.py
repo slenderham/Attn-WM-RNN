@@ -86,15 +86,15 @@ if __name__ == "__main__":
     save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
     exp_times = {
-        'start_time': -0.5,
-        'end_time': 1.5,
+        'start_time': -0.25,
+        'end_time': 0.75,
         'stim_onset': 0.0,
-        'stim_end': 1.2,
-        'rwd_onset': 1.0,
-        'rwd_end': 1.2,
-        'choice_onset': 0.7,
-        'choice_end': 1.0,
-        'total_time': 2,
+        'stim_end': 0.75,
+        'rwd_onset': 0.65,
+        'rwd_end': 0.75,
+        'choice_onset': 0.5,
+        'choice_end': 0.65,
+        'total_time': 1,
         'dt': args.dt}
     log_interval = 1
 
@@ -250,8 +250,8 @@ if __name__ == "__main__":
 
                     # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
                     # plt.colorbar()                    
-                    # plt.plot(ss['sas'].squeeze().detach().softmax(-1))
-                    # plt.plot(ss['fas'].squeeze().detach().softmax(-1))
+                    # plt.plot(ss['sas'].squeeze().detach())
+                    # plt.plot(ss['fas'].squeeze().detach())
                     # plt.show()
                     # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
                     # plt.show()
