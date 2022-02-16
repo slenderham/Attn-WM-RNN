@@ -43,7 +43,7 @@ if __name__ == "__main__":
     parser.add_argument('--init_spectral', type=float, default=None, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
-    parser.add_argument('--tau_w', type=float, default=600, help='Time constant for weight modification')
+    parser.add_argument('--tau_w', type=float, default=200, help='Time constant for weight modification')
     parser.add_argument('--dt', type=float, default=0.02, help='Discretization time step (ms)')
     parser.add_argument('--l2r', type=float, default=0.0, help='Weight for L2 reg on firing rate')
     parser.add_argument('--l2w', type=float, default=0.0, help='Weight for L2 reg on weight')
@@ -69,6 +69,7 @@ if __name__ == "__main__":
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
     parser.add_argument('--structured_conn', action='store_true', help='Whether to use restricted connectivity')
+    parser.add_argument('--reversal_every', type=int, default=100000, help='Number of trials between reversals')
     parser.add_argument('--seed', type=int, help='Random seed')
     parser.add_argument('--save_checkpoint', action='store_true', help='Whether to save the trained model')
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to load the trained model')
@@ -147,14 +148,14 @@ if __name__ == "__main__":
     if args.num_areas>1:
         model_specs['num_areas'] = args.num_areas
         model_specs['loc_input'] = True
-        model_specs['task_phase_input'] = True
+        model_specs['task_phase_input'] = False
         model_specs['inter_regional_sparsity'] = 0.1
         model = MultiAreaRNN(**model_specs)
     elif 'double' in args.task_type:
         model = MultiChoiceRNN(**model_specs)
     else:
         model = SimpleRNN(**model_specs)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-4)
     print(model)
     for n, p in model.named_parameters():
         print(n, p.numel())
@@ -181,10 +182,28 @@ if __name__ == "__main__":
                 loss = 0
                 hidden = None
                 rwds = 0
-                # plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.1, vmin=-0.1, cmap='seismic')
+                # plt.imshow(model.rnn.x2h.effective_weight().detach())
+                # plt.colorbar()
+                # plt.show()           
+                # plt.imshow(model.rnn.aux2h.effective_weight().detach())
+                # plt.colorbar()
+                # plt.show()                
+                # plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.5, vmin=-0.5, cmap='seismic')
                 # plt.colorbar()
                 # plt.show()
+                # plt.imshow(model.h2o.effective_weight().detach())
+                # plt.colorbar()
+                # plt.show() 
+                # plt.imshow(model.h2sa.effective_weight().detach())
+                # plt.colorbar()
+                # plt.show()   
+                # plt.imshow(model.h2fa.effective_weight().detach())
+                # plt.colorbar()
+                # plt.show()  
+                # print(torch.linalg.eigvals(model.rnn.h2h.effective_weight()).real.max())
                 for i in range(len(pop_s['pre_choice'])):
+                    if (i+1)%args.reversal_every==0:
+                        probs = task_mdprl.reversal(probs)
                     # first phase, give stimuli and no feedback
                     output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
                                                   Rs=0*DA_s['pre_choice'], Vs=None,
@@ -202,6 +221,7 @@ if __name__ == "__main__":
                     total_acc += (torch.argmax(logprob[-1], -1)==torch.argmax(prob_s[i], -1)).float()
 
                     # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
+                    # plt.imshow(ss['wxs'][-1,0].detach(), aspect='auto', interpolation='nearest')
                     # plt.colorbar()
                     # plt.plot(logprob.squeeze().detach())
                     # plt.plot(value.squeeze().detach())
@@ -250,8 +270,8 @@ if __name__ == "__main__":
 
                     # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
                     # plt.colorbar()                    
-                    # plt.plot(ss['sas'].squeeze().detach())
-                    # plt.plot(ss['fas'].squeeze().detach())
+                    # plt.plot(ss['sas'].squeeze().detach().softmax(-1))
+                    # plt.plot(ss['fas'].squeeze().detach().softmax(-1))
                     # plt.show()
                     # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
                     # plt.show()

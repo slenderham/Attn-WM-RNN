@@ -293,3 +293,9 @@ class MDPRL():
     def generalizability(self, probdata=None):
         raise NotImplementedError
         return
+
+    def reversal(self, probs):
+        new_order = np.random.permutation(3)
+        dim_to_flip = np.random.randint(0, 3)
+        new_probs = np.take(probs, new_order, dim_to_flip)
+        return new_probs

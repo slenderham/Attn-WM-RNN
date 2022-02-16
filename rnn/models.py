@@ -101,10 +101,21 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
-            nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
+            # nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
             # Scale E weight by E-I ratio
+            # if balance_ei and self.i_size!=0:
+                # self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
+
+            gamma_k = 1
+            self.weight[:,:self.e_size]=torch.from_numpy(np.random.gamma(gamma_k**2, 1/gamma_k/np.sqrt(self.input_size), 
+                                                                    size=(self.output_size,self.e_size)))
+            self.weight[:,:self.e_size]=torch.clamp_max(self.weight[:,:self.e_size], gamma_k/np.sqrt(self.input_size)+3/np.sqrt(self.input_size))
             if balance_ei and self.i_size!=0:
-                self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
+                self.weight[:,self.e_size:]=torch.from_numpy(np.random.gamma((gamma_k*self.e_size/self.i_size)**2, 
+                                                                    1/(gamma_k*self.e_size/self.i_size)/np.sqrt(self.input_size), 
+                                                                    size=(self.output_size,self.i_size)))
+                self.weight[:,self.e_size:]=torch.clamp_max(self.weight[:,self.e_size:], 
+                                            gamma_k*self.e_size/self.i_size/np.sqrt(self.input_size)+3/np.sqrt(self.input_size))
 
             if init_gain is not None:
                 self.weight.data *= init_gain
@@ -824,7 +835,7 @@ class MultiAreaRNN(nn.Module):
                 channel_group_size=None, plastic=True, activation='retanh', train_init_state=False,
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, inter_regional_sparsity=0.1,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
-                action_input=True, rwd_input=True, loc_input=True, task_phase_input=True,
+                action_input=True, rwd_input=True, loc_input=True, task_phase_input=False,
                 balance_ei=False, plas_rule='add', spatial_attn_agg='avg', **kwargs):
         super().__init__()
 
@@ -832,7 +843,8 @@ class MultiAreaRNN(nn.Module):
         #       -> spatial attention
         #       -> feature attention
 
-        # state representation learns a hidden layer representation (lOFC)
+        # state representation learns a hidden layer representation (lOFC) [[scrap this]]
+        
         # value layer implements attention-guided value comparison (mOFC, vmPFC)
         # spatial attention executes saccade to focus on different options (DLPFC)
         # feature attention executes covert attention to focus on different attributes (DLPFC, IPS, ...)
@@ -882,14 +894,14 @@ class MultiAreaRNN(nn.Module):
             self.rnn.h2h.weight.data *= init_spectral / torch.linalg.eigvals(self.rnn.h2h.effective_weight()).real.max()
 
         # choice and value output
-        self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True)
-        self.h2v = EILinear(self.e_size, 1, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True)
+        self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=0.5)
+        self.h2v = EILinear(self.e_size, 1, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=0.5)
 
         # feature attention output
-        self.h2fa = EILinear(self.e_size, self.num_channels, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True)
+        self.h2fa = EILinear(self.e_size, self.num_channels, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=0.5)
 
         # network in charge of outputting attention to location
-        self.h2sa = EILinear(self.e_size, output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True)
+        self.h2sa = EILinear(self.e_size, output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=0.5)
 
         # init state
         if train_init_state:
