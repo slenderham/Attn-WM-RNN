@@ -150,7 +150,6 @@ if __name__ == "__main__":
     if args.num_areas>1:
         model_specs['num_areas'] = args.num_areas
         model_specs['loc_input'] = args.spatial_attn
-        model_specs['task_phase_input'] = True
         model_specs['inter_regional_sparsity'] = 0.1
         model_specs['add_sa'] = args.spatial_attn
         model_specs['add_fa'] = args.feature_attn
