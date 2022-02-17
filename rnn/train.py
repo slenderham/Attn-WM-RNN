@@ -37,7 +37,7 @@ if __name__ == "__main__":
     parser.add_argument('--eval_samples', type=int, default=21, help='Number of samples to use for evaluation.')
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--sigma_in', type=float, default=0.005, help='Std for input noise')
+    parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
     parser.add_argument('--sigma_rec', type=float, default=0.05, help='Std for recurrent noise')
     parser.add_argument('--sigma_w', type=float, default=0.0, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=None, help='Initial spectral radius for the recurrent weights')
@@ -58,6 +58,8 @@ if __name__ == "__main__":
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
     parser.add_argument('--attn_type', type=str, choices=['none', 'bias', 'weight', 'sample'], 
                         default='weight', help='Type of attn. None, additive feedback, multiplicative weighing, gumbel-max sample')
+    parser.add_argument('--spatial_attn', action='store_true', help='Whether to add trainable spatial attenion')
+    parser.add_argument('--feature_attn', action='store_true', help='Whether to add trainable feature attenion')
     parser.add_argument('--spatial_attn_agg', type=str, choices=['concat', 'avg'], default='avg', help='How to aggregate input objects after spatial attn.')
     parser.add_argument('--sep_lr', action='store_true', help='Use different lr between diff type of units')
     parser.add_argument('--plastic_feedback', action='store_true', help='Plastic feedback weights')
@@ -147,9 +149,11 @@ if __name__ == "__main__":
     
     if args.num_areas>1:
         model_specs['num_areas'] = args.num_areas
-        model_specs['loc_input'] = True
-        model_specs['task_phase_input'] = False
+        model_specs['loc_input'] = args.spatial_attn
+        model_specs['task_phase_input'] = True
         model_specs['inter_regional_sparsity'] = 0.1
+        model_specs['add_sa'] = args.spatial_attn
+        model_specs['add_fa'] = args.feature_attn
         model = MultiAreaRNN(**model_specs)
     elif 'double' in args.task_type:
         model = MultiChoiceRNN(**model_specs)
@@ -188,9 +192,9 @@ if __name__ == "__main__":
                 # plt.imshow(model.rnn.aux2h.effective_weight().detach())
                 # plt.colorbar()
                 # plt.show()                
-                # plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.5, vmin=-0.5, cmap='seismic')
-                # plt.colorbar()
-                # plt.show()
+                plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.1, vmin=-0.1, cmap='seismic')
+                plt.colorbar()
+                plt.show()
                 # plt.imshow(model.h2o.effective_weight().detach())
                 # plt.colorbar()
                 # plt.show() 
@@ -200,7 +204,9 @@ if __name__ == "__main__":
                 # plt.imshow(model.h2fa.effective_weight().detach())
                 # plt.colorbar()
                 # plt.show()  
-                # print(torch.linalg.eigvals(model.rnn.h2h.effective_weight()).real.max())
+                # v = torch.linalg.eigvals(model.rnn.h2h.effective_weight()).detach()
+                # plt.scatter(v.real,v.imag)
+                # plt.show()
                 for i in range(len(pop_s['pre_choice'])):
                     if (i+1)%args.reversal_every==0:
                         probs = task_mdprl.reversal(probs)
@@ -223,11 +229,16 @@ if __name__ == "__main__":
                     # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
                     # plt.imshow(ss['wxs'][-1,0].detach(), aspect='auto', interpolation='nearest')
                     # plt.colorbar()
-                    # plt.plot(logprob.squeeze().detach())
-                    # plt.plot(value.squeeze().detach())
-                    # plt.plot(ss['sas'].squeeze().detach())
-                    # plt.plot(ss['fas'].squeeze().detach())
-                    # plt.show()
+                    # plt.subplot(311).plot(logprob.squeeze().detach())
+                    # plt.subplot(311).plot(value.squeeze().detach())
+                    # plt.ylabel('choice prob')
+                    # plt.subplot(312).plot(ss['sas'].squeeze().detach())
+                    # plt.ylabel('spatial attention weight')
+                    # plt.subplot(313).plot(ss['fas'].squeeze().detach())
+                    # plt.ylabel('feature attention weight')
+
+                    # # plt.plot(ss['fas'].squeeze().detach())
+                    plt.show()
                     # print(hs.shape)
                     # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
                     # plt.show()
@@ -243,10 +254,12 @@ if __name__ == "__main__":
                         reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
                     if args.attn_type=='weight':
                         if args.num_areas>1:
-                            sas = F.softmax(ss['sas'], -1).mean([0,1])
-                            fas = F.softmax(ss['fas'], -1).mean([0,1])
-                            reg += args.attn_ent_reg*((sas*torch.log(sas)).sum() \
-                                                     +(fas*torch.log(fas)).sum())
+                            if args.spatial_attn:
+                                sas = F.softmax(ss['sas'], -1).mean([0,1])
+                                reg += args.attn_ent_reg*(sas*torch.log(sas)).sum()
+                            if args.feature_attn:
+                                fas = F.softmax(ss['fas'], -1).mean([0,1])
+                                reg += args.attn_ent_reg*(fas*torch.log(fas)).sum()
                         else:
                             reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 
@@ -257,7 +270,7 @@ if __name__ == "__main__":
                     # use the action (optional) and reward as feedback
                     pop_post = pop_s['post_choice'][i]
                     action_enc = torch.eye(output_size)[action]
-                    if args.num_areas==1:
+                    if args.num_areas==1 or not args.spatial_attn:
                         pop_post = pop_post*action_enc.reshape(1,1,2,1)
                     action_enc = action_enc*DA_s['post_choice']
                     R = (2*rwd-1)*DA_s['post_choice']
@@ -287,14 +300,16 @@ if __name__ == "__main__":
                         reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
                     if args.attn_type=='weight':
                         if args.num_areas>1:
-                            sas = F.softmax(ss['sas'], -1).mean([0,1])
-                            fas = F.softmax(ss['fas'], -1).mean([0,1])
-                            reg += args.attn_ent_reg*((sas*torch.log(sas)).sum() \
-                                                     +(fas*torch.log(fas)).sum())
-                            reshaped_action = action.reshape(1, args.batch_size).repeat(ss['sas'].shape[0], 1).flatten()
-                            reshaped_gaze = ss['sas'][(DA_s['post_choice']>0.5).squeeze()]
-                            reshaped_action = action.reshape(1, args.batch_size).repeat(reshaped_gaze.shape[0], 1).flatten()
-                            reg += args.beta_attn_chosen*F.cross_entropy(input=(reshaped_gaze).flatten(-2), target=reshaped_action)
+                            if args.spatial_attn:
+                                sas = F.softmax(ss['sas'], -1).mean([0,1])
+                                reg += args.attn_ent_reg*(sas*torch.log(sas)).sum()
+                                reshaped_action = action.reshape(1, args.batch_size).repeat(ss['sas'].shape[0], 1).flatten()
+                                reshaped_gaze = ss['sas'][(DA_s['post_choice']>0.5).squeeze()]
+                                reshaped_action = action.reshape(1, args.batch_size).repeat(reshaped_gaze.shape[0], 1).flatten()
+                                reg += args.beta_attn_chosen*F.cross_entropy(input=(reshaped_gaze).flatten(-2), target=reshaped_action)
+                            if args.feature_attn:
+                                fas = F.softmax(ss['fas'], -1).mean([0,1])
+                                reg += args.attn_ent_reg*(fas*torch.log(fas)).sum()
                         else:
                             reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
 

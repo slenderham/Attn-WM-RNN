@@ -101,21 +101,10 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
-            # nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
+            nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
             # Scale E weight by E-I ratio
-            # if balance_ei and self.i_size!=0:
-                # self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
-
-            gamma_k = 1
-            self.weight[:,:self.e_size]=torch.from_numpy(np.random.gamma(gamma_k**2, 1/gamma_k/np.sqrt(self.input_size), 
-                                                                    size=(self.output_size,self.e_size)))
-            self.weight[:,:self.e_size]=torch.clamp_max(self.weight[:,:self.e_size], gamma_k/np.sqrt(self.input_size)+3/np.sqrt(self.input_size))
             if balance_ei and self.i_size!=0:
-                self.weight[:,self.e_size:]=torch.from_numpy(np.random.gamma((gamma_k*self.e_size/self.i_size)**2, 
-                                                                    1/(gamma_k*self.e_size/self.i_size)/np.sqrt(self.input_size), 
-                                                                    size=(self.output_size,self.i_size)))
-                self.weight[:,self.e_size:]=torch.clamp_max(self.weight[:,self.e_size:], 
-                                            gamma_k*self.e_size/self.i_size/np.sqrt(self.input_size)+3/np.sqrt(self.input_size))
+                self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
 
             if init_gain is not None:
                 self.weight.data *= init_gain
@@ -154,7 +143,7 @@ class PlasticLeakyRNNCell(nn.Module):
         self.plas_rule = plas_rule
 
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='abs',
-                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.5,
+                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=1,
                             conn_mask=conn_mask.get('in', None))
         
         if self.aux_input_size>0:
@@ -831,7 +820,7 @@ class SimpleRNN(nn.Module):
             return os, hs, hidden, saved_states
 
 class MultiAreaRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, num_areas, 
+    def __init__(self, input_size, hidden_size, output_size, num_areas, add_sa, add_fa,
                 channel_group_size=None, plastic=True, activation='retanh', train_init_state=False,
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, inter_regional_sparsity=0.1,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
@@ -874,16 +863,15 @@ class MultiAreaRNN(nn.Module):
             input_size = input_size*output_size
 
         # specify connectivity
-        assert num_areas >= 3
-        in_mask = torch.FloatTensor([*[1]*num_areas]).unsqueeze(-1)
-        aux_mask = torch.FloatTensor([*[1]*num_areas]).unsqueeze(-1)
-        rec_mask = torch.ones(num_areas, num_areas)
+        in_mask = torch.FloatTensor([*[1]*self.num_areas]).unsqueeze(-1)
+        aux_mask = torch.FloatTensor([*[1]*self.num_areas]).unsqueeze(-1)
+        rec_mask = torch.ones(self.num_areas, self.num_areas)
 
         self.conn_masks = _get_connectivity_mask(in_mask=in_mask, aux_mask=aux_mask, rec_mask=rec_mask,
                                                  input_units=input_size, aux_input_units=self.aux_input_size, 
                                                  e_hidden_units_per_area=self.e_size, i_hidden_units_per_area=hidden_size-self.e_size)
 
-        self.rnn = PlasticLeakyRNNCell(input_size=input_size, hidden_size=hidden_size*num_areas, aux_input_size=self.aux_input_size, plastic=plastic, 
+        self.rnn = PlasticLeakyRNNCell(input_size=input_size, hidden_size=hidden_size*self.num_areas, aux_input_size=self.aux_input_size, plastic=plastic, 
                                        activation=activation, dt=dt, tau_x=tau_x, tau_w=tau_w, weight_bound=weight_bound, train_init_state=train_init_state, 
                                        e_prop=e_prop, sigma_rec=sigma_rec, sigma_in=sigma_in, sigma_w=sigma_w, init_spectral=init_spectral,
                                        balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks)
@@ -897,24 +885,26 @@ class MultiAreaRNN(nn.Module):
         self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=0.5)
         self.h2v = EILinear(self.e_size, 1, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=0.5)
 
-        # feature attention output
-        self.h2fa = EILinear(self.e_size, self.num_channels, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=0.5)
-
-        # network in charge of outputting attention to location
-        self.h2sa = EILinear(self.e_size, output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=0.5)
-
         # init state
         if train_init_state:
-            self.x0 = nn.Parameter(torch.zeros(1, hidden_size*num_areas))
+            self.x0 = nn.Parameter(torch.zeros(1, hidden_size*self.num_areas))
         else:
-            self.x0 = torch.zeros(1, hidden_size*num_areas)
+            self.x0 = torch.zeros(1, hidden_size*self.num_areas)
 
         self.output_unit_maps = {
-            'value': ((num_areas-1)*self.e_size, (num_areas)*self.e_size),
-            'spatial_attn': ((num_areas-3)*self.e_size, (num_areas-2)*self.e_size),
-            'feat_attn': ((num_areas-2)*self.e_size, (num_areas-1)*self.e_size),
-            'choice': ((num_areas-1)*self.e_size, (num_areas)*self.e_size),
+            'value': ((self.num_areas-1)*self.e_size, (self.num_areas)*self.e_size),
+            'choice': ((self.num_areas-1)*self.e_size, (self.num_areas)*self.e_size),
         }
+        curr_module_end = (self.num_areas-1)
+        if add_fa:
+            self.output_unit_maps['feat_attn'] = ((curr_module_end-1)*self.e_size, (curr_module_end)*self.e_size)
+            # feature attention output
+            self.h2fa = EILinear(self.e_size, self.num_channels, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=0.5)
+            curr_module_end -= 1
+        if add_sa:
+            self.output_unit_maps['spatial_attn'] = ((curr_module_end-1)*self.e_size, (curr_module_end)*self.e_size)
+            # network in charge of outputting attention to location
+            self.h2sa = EILinear(self.e_size, output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=0.5)
         print(self.output_unit_maps)
 
     def init_hidden(self, x):
@@ -944,20 +934,20 @@ class MultiAreaRNN(nn.Module):
         
         for i in range(steps):
             # modulate input by spatial attention
-            sa = self.h2sa(hidden[1][:,self.output_unit_maps['spatial_attn'][0]:self.output_unit_maps['spatial_attn'][1]])
-            loc_attn = F.softmax(input=sa, dim=-1)
-            if self.spatial_attn_agg=='avg':
-                curr_x = (x[i]*loc_attn.reshape(batch_size, self.output_size, 1)).sum(1) # batch_size, input_size
-                fa = self.h2fa(hidden[1][:,self.output_unit_maps['feat_attn'][0]:self.output_unit_maps['feat_attn'][1]])
-                attr_attn = F.softmax(input=fa, dim=-1)
-                attr_attn = torch.repeat_interleave(attr_attn, self.channel_group_size, dim=-1)
-                curr_x = torch.cat([curr_x[:,:self.size_to_modulate]*attr_attn, curr_x[:,self.size_to_modulate:]], dim=-1)
-            elif self.spatial_attn_agg=='concat':
-                curr_x = (x[i]*loc_attn.reshape(batch_size, self.output_size, 1)) # batch_size, input_size
+            curr_x = x[i]
+            if 'spatial_attn' in self.output_unit_maps.keys():
+                sa = self.h2sa(hidden[1][:,self.output_unit_maps['spatial_attn'][0]:self.output_unit_maps['spatial_attn'][1]])
+                loc_attn = F.softmax(input=sa, dim=-1)
+                curr_x = (curr_x*loc_attn.reshape(batch_size, self.output_size, 1)) # batch_size, input_size
+            if 'feat_attn' in self.output_unit_maps.keys():
                 fa = self.h2fa(hidden[1][:,self.output_unit_maps['feat_attn'][0]:self.output_unit_maps['feat_attn'][1]])
                 attr_attn = F.softmax(input=fa, dim=-1)
                 attr_attn = torch.repeat_interleave(attr_attn, self.channel_group_size, dim=-1)
                 curr_x = torch.cat([curr_x[:,:,:self.size_to_modulate]*attr_attn, curr_x[:,:,self.size_to_modulate:]], dim=-1)
+            
+            if self.spatial_attn_agg=='avg':
+                curr_x = curr_x.sum(1) # batch_size, input_size    
+            elif self.spatial_attn_agg=='concat':
                 curr_x = torch.cat(torch.split(curr_x, 1, dim=1), dim=-1).squeeze(1)
             else:
                 raise ValueError
@@ -987,8 +977,10 @@ class MultiAreaRNN(nn.Module):
                 wxs.append(hidden[2])
                 whs.append(hidden[3])
             if save_attns:
-                sas.append(sa)
-                fas.append(fa)
+                if 'spatial_attn' in self.output_unit_maps.keys():
+                    sas.append(sa)
+                if 'feat_attn' in self.output_unit_maps.keys():
+                    fas.append(fa)
 
         hs = torch.stack(hs, dim=0)
         saved_states = {}
@@ -999,10 +991,12 @@ class MultiAreaRNN(nn.Module):
             saved_states['whs'] = whs
 
         if save_attns:
-            sas = torch.stack(sas, dim=0)
-            saved_states['sas'] = sas
-            fas = torch.stack(fas, dim=0)
-            saved_states['fas'] = fas
+            if 'spatial_attn' in self.output_unit_maps.keys():
+                sas = torch.stack(sas, dim=0)
+                saved_states['sas'] = sas
+            if 'feat_attn' in self.output_unit_maps.keys():
+                fas = torch.stack(fas, dim=0)
+                saved_states['fas'] = fas
 
         os = self.h2o(hs[:,:,self.output_unit_maps['choice'][0]:self.output_unit_maps['choice'][1]])
         vs = self.h2v(hs[:,:,self.output_unit_maps['value'][0]:self.output_unit_maps['value'][1]])
