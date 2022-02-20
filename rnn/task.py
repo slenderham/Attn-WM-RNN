@@ -127,7 +127,23 @@ class MDPRL():
             pop_s[n, :, 36+index_s[n]] = self.filter_s*1
 
         self.pop_s = pop_s
-        
+
+        # -----------------------------------------------------------------------------------------
+        # generate feasible pairs
+        # -----------------------------------------------------------------------------------------
+        pairs = []
+        for i in range(len(index_s)):
+            for j in range(len(index_s)):
+                if i==j:
+                    continue
+                if self.index_shp[i]==self.index_shp[j] or \
+                   self.index_clr[i]==self.index_clr[j] or \
+                   self.index_pttrn[i]==self.index_pttrn[j]:
+                    continue
+                pairs.append([i,j])
+        assert(len(pairs)==27*8)
+        self.pairs = np.array(pairs)
+
         # -----------------------------------------------------------------------------------------
         # loading experimental conditions
         # -----------------------------------------------------------------------------------------
@@ -144,7 +160,7 @@ class MDPRL():
         self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1)-1
         # self.test_rwd = torch.from_numpy(np.stack(self.test_rwd, axis=0).transpose(2,0,1))
 
-    def _generate_generalizable_prob(self, gen_level, jitter=0.01):
+    def _generate_generalizable_prob(self, gen_level, jitter=0.0):
         # different level of gernalizability in terms of nonlinear terms: 0 (all linear), 1 (conjunction of two features), 2 (no regularity)
         # feat_1,2,3: all linear terms, with 2,1,0 irrelevant features
         # conj, feat+conj: a conj of two features, with a relevant or irrelevant feature
@@ -209,9 +225,10 @@ class MDPRL():
             len_seq = N_s*subsample_stims
 
         if stim_order is None:
-            index_s = np.repeat(np.random.permutation(27)[:subsample_stims], N_s)
-            index_s_i = [np.random.permutation(index_s) for _ in range(num_choices)]
-            index_s_i = np.stack(index_s_i, axis=1)
+            # index_s = np.repeat(np.random.permutation(27)[:subsample_stims], N_s)
+            # index_s_i = [np.random.permutation(index_s) for _ in range(num_choices)]
+            # index_s_i = np.stack(index_s_i, axis=1)
+            index_s_i = self.pairs[np.random.choice(np.arange(len(self.pairs)), size=len_seq)]
             # while np.any([len(np.unique(index_s_i[:,j])) != len(index_s_i[:,j]) for j in range(len(index_s))]):
             #     print(np.sum([len(np.unique(index_s_i[:,j])) != len(index_s_i[:,j]) for j in range(len(index_s))]))
             #     index_s_i = [np.random.permutation(index_s) for _ in range(num_choices)]

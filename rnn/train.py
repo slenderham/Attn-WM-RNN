@@ -13,7 +13,7 @@ from sklearn.metrics import accuracy_score
 from torch import optim
 from tqdm import tqdm
 
-from models import MultiChoiceRNN, SimpleRNN, MultiAreaRNN
+from models import MultiChoiceRNN, SimpleRNN, MultiAreaRNN, HierarchicalRNN
 from task import MDPRL, RolloutBuffer
 from utils import (AverageMeter, load_checkpoint, load_list_from_fs,
                    save_checkpoint, save_defaultdict_to_fs, save_list_to_fs)
@@ -147,18 +147,21 @@ if __name__ == "__main__":
                    'value_est': 'policy' in args.task_type, 'num_choices': 2 if 'double' in args.task_type else 1,
                    'structured_conn': args.structured_conn, 'spatial_attn_agg': args.spatial_attn_agg}
     
-    if args.num_areas>1:
+    # if args.num_areas>1:
+    #     model_specs['num_areas'] = args.num_areas
+    #     model_specs['loc_input'] = args.spatial_attn
+    #     model_specs['inter_regional_sparsity'] = 0.1
+    #     model_specs['add_sa'] = args.spatial_attn
+    #     model_specs['add_fa'] = args.feature_attn
+    #     model = MultiAreaRNN(**model_specs)
+    if 'double' in args.task_type:
+        # model = MultiChoiceRNN(**model_specs)
         model_specs['num_areas'] = args.num_areas
-        model_specs['loc_input'] = args.spatial_attn
         model_specs['inter_regional_sparsity'] = 0.1
-        model_specs['add_sa'] = args.spatial_attn
-        model_specs['add_fa'] = args.feature_attn
-        model = MultiAreaRNN(**model_specs)
-    elif 'double' in args.task_type:
-        model = MultiChoiceRNN(**model_specs)
+        model = HierarchicalRNN(**model_specs)
     else:
         model = SimpleRNN(**model_specs)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     print(model)
     for n, p in model.named_parameters():
         print(n, p.numel())
@@ -213,31 +216,20 @@ if __name__ == "__main__":
                     output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
                                                   Rs=0*DA_s['pre_choice'], Vs=None,
                                                   acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'],
-                                                  save_weights=True, save_attns=True)
+                                                  save_weights=True)
                     # use output to calculate action, reward, and record loss function
-                    logprob, value = output
-                    m = torch.distributions.categorical.Categorical(logits=logprob[-1])
-                    action = m.sample().reshape(args.batch_size)
+                    action = torch.argmax(output[-1], -1)
+                    output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)
+                    output = (output*output_mask['target'].reshape(-1, 1, 1)).flatten(1)
+                    target = torch.argmax(prob_s[i], -1).reshape(1, args.batch_size)
+                    target = torch.repeat_interleave(target, output_mask['target'].shape[0], dim=0).flatten()
+                    loss += F.multi_margin_loss(output, target, p=2)
                     rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
-                    rwds += rwd.mean().item()/len(pop_s['pre_choice'])
-                    value_est = value[-1]
-                    advantage = (rwd-value_est)
-                    
-                    total_acc += (torch.argmax(logprob[-1], -1)==torch.argmax(prob_s[i], -1)).float()
-
+                    total_acc += (action==torch.argmax(prob_s[i], -1)).float().item()
                     # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
                     # plt.imshow(ss['wxs'][-1,0].detach(), aspect='auto', interpolation='nearest')
                     # plt.colorbar()
-                    # plt.subplot(311).plot(logprob.squeeze().detach())
-                    # plt.subplot(311).plot(value.squeeze().detach())
                     # plt.ylabel('choice prob')
-                    # plt.subplot(312).plot(ss['sas'].squeeze().detach())
-                    # plt.ylabel('spatial attention weight')
-                    # plt.subplot(313).plot(ss['fas'].squeeze().detach())
-                    # plt.ylabel('feature attention weight')
-
-                    # plt.plot(ss['fas'].squeeze().detach())
-                    # plt.show()
                     # print(hs.shape)
                     # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
                     # plt.show()
@@ -250,21 +242,18 @@ if __name__ == "__main__":
                     else:
                         reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()\
                                         +ss['whs'].pow(2).sum(dim=(-2,-1)).mean())
+                    if args.num_areas>1:
                         reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
-                    if args.attn_type=='weight':
-                        if args.num_areas>1:
-                            if args.spatial_attn:
-                                sas = F.softmax(ss['sas'], -1).mean([0,1])
-                                reg += args.attn_ent_reg*(sas*torch.log(sas)).sum()
-                            if args.feature_attn:
-                                fas = F.softmax(ss['fas'], -1).mean([0,1])
-                                reg += args.attn_ent_reg*(fas*torch.log(fas)).sum()
-                        else:
-                            reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
+                    # if args.attn_type=='weight':
+                    #     if args.num_areas>1:
+                    #         if args.spatial_attn:
+                    #             sas = F.softmax(ss['sas'], -1).mean([0,1])
+                    #             reg += args.attn_ent_reg*(sas*torch.log(sas)).sum()
+                    #         if args.feature_attn:
+                    #             fas = F.softmax(ss['fas'], -1).mean([0,1])
+                    #             reg += args.attn_ent_reg*(fas*torch.log(fas)).sum()
 
-                    loss += - (m.log_prob(action)*advantage.detach()).mean() \
-                            + args.beta_v*advantage.pow(2).mean() - args.beta_entropy*m.entropy().mean() \
-                            + reg*len(pop_s['pre_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
+                    loss += reg*len(pop_s['pre_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
                     
                     # use the action (optional) and reward as feedback
                     pop_post = pop_s['post_choice'][i]
@@ -273,12 +262,8 @@ if __name__ == "__main__":
                         pop_post = pop_post*action_enc.reshape(1,1,2,1)
                     action_enc = action_enc*DA_s['post_choice']
                     R = (2*rwd-1)*DA_s['post_choice']
-                    if args.rpe:
-                        V = value_est*DA_s['post_choice']
-                    else:
-                        V = None
-                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc, 
-                                                save_attns=True, save_weights=True)
+                    V = None
+                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc, save_weights=True)
 
                     # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
                     # plt.colorbar()                    
@@ -296,21 +281,20 @@ if __name__ == "__main__":
                     else:
                         reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()\
                                         +ss['whs'].pow(2).sum(dim=(-2, -1)).mean())
+                    if args.num_areas>1:
                         reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
-                    if args.attn_type=='weight':
-                        if args.num_areas>1:
-                            if args.spatial_attn:
-                                sas = F.softmax(ss['sas'], -1).mean([0,1])
-                                reg += args.attn_ent_reg*(sas*torch.log(sas)).sum()
-                                reshaped_action = action.reshape(1, args.batch_size).repeat(ss['sas'].shape[0], 1).flatten()
-                                reshaped_gaze = ss['sas'][(DA_s['post_choice']>0.5).squeeze()]
-                                reshaped_action = action.reshape(1, args.batch_size).repeat(reshaped_gaze.shape[0], 1).flatten()
-                                reg += args.beta_attn_chosen*F.cross_entropy(input=(reshaped_gaze).flatten(-2), target=reshaped_action)
-                            if args.feature_attn:
-                                fas = F.softmax(ss['fas'], -1).mean([0,1])
-                                reg += args.attn_ent_reg*(fas*torch.log(fas)).sum()
-                        else:
-                            reg += args.attn_ent_reg*(ss['attns']*torch.log(ss['attns'])).sum(-1).mean()
+                    # if args.attn_type=='weight':
+                    #     if args.num_areas>1:
+                    #         if args.spatial_attn:
+                    #             sas = F.softmax(ss['sas'], -1).mean([0,1])
+                    #             reg += args.attn_ent_reg*(sas*torch.log(sas)).sum()
+                    #             reshaped_action = action.reshape(1, args.batch_size).repeat(ss['sas'].shape[0], 1).flatten()
+                    #             reshaped_gaze = ss['sas'][(DA_s['post_choice']>0.5).squeeze()]
+                    #             reshaped_action = action.reshape(1, args.batch_size).repeat(reshaped_gaze.shape[0], 1).flatten()
+                    #             reg += args.beta_attn_chosen*F.cross_entropy(input=(reshaped_gaze).flatten(-2), target=reshaped_action)
+                    #         if args.feature_attn:
+                    #             fas = F.softmax(ss['fas'], -1).mean([0,1])
+                    #             reg += args.attn_ent_reg*(fas*torch.log(fas)).sum()
 
                     loss += reg*len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
             
@@ -329,7 +313,7 @@ if __name__ == "__main__":
                 if torch.isnan(loss):
                     quit()
                 pbar.set_description('Iteration {} Loss: {:.4f}'.format(
-                    batch_idx, loss.item() if 'policy' not in args.task_type else rwds))
+                    batch_idx, loss.item() if 'policy' not in args.task_type else total_acc/len(pop_s['pre_choice'])/(batch_idx+1)))
                 pbar.refresh()
                 
             pbar.update()
@@ -361,11 +345,9 @@ if __name__ == "__main__":
                                                         Rs=0*DA_s['pre_choice'], Vs=None,
                                                         acts=torch.zeros(1, output_size)*DA_s['pre_choice'])
                             # use output to calculate action, reward, and record loss function
-                            logprob, value = output
-                            m = torch.distributions.categorical.Categorical(logits=logprob[-1])
-                            action = m.sample().reshape(1)
-                            rwd = (torch.rand(1)<prob_s[i,0,action]).float()
-                            loss.append((torch.argmax(logprob[-1], -1)==torch.argmax(prob_s[i], -1)).float())
+                            action = torch.argmax(output[-1], -1)
+                            rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
+                            loss.append((action==torch.argmax(prob_s[i], -1)).float())
                             # use the action (optional) and reward as feedback
                             pop_post = pop_s['post_choice'][i]
                             action_enc = torch.eye(output_size)[action]
@@ -373,11 +355,7 @@ if __name__ == "__main__":
                                 pop_post = pop_post*action_enc.reshape(1,1,2,1)                            
                             action_enc = action_enc*DA_s['post_choice']
                             R = (2*rwd-1)*DA_s['post_choice']
-                            value_est = value[-1]
-                            if args.rpe:
-                                V = value_est*DA_s['post_choice']
-                            else:
-                                V = None
+                            V = None
                             _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc)
                         loss = torch.stack(loss, dim=0)
                     losses.append(loss)
