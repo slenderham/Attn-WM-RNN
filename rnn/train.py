@@ -38,12 +38,12 @@ if __name__ == "__main__":
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
-    parser.add_argument('--sigma_rec', type=float, default=0.05, help='Std for recurrent noise')
+    parser.add_argument('--sigma_rec', type=float, default=0.1, help='Std for recurrent noise')
     parser.add_argument('--sigma_w', type=float, default=0.0, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=None, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
-    parser.add_argument('--tau_w', type=float, default=200, help='Time constant for weight modification')
+    parser.add_argument('--tau_w', type=float, default=600, help='Time constant for weight modification')
     parser.add_argument('--dt', type=float, default=0.02, help='Discretization time step (ms)')
     parser.add_argument('--l2r', type=float, default=0.0, help='Weight for L2 reg on firing rate')
     parser.add_argument('--l2w', type=float, default=0.0, help='Weight for L2 reg on weight')
@@ -92,11 +92,11 @@ if __name__ == "__main__":
         'start_time': -0.25,
         'end_time': 0.75,
         'stim_onset': 0.0,
-        'stim_end': 0.75,
-        'rwd_onset': 0.65,
-        'rwd_end': 0.75,
-        'choice_onset': 0.5,
-        'choice_end': 0.65,
+        'stim_end': 0.6,
+        'rwd_onset': 0.5,
+        'rwd_end': 0.6,
+        'choice_onset': 0.35,
+        'choice_end': 0.5,
         'total_time': 1,
         'dt': args.dt}
     log_interval = 1
@@ -157,7 +157,7 @@ if __name__ == "__main__":
     if 'double' in args.task_type:
         # model = MultiChoiceRNN(**model_specs)
         model_specs['num_areas'] = args.num_areas
-        model_specs['inter_regional_sparsity'] = 0.5
+        model_specs['inter_regional_sparsity'] = (0.1,0.1)
         model = HierarchicalRNN(**model_specs)
     else:
         model = SimpleRNN(**model_specs)
@@ -187,14 +187,13 @@ if __name__ == "__main__":
             elif args.task_type=='on_policy_double':
                 loss = 0
                 hidden = None
-                rwds = 0
                 # plt.imshow(model.rnn.x2h.effective_weight().detach())
                 # plt.colorbar()
                 # plt.show()           
                 # plt.imshow(model.rnn.aux2h.effective_weight().detach())
                 # plt.colorbar()
                 # plt.show()                
-                # plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.1, vmin=-0.1, cmap='seismic')
+                # plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.5, vmin=-0.5, cmap='seismic')
                 # plt.colorbar()
                 # plt.show()
                 # plt.imshow(model.h2o.effective_weight().detach())
@@ -264,8 +263,7 @@ if __name__ == "__main__":
                         pop_post = pop_post*action_enc.reshape(1,1,2,1)
                     action_enc = action_enc*DA_s['post_choice']
                     R = (2*rwd-1)*DA_s['post_choice']
-                    V = None
-                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc, save_weights=True)
+                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=action_enc, save_weights=True)
 
                     # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
                     # plt.colorbar()                    

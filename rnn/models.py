@@ -115,10 +115,11 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
-            nn.init.uniform_(self.weight, a=0, b=math.sqrt(3/(self.input_size-self.zero_cols)))
+            # nn.init.uniform_(self.weight, a=0, b=math.sqrt(6/(self.input_size-self.zero_cols)))
+            nn.init.xavier_uniform_(self.weight)
             # Scale E weight by E-I ratio
-            if balance_ei and self.i_size!=0:
-                self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
+            if balance_ei is not None and self.i_size!=0:
+                self.weight.data[:, self.e_size:] *= self.e_size/self.i_size
 
             if init_gain is not None:
                 self.weight.data *= init_gain
@@ -163,7 +164,7 @@ class PlasticLeakyRNNCell(nn.Module):
         if self.aux_input_size>0:
             self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='abs',
                                   e_prop=1, zero_cols_prop=0, bias=False,
-                                  init_gain=math.sqrt(self.aux_input_size/input_size)/2,
+                                  init_gain=math.sqrt(self.aux_input_size/input_size)/4,
                                   conn_mask=conn_mask.get('aux', None))
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='abs',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
@@ -1050,14 +1051,17 @@ class HierarchicalRNN(nn.Module):
                                                  input_units=input_size, aux_input_units=self.aux_input_size, 
                                                  e_hidden_units_per_area=self.e_size, i_hidden_units_per_area=hidden_size-self.e_size)
 
+        # balance_ei = self.conn_masks['rec_intra']+inter_regional_sparsity[0]*self.conn_masks['rec_inter_ff']+inter_regional_sparsity[1]*self.conn_masks['rec_inter_fb']
+        # balance_ei = balance_ei[:,:self.e_size*self.num_areas].sum(1, keepdim=True)/balance_ei[:,self.e_size*self.num_areas:].sum(1, keepdim=True)
+
         self.rnn = PlasticLeakyRNNCell(input_size=input_size, hidden_size=hidden_size*self.num_areas, aux_input_size=self.aux_input_size, plastic=plastic, 
                                        activation=activation, dt=dt, tau_x=tau_x, tau_w=tau_w, weight_bound=weight_bound, train_init_state=train_init_state, 
                                        e_prop=e_prop, sigma_rec=sigma_rec, sigma_in=sigma_in, sigma_w=sigma_w, init_spectral=init_spectral,
                                        balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks)
 
         # sparsify inter-regional connectivity, but not enforeced
-        sparse_mask_ff = (torch.rand((self.conn_masks['rec_inter_ff'].abs().sum().long(),))<inter_regional_sparsity)
-        sparse_mask_fb = (torch.rand((self.conn_masks['rec_inter_fb'].abs().sum().long(),))<inter_regional_sparsity)
+        sparse_mask_ff = (torch.rand((self.conn_masks['rec_inter_ff'].abs().sum().long(),))<inter_regional_sparsity[0])
+        sparse_mask_fb = (torch.rand((self.conn_masks['rec_inter_fb'].abs().sum().long(),))<inter_regional_sparsity[1])
         # self.rnn.h2h.weight.data[self.conn_masks['rec_intra'].abs()>0.5] *= 1.5
         self.rnn.h2h.weight.data[self.conn_masks['rec_inter_ff'].abs()>0.5] *= sparse_mask_ff
         self.rnn.kappa_rec.data[0][self.conn_masks['rec_inter_ff'].abs()>0.5] *= sparse_mask_ff
