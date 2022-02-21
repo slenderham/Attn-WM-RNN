@@ -119,7 +119,7 @@ class EILinear(nn.Module):
             nn.init.xavier_uniform_(self.weight)
             # Scale E weight by E-I ratio
             if balance_ei is not None and self.i_size!=0:
-                self.weight.data[:, self.e_size:] *= self.e_size/self.i_size
+                self.weight.data[:, :self.e_size] /= self.e_size/self.i_size
 
             if init_gain is not None:
                 self.weight.data *= init_gain

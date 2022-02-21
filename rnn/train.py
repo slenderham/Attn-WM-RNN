@@ -157,7 +157,7 @@ if __name__ == "__main__":
     if 'double' in args.task_type:
         # model = MultiChoiceRNN(**model_specs)
         model_specs['num_areas'] = args.num_areas
-        model_specs['inter_regional_sparsity'] = (0.1,0.1)
+        model_specs['inter_regional_sparsity'] = (0.5, 0.5)
         model = HierarchicalRNN(**model_specs)
     else:
         model = SimpleRNN(**model_specs)
@@ -193,7 +193,7 @@ if __name__ == "__main__":
                 # plt.imshow(model.rnn.aux2h.effective_weight().detach())
                 # plt.colorbar()
                 # plt.show()                
-                # plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.5, vmin=-0.5, cmap='seismic')
+                # plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.1, vmin=-0.1, cmap='seismic')
                 # plt.colorbar()
                 # plt.show()
                 # plt.imshow(model.h2o.effective_weight().detach())
