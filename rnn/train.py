@@ -157,7 +157,7 @@ if __name__ == "__main__":
     if 'double' in args.task_type:
         # model = MultiChoiceRNN(**model_specs)
         model_specs['num_areas'] = args.num_areas
-        model_specs['inter_regional_sparsity'] = 0.1
+        model_specs['inter_regional_sparsity'] = 0.5
         model = HierarchicalRNN(**model_specs)
     else:
         model = SimpleRNN(**model_specs)
@@ -217,6 +217,8 @@ if __name__ == "__main__":
                                                   Rs=0*DA_s['pre_choice'], Vs=None,
                                                   acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'],
                                                   save_weights=True)
+                    # plt.plot(output.squeeze().detach())
+                    # plt.show()
                     # use output to calculate action, reward, and record loss function
                     action = torch.argmax(output[-1], -1)
                     output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)

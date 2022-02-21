@@ -60,7 +60,21 @@ def _get_connectivity_mask(in_mask, aux_mask, rec_mask, input_units, aux_input_u
                     torch.cat([rec_mask_ee_intra, rec_mask_ei], dim=1),
                     torch.cat([rec_mask_ie_intra, rec_mask_ii], dim=1)], dim=0)
 
-    # feedforward and feedback connectivity
+    # feedforward connectivity
+    rec_mask_ee_intra_ff = torch.kron(torch.diag(torch.ones(num_areas-1),-1), torch.ones(e_hidden_units_per_area, e_hidden_units_per_area))
+    rec_mask_ie_intra_ff = torch.kron(torch.diag(torch.ones(num_areas-1),-1), torch.ones(i_hidden_units_per_area, e_hidden_units_per_area))
+    conn_mask['rec_inter_ff'] = torch.cat([
+                    torch.cat([rec_mask_ee_intra_ff, rec_mask_ei*0], dim=1),
+                    torch.cat([rec_mask_ie_intra_ff, rec_mask_ii*0], dim=1)], dim=0)
+    
+    # feedback connectivity
+    rec_mask_ee_intra_ff = torch.kron(torch.diag(torch.ones(num_areas-1),1), torch.ones(e_hidden_units_per_area, e_hidden_units_per_area))
+    rec_mask_ie_intra_ff = torch.kron(torch.diag(torch.ones(num_areas-1),1), torch.ones(i_hidden_units_per_area, e_hidden_units_per_area))
+    conn_mask['rec_inter_fb'] = torch.cat([
+                    torch.cat([rec_mask_ee_intra_ff, rec_mask_ei*0], dim=1),
+                    torch.cat([rec_mask_ie_intra_ff, rec_mask_ii*0], dim=1)], dim=0)
+
+
     conn_mask['rec_inter'] = conn_mask['rec']-conn_mask['rec_intra']
 
     return conn_mask
@@ -101,7 +115,7 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
-            nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
+            nn.init.uniform_(self.weight, a=0, b=math.sqrt(3/(self.input_size-self.zero_cols)))
             # Scale E weight by E-I ratio
             if balance_ei and self.i_size!=0:
                 self.weight.data[:, :self.e_size] /= (self.e_size/self.i_size)
@@ -1042,9 +1056,13 @@ class HierarchicalRNN(nn.Module):
                                        balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks)
 
         # sparsify inter-regional connectivity, but not enforeced
-        sparse_mask = (torch.rand((self.conn_masks['rec_inter'].abs().sum().long(),))<inter_regional_sparsity)
-        self.rnn.h2h.weight.data[self.conn_masks['rec_inter'].abs()>0.5] *= sparse_mask
-        self.rnn.kappa_rec.data[0][self.conn_masks['rec_inter'].abs()>0.5] *= sparse_mask
+        sparse_mask_ff = (torch.rand((self.conn_masks['rec_inter_ff'].abs().sum().long(),))<inter_regional_sparsity)
+        sparse_mask_fb = (torch.rand((self.conn_masks['rec_inter_fb'].abs().sum().long(),))<inter_regional_sparsity)
+        # self.rnn.h2h.weight.data[self.conn_masks['rec_intra'].abs()>0.5] *= 1.5
+        self.rnn.h2h.weight.data[self.conn_masks['rec_inter_ff'].abs()>0.5] *= sparse_mask_ff
+        self.rnn.kappa_rec.data[0][self.conn_masks['rec_inter_ff'].abs()>0.5] *= sparse_mask_ff
+        self.rnn.h2h.weight.data[self.conn_masks['rec_inter_fb'].abs()>0.5] *= sparse_mask_fb
+        self.rnn.kappa_rec.data[0][self.conn_masks['rec_inter_fb'].abs()>0.5] *= sparse_mask_fb
         if init_spectral is not None:
             self.rnn.h2h.weight.data *= init_spectral / torch.linalg.eigvals(self.rnn.h2h.effective_weight()).real.max()
 
