@@ -116,10 +116,11 @@ class EILinear(nn.Module):
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
             # nn.init.uniform_(self.weight, a=0, b=math.sqrt(6/(self.input_size-self.zero_cols)))
-            nn.init.xavier_uniform_(self.weight)
+            nn.init.kaiming_uniform_(self.weight)
             # Scale E weight by E-I ratio
             if balance_ei is not None and self.i_size!=0:
-                self.weight.data[:, :self.e_size] /= self.e_size/self.i_size
+                # self.weight.data[:, :self.e_size] /= self.e_size/self.i_size
+                self.weight.data[:, :self.e_size] /= balance_ei
 
             if init_gain is not None:
                 self.weight.data *= init_gain
@@ -1018,7 +1019,8 @@ class MultiAreaRNN(nn.Module):
         return (os, vs), hs, hidden, saved_states
 
 class HierarchicalRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, num_areas, inter_regional_sparsity,
+    def __init__(self, input_size, hidden_size, output_size, num_areas, 
+                inter_regional_sparsity, inter_regional_gain,
                 channel_group_size=None, plastic=True, activation='retanh', train_init_state=False,
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
@@ -1051,8 +1053,12 @@ class HierarchicalRNN(nn.Module):
                                                  input_units=input_size, aux_input_units=self.aux_input_size, 
                                                  e_hidden_units_per_area=self.e_size, i_hidden_units_per_area=hidden_size-self.e_size)
 
-        # balance_ei = self.conn_masks['rec_intra']+inter_regional_sparsity[0]*self.conn_masks['rec_inter_ff']+inter_regional_sparsity[1]*self.conn_masks['rec_inter_fb']
-        # balance_ei = balance_ei[:,:self.e_size*self.num_areas].sum(1, keepdim=True)/balance_ei[:,self.e_size*self.num_areas:].sum(1, keepdim=True)
+        balance_ei = self.conn_masks['rec_intra']\
+                    +inter_regional_gain[0]*inter_regional_sparsity[0]\
+                        *self.conn_masks['rec_inter_ff']\
+                    +inter_regional_gain[1]*inter_regional_sparsity[1]\
+                        *self.conn_masks['rec_inter_fb']
+        balance_ei = balance_ei[:,:self.e_size*self.num_areas].sum(1, keepdim=True)/balance_ei[:,self.e_size*self.num_areas:].sum(1, keepdim=True)
 
         self.rnn = PlasticLeakyRNNCell(input_size=input_size, hidden_size=hidden_size*self.num_areas, aux_input_size=self.aux_input_size, plastic=plastic, 
                                        activation=activation, dt=dt, tau_x=tau_x, tau_w=tau_w, weight_bound=weight_bound, train_init_state=train_init_state, 
@@ -1063,10 +1069,10 @@ class HierarchicalRNN(nn.Module):
         sparse_mask_ff = (torch.rand((self.conn_masks['rec_inter_ff'].abs().sum().long(),))<inter_regional_sparsity[0])
         sparse_mask_fb = (torch.rand((self.conn_masks['rec_inter_fb'].abs().sum().long(),))<inter_regional_sparsity[1])
         # self.rnn.h2h.weight.data[self.conn_masks['rec_intra'].abs()>0.5] *= 1.5
-        self.rnn.h2h.weight.data[self.conn_masks['rec_inter_ff'].abs()>0.5] *= sparse_mask_ff
-        self.rnn.kappa_rec.data[0][self.conn_masks['rec_inter_ff'].abs()>0.5] *= sparse_mask_ff
-        self.rnn.h2h.weight.data[self.conn_masks['rec_inter_fb'].abs()>0.5] *= sparse_mask_fb
-        self.rnn.kappa_rec.data[0][self.conn_masks['rec_inter_fb'].abs()>0.5] *= sparse_mask_fb
+        self.rnn.h2h.weight.data[self.conn_masks['rec_inter_ff'].abs()>0.5] *= sparse_mask_ff*inter_regional_gain[0]
+        self.rnn.h2h.weight.data[self.conn_masks['rec_inter_ff'].abs()>0.5] += 1e-8
+        self.rnn.h2h.weight.data[self.conn_masks['rec_inter_fb'].abs()>0.5] *= sparse_mask_fb*inter_regional_gain[1]
+        self.rnn.h2h.weight.data[self.conn_masks['rec_inter_fb'].abs()>0.5] += 1e-8
         if init_spectral is not None:
             self.rnn.h2h.weight.data *= init_spectral / torch.linalg.eigvals(self.rnn.h2h.effective_weight()).real.max()
 

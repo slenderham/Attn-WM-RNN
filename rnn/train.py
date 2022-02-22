@@ -157,7 +157,8 @@ if __name__ == "__main__":
     if 'double' in args.task_type:
         # model = MultiChoiceRNN(**model_specs)
         model_specs['num_areas'] = args.num_areas
-        model_specs['inter_regional_sparsity'] = (0.5, 0.5)
+        model_specs['inter_regional_sparsity'] = (1, 1)
+        model_specs['inter_regional_gain'] = (0.75, 0.75)
         model = HierarchicalRNN(**model_specs)
     else:
         model = SimpleRNN(**model_specs)
@@ -193,9 +194,11 @@ if __name__ == "__main__":
                 # plt.imshow(model.rnn.aux2h.effective_weight().detach())
                 # plt.colorbar()
                 # plt.show()                
-                # plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.1, vmin=-0.1, cmap='seismic')
+                # plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.5, vmin=-0.5, cmap='seismic')
                 # plt.colorbar()
                 # plt.show()
+                # print(model.rnn.h2h.effective_weight().sum(1))
+                # print(model.rnn.h2h.effective_weight().max(), model.rnn.h2h.effective_weight().min())
                 # plt.imshow(model.h2o.effective_weight().detach())
                 # plt.colorbar()
                 # plt.show() 
@@ -227,13 +230,13 @@ if __name__ == "__main__":
                     loss += F.multi_margin_loss(output, target, p=2)
                     rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
                     total_acc += (action==torch.argmax(prob_s[i], -1)).float().item()
-                    # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
                     # plt.imshow(ss['wxs'][-1,0].detach(), aspect='auto', interpolation='nearest')
+                    # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
                     # plt.colorbar()
+                    # plt.show()
                     # plt.ylabel('choice prob')
                     # print(hs.shape)
                     # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
-                    # plt.show()
 
                     reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
                     if args.plastic_feedback:
@@ -302,8 +305,8 @@ if __name__ == "__main__":
             if (batch_idx+1) % args.grad_accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
                 # for n, p in model.named_parameters():
-                    # print(n, p.grad.pow(2).sum())
-                # plt.imshow(model.rnn.h2h.weight.grad)
+                #     print(n, p.grad.pow(2).sum())
+                # plt.imshow((model.rnn.h2h.weight.grad.abs()+1e-8).log(), vmin=-8)
                 # plt.colorbar()
                 # plt.show()
                 optimizer.step()
