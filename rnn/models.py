@@ -1057,7 +1057,8 @@ class HierarchicalRNN(nn.Module):
                     +inter_regional_gain[0]*inter_regional_sparsity[0]\
                         *self.conn_masks['rec_inter_ff']\
                     +inter_regional_gain[1]*inter_regional_sparsity[1]\
-                        *self.conn_masks['rec_inter_fb']
+                        *self.conn_masks['rec_inter_fb']\
+                    -torch.eye(self.hidden_size*self.num_areas)
         balance_ei = balance_ei[:,:self.e_size*self.num_areas].sum(1, keepdim=True)/balance_ei[:,self.e_size*self.num_areas:].sum(1, keepdim=True)
 
         self.rnn = PlasticLeakyRNNCell(input_size=input_size, hidden_size=hidden_size*self.num_areas, aux_input_size=self.aux_input_size, plastic=plastic, 
