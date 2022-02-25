@@ -236,7 +236,7 @@ if __name__ == "__main__":
                     rwd = (torch.rand(args.batch_size)<prob_s[i]).float()
                     output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)
                     loss += ((output-ch_s['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean()
-                    total_acc += ((output-ch_s['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean()
+                    total_acc += ((output-ch_s['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean().item()
                 
                 # plt.imshow(ss['wxs'][-1,0].detach(), aspect='auto', interpolation='nearest')
                 # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
