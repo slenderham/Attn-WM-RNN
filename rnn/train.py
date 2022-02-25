@@ -38,12 +38,12 @@ if __name__ == "__main__":
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
-    parser.add_argument('--sigma_rec', type=float, default=0.05, help='Std for recurrent noise')
+    parser.add_argument('--sigma_rec', type=float, default=0.01, help='Std for recurrent noise')
     parser.add_argument('--sigma_w', type=float, default=0.0, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=None, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
-    parser.add_argument('--tau_w', type=float, default=100, help='Time constant for weight modification')
+    parser.add_argument('--tau_w', type=float, default=200, help='Time constant for weight modification')
     parser.add_argument('--dt', type=float, default=0.02, help='Discretization time step (ms)')
     parser.add_argument('--l2r', type=float, default=0.0, help='Weight for L2 reg on firing rate')
     parser.add_argument('--l2w', type=float, default=0.0, help='Weight for L2 reg on weight')
@@ -89,14 +89,14 @@ if __name__ == "__main__":
     save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
     exp_times = {
-        'start_time': -0.25,
-        'end_time': 0.75,
+        'start_time': 0.0,
+        'end_time': 1.0,
         'stim_onset': 0.0,
-        'stim_end': 0.6,
-        'rwd_onset': 0.5,
-        'rwd_end': 0.6,
-        'choice_onset': 0.35,
-        'choice_end': 0.5,
+        'stim_end': 1.0,
+        'rwd_onset': 0.8,
+        'rwd_end': 1.0,
+        'choice_onset': 0.5,
+        'choice_end': 0.8,
         'total_time': 1,
         'dt': args.dt}
     log_interval = 1
@@ -154,14 +154,13 @@ if __name__ == "__main__":
     #     model_specs['add_sa'] = args.spatial_attn
     #     model_specs['add_fa'] = args.feature_attn
     #     model = MultiAreaRNN(**model_specs)
-    if 'double' in args.task_type:
         # model = MultiChoiceRNN(**model_specs)
-        model_specs['num_areas'] = args.num_areas
-        model_specs['inter_regional_sparsity'] = (1, 1)
-        model_specs['inter_regional_gain'] = (1, 1)
-        model = HierarchicalRNN(**model_specs)
-    else:
-        model = SimpleRNN(**model_specs)
+    model_specs['num_areas'] = args.num_areas
+    model_specs['inter_regional_sparsity'] = (1, 1)
+    model_specs['inter_regional_gain'] = (1, 1)
+    model = HierarchicalRNN(**model_specs)
+    # else:
+    #     model = SimpleRNN(**model_specs)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     print(model)
     for n, p in model.named_parameters():
@@ -180,48 +179,51 @@ if __name__ == "__main__":
         for batch_idx in range(iters):
             curr_gen_lvl = np.random.choice(task_mdprl.gen_levels)
             DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(
-                batch_size=args.batch_size, N_s=args.N_s, num_choices=output_size, gen_level=curr_gen_lvl, subsample_stims=args.N_stim_train)
-            if args.task_type == 'value':
-                output, hs, _, _ = model(pop_s, DA_s)
-                loss = ((output.reshape(args.stim_val**args.stim_dim*args.N_s, output_mask.shape[1], args.batch_size, 1)-ch_s)*output_mask.unsqueeze(-1)).pow(2).mean() \
-                        + args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
-            elif args.task_type=='on_policy_double':
-                loss = 0
-                hidden = None
-                # plt.imshow(model.rnn.x2h.effective_weight().detach())
-                # plt.colorbar()
-                # plt.show()           
-                # plt.imshow(model.rnn.aux2h.effective_weight().detach())
-                # plt.colorbar()
-                # plt.show()                
-                # plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.1, vmin=-0.1, cmap='seismic')
-                # plt.colorbar()
-                # plt.show()
-                # print(model.rnn.h2h.effective_weight()[:,:192].sum(1)+model.rnn.h2h.effective_weight()[:,192:].sum(1))
-                # print(model.rnn.h2h.effective_weight().max(), model.rnn.h2h.effective_weight().min())
-                # plt.imshow(model.h2o.effective_weight().detach())
-                # plt.colorbar()
-                # plt.show() 
-                # plt.imshow(model.h2sa.effective_weight().detach())
-                # plt.colorbar()
-                # plt.show()   
-                # plt.imshow(model.h2fa.effective_weight().detach())
-                # plt.colorbar()
-                # plt.show()  
-                # v = torch.linalg.eigvals(model.rnn.h2h.effective_weight()).detach()
-                # plt.scatter(v.real,v.imag)
-                # plt.show()
-                for i in range(len(pop_s['pre_choice'])):
-                    if (i+1)%args.reversal_every==0:
-                        probs = task_mdprl.reversal(probs)
-                    # first phase, give stimuli and no feedback
-                    output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
-                                                  Rs=0*DA_s['pre_choice'], Vs=None,
-                                                  acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'],
-                                                  save_weights=True)
-                    # plt.plot(output.squeeze().detach())
-                    # plt.show()
-                    # use output to calculate action, reward, and record loss function
+                batch_size=args.batch_size, N_s=args.N_s, num_choices=output_size, gen_level=curr_gen_lvl, subsample_stims=args.N_stim_train)    
+            loss = 0
+            hidden = None
+            # plt.imshow(model.rnn.x2h.effective_weight().detach())
+            # plt.colorbar()
+            # plt.show()           
+            # plt.imshow(model.rnn.aux2h.effective_weight().detach())
+            # plt.colorbar()
+            # plt.show()                
+            # plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.1, vmin=-0.1, cmap='seismic')
+            # plt.colorbar()
+            # plt.show()
+            # plt.imshow(model.rnn.kappa_in.abs().detach().squeeze())
+            # plt.colorbar()
+            # plt.show()                
+            # plt.imshow(model.rnn.kappa_rec.abs().detach().squeeze())
+            # plt.colorbar()
+            # plt.show()
+            # print(model.rnn.h2h.effective_weight()[:,:192].sum(1)+model.rnn.h2h.effective_weight()[:,192:].sum(1))
+            # print(model.rnn.h2h.effective_weight().max(), model.rnn.h2h.effective_weight().min())
+            # plt.imshow(model.h2o.effective_weight().detach())
+            # plt.colorbar()
+            # plt.show() 
+            # plt.imshow(model.h2sa.effective_weight().detach())
+            # plt.colorbar()
+            # plt.show()   
+            # plt.imshow(model.h2fa.effective_weight().detach())
+            # plt.colorbar()
+            # plt.show()  
+            # v = torch.linalg.eigvals(model.rnn.h2h.effective_weight()).detach()
+            # plt.scatter(v.real,v.imag)
+            # plt.show()
+            for i in range(len(pop_s['pre_choice'])):
+                if (i+1)%args.reversal_every==0:
+                    probs = task_mdprl.reversal(probs)
+                # first phase, give stimuli and no feedback
+                output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
+                                                Rs=0*DA_s['pre_choice'], Vs=None,
+                                                acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'],
+                                                save_weights=True, reinit_hidden=True)
+                plt.plot(output.squeeze().detach())
+                plt.show()
+                # use output to calculate action, reward, and record loss function
+
+                if args.task_type=='on_policy_double':
                     action = torch.argmax(output[-1], -1)
                     output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)
                     output = (output*output_mask['target'].reshape(-1, 1, 1)).flatten(1)
@@ -230,35 +232,42 @@ if __name__ == "__main__":
                     loss += F.multi_margin_loss(output, target, p=2)
                     rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
                     total_acc += (action==torch.argmax(prob_s[i], -1)).float().item()
-                    # plt.imshow(ss['wxs'][-1,0].detach(), aspect='auto', interpolation='nearest')
-                    # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
-                    # plt.colorbar()
-                    # plt.show()
-                    # plt.ylabel('choice prob')
-                    # print(hs.shape)
-                    # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
+                elif args.task_type == 'value':
+                    rwd = (torch.rand(args.batch_size)<prob_s[i]).float()
+                    output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)
+                    loss += ((output-ch_s['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean()
+                    total_acc += loss.item()
+                
+                # plt.imshow(ss['wxs'][-1,0].detach(), aspect='auto', interpolation='nearest')
+                # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
+                # plt.colorbar()
+                # plt.show()
+                # plt.ylabel('choice prob')
+                # print(hs.shape)
+                # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
 
-                    reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
-                    if args.plastic_feedback:
-                        reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()\
-                                        +ss['whs'].pow(2).sum(dim=(-2,-1)).mean()\
-                                        +ss['wfbs'].pow(2).sum(dim=(-2,-1)).mean())
-                    else:
-                        reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()\
-                                        +ss['whs'].pow(2).sum(dim=(-2,-1)).mean())
-                    if args.num_areas>1:
-                        reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
-                    # if args.attn_type=='weight':
-                    #     if args.num_areas>1:
-                    #         if args.spatial_attn:
-                    #             sas = F.softmax(ss['sas'], -1).mean([0,1])
-                    #             reg += args.attn_ent_reg*(sas*torch.log(sas)).sum()
-                    #         if args.feature_attn:
-                    #             fas = F.softmax(ss['fas'], -1).mean([0,1])
-                    #             reg += args.attn_ent_reg*(fas*torch.log(fas)).sum()
+                reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
+                if args.plastic_feedback:
+                    reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()\
+                                    +ss['whs'].pow(2).sum(dim=(-2,-1)).mean()\
+                                    +ss['wfbs'].pow(2).sum(dim=(-2,-1)).mean())
+                else:
+                    reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()\
+                                    +ss['whs'].pow(2).sum(dim=(-2,-1)).mean())
+                if args.num_areas>1:
+                    reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
+                # if args.attn_type=='weight':
+                #     if args.num_areas>1:
+                #         if args.spatial_attn:
+                #             sas = F.softmax(ss['sas'], -1).mean([0,1])
+                #             reg += args.attn_ent_reg*(sas*torch.log(sas)).sum()
+                #         if args.feature_attn:
+                #             fas = F.softmax(ss['fas'], -1).mean([0,1])
+                #             reg += args.attn_ent_reg*(fas*torch.log(fas)).sum()
 
-                    loss += reg*len(pop_s['pre_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
-                    
+                loss += reg*len(pop_s['pre_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
+                
+                if args.task_type=='on_policy_double':
                     # use the action (optional) and reward as feedback
                     pop_post = pop_s['post_choice'][i]
                     action_enc = torch.eye(output_size)[action]
@@ -267,46 +276,50 @@ if __name__ == "__main__":
                     action_enc = action_enc*DA_s['post_choice']
                     R = (2*rwd-1)*DA_s['post_choice']
                     _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=action_enc, save_weights=True)
+                elif args.task_type == 'value':
+                    pop_post = pop_s['post_choice'][i]
+                    R = (2*rwd-1)*DA_s['post_choice']
+                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=None, save_weights=True)
 
-                    # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
-                    # plt.colorbar()                    
-                    # plt.plot(ss['sas'].squeeze().detach().softmax(-1))
-                    # plt.plot(ss['fas'].squeeze().detach().softmax(-1))
-                    # plt.show()
-                    # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
-                    # plt.show()
+                # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
+                # plt.colorbar()                    
+                # plt.plot(ss['sas'].squeeze().detach().softmax(-1))
+                # plt.plot(ss['fas'].squeeze().detach().softmax(-1))
+                # plt.show()
+                # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
+                # plt.show()
 
-                    reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
-                    if args.plastic_feedback:
-                        reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()\
-                                        +ss['whs'].pow(2).sum(dim=(-2, -1)).mean()\
-                                        +ss['wfbs'].pow(2).sum(dim=(-2, -1)).mean())
-                    else:
-                        reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()\
-                                        +ss['whs'].pow(2).sum(dim=(-2, -1)).mean())
-                    if args.num_areas>1:
-                        reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
-                    # if args.attn_type=='weight':
-                    #     if args.num_areas>1:
-                    #         if args.spatial_attn:
-                    #             sas = F.softmax(ss['sas'], -1).mean([0,1])
-                    #             reg += args.attn_ent_reg*(sas*torch.log(sas)).sum()
-                    #             reshaped_action = action.reshape(1, args.batch_size).repeat(ss['sas'].shape[0], 1).flatten()
-                    #             reshaped_gaze = ss['sas'][(DA_s['post_choice']>0.5).squeeze()]
-                    #             reshaped_action = action.reshape(1, args.batch_size).repeat(reshaped_gaze.shape[0], 1).flatten()
-                    #             reg += args.beta_attn_chosen*F.cross_entropy(input=(reshaped_gaze).flatten(-2), target=reshaped_action)
-                    #         if args.feature_attn:
-                    #             fas = F.softmax(ss['fas'], -1).mean([0,1])
-                    #             reg += args.attn_ent_reg*(fas*torch.log(fas)).sum()
+                reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
+                if args.plastic_feedback:
+                    reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()\
+                                    +ss['whs'].pow(2).sum(dim=(-2, -1)).mean()\
+                                    +ss['wfbs'].pow(2).sum(dim=(-2, -1)).mean())
+                else:
+                    reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()\
+                                    +ss['whs'].pow(2).sum(dim=(-2, -1)).mean())
+                if args.num_areas>1:
+                    reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
+                # if args.attn_type=='weight':
+                #     if args.num_areas>1:
+                #         if args.spatial_attn:
+                #             sas = F.softmax(ss['sas'], -1).mean([0,1])
+                #             reg += args.attn_ent_reg*(sas*torch.log(sas)).sum()
+                #             reshaped_action = action.reshape(1, args.batch_size).repeat(ss['sas'].shape[0], 1).flatten()
+                #             reshaped_gaze = ss['sas'][(DA_s['post_choice']>0.5).squeeze()]
+                #             reshaped_action = action.reshape(1, args.batch_size).repeat(reshaped_gaze.shape[0], 1).flatten()
+                #             reg += args.beta_attn_chosen*F.cross_entropy(input=(reshaped_gaze).flatten(-2), target=reshaped_action)
+                #         if args.feature_attn:
+                #             fas = F.softmax(ss['fas'], -1).mean([0,1])
+                #             reg += args.attn_ent_reg*(fas*torch.log(fas)).sum()
 
-                    loss += reg*len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
+                loss += reg*len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
             
             (loss/args.grad_accumulation_steps/len(pop_s['pre_choice'])).backward()
             if (batch_idx+1) % args.grad_accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
                 # for n, p in model.named_parameters():
                 #     print(n, p.grad.pow(2).sum())
-                # plt.imshow((model.rnn.x2h.weight.grad.abs()+1e-10).log10(), vmin=-8)
+                # plt.imshow((model.rnn.h2h.weight.grad.abs()+1e-10).log10(), vmin=-8)
                 # plt.colorbar()
                 # plt.show()
                 optimizer.step()
@@ -315,8 +328,7 @@ if __name__ == "__main__":
             if (batch_idx+1) % log_interval == 0:
                 if torch.isnan(loss):
                     quit()
-                pbar.set_description('Iteration {} Loss: {:.4f}'.format(
-                    batch_idx, loss.item() if 'policy' not in args.task_type else total_acc/len(pop_s['pre_choice'])/(batch_idx+1)))
+                pbar.set_description('Iteration {} Loss: {:.4f}'.format(batch_idx, total_acc/len(pop_s['pre_choice'])/(batch_idx+1)))
                 pbar.refresh()
                 
             pbar.update()

@@ -115,8 +115,8 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
-            # nn.init.uniform_(self.weight, a=0, b=math.sqrt(6/(self.input_size-self.zero_cols)))
-            nn.init.kaiming_uniform_(self.weight)
+            # nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
+            nn.init.kaiming_uniform_(self.weight, a=1)
             # Scale E weight by E-I ratio
             if balance_ei is not None and self.i_size!=0:
                 # self.weight.data[:, :self.e_size] /= self.e_size/self.i_size
@@ -159,13 +159,14 @@ class PlasticLeakyRNNCell(nn.Module):
         self.plas_rule = plas_rule
 
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='abs',
-                            e_prop=1, zero_cols_prop=0, bias=False, init_gain=0.5,
+                            e_prop=1, zero_cols_prop=0, bias=False, 
+                            init_gain=math.sqrt(self.input_size/(input_size+aux_input_size)/hidden_size),
                             conn_mask=conn_mask.get('in', None))
         
         if self.aux_input_size>0:
             self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='abs',
                                   e_prop=1, zero_cols_prop=0, bias=False,
-                                  init_gain=math.sqrt(self.aux_input_size/input_size)/4,
+                                  init_gain=math.sqrt(self.aux_input_size/(input_size+aux_input_size)/hidden_size),
                                   conn_mask=conn_mask.get('aux', None))
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='abs',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
@@ -1079,6 +1080,7 @@ class HierarchicalRNN(nn.Module):
 
         # choice and value output
         self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=1)
+        # self.h2o = nn.Linear(self.e_size, self.output_size)
 
         # init state
         if train_init_state:
@@ -1096,10 +1098,19 @@ class HierarchicalRNN(nn.Module):
         else:
             return [h_init, h_init.relu()]
 
-    def forward(self, x, Rs, Vs=None, acts=None, hidden=None, save_weights=False):
+    def reinit_act(self, x):
+        batch_size = x.shape[1]
+        h_init = self.x0.to(x.device) + self.rnn._sigma_rec * torch.randn(batch_size, self.hidden_size*self.num_areas)
+        return [h_init, h_init.relu()]
+
+    def forward(self, x, Rs, Vs=None, acts=None, hidden=None, save_weights=False, reinit_hidden=False):
         steps, batch_size = x.shape[:2]
         if hidden is None:
             hidden = self.init_hidden(x)
+        if reinit_hidden:
+            hidden_new = self.reinit_act(x)
+            hidden[0] = hidden_new[0]
+            hidden[1] = hidden_new[1]
 
         hs = []
 

@@ -262,7 +262,12 @@ class MDPRL():
             'post_choice': torch.from_numpy(DA_s[self.T > self.times['choice_end']*self.s]).float()
         }
 
-        return DA_s, torch.from_numpy(ch_s).float(), pop_s, torch.from_numpy(index_s_i), \
+        ch_s = {
+            'pre_choice': torch.from_numpy(ch_s[:, self.T <= self.times['choice_end']*self.s]).float(),
+            'post_choice': torch.from_numpy(ch_s[:, self.T > self.times['choice_end']*self.s]).float()
+        }
+
+        return DA_s, ch_s, pop_s, torch.from_numpy(index_s_i), \
                torch.from_numpy(prob_s).transpose(0, 1), output_mask
 
     def generateinputfromexp(self, batch_size, test_N_s, num_choices, participant_num):
