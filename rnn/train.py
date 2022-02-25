@@ -347,32 +347,39 @@ if __name__ == "__main__":
                 for batch_idx in range(args.eval_samples):
                     DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(
                         args.batch_size, args.test_N_s, num_choices=output_size, gen_level=curr_gen_level)
-                    if args.task_type == 'value':
-                        output, hs, _ = model(pop_s, DA_s)
-                        output = output.reshape(args.stim_val**args.stim_dim*args.test_N_s, output_mask.shape[1], 1) # trial X T X batch size
-                        loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
-                    else:
-                        loss = []
-                        hidden = None
-                        for i in range(len(pop_s['pre_choice'])):
-                            # first phase, give stimuli and no feedback
-                            output, hs, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, 
+                    loss = []
+                    hidden = None
+                    for i in range(len(pop_s['pre_choice'])):
+                        # first phase, give stimuli and no feedback
+                        output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
                                                         Rs=0*DA_s['pre_choice'], Vs=None,
-                                                        acts=torch.zeros(1, output_size)*DA_s['pre_choice'])
+                                                        acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'],
+                                                        save_weights=True, reinit_hidden=True)
+
+                        if args.task_type=='on_policy_double':
                             # use output to calculate action, reward, and record loss function
                             action = torch.argmax(output[-1], -1)
                             rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
                             loss.append((action==torch.argmax(prob_s[i], -1)).float())
+                        elif args.task_type == 'value':
+                            rwd = (torch.rand(args.batch_size)<prob_s[i]).float()
+                            output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)
+                            loss.append(((output-ch_s['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean(0))
+                        
+                        if args.task_type=='on_policy_double':
                             # use the action (optional) and reward as feedback
                             pop_post = pop_s['post_choice'][i]
                             action_enc = torch.eye(output_size)[action]
-                            if args.num_areas==1:
-                                pop_post = pop_post*action_enc.reshape(1,1,2,1)                            
+                            if args.num_areas==1 or not args.spatial_attn:
+                                pop_post = pop_post*action_enc.reshape(1,1,2,1)
                             action_enc = action_enc*DA_s['post_choice']
                             R = (2*rwd-1)*DA_s['post_choice']
-                            V = None
-                            _, hs, hidden, _ = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc)
-                        loss = torch.stack(loss, dim=0)
+                            _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=action_enc, save_weights=True)
+                        elif args.task_type == 'value':
+                            pop_post = pop_s['post_choice'][i]
+                            R = (2*rwd-1)*DA_s['post_choice']
+                            _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=None, save_weights=True)
+                    loss = torch.stack(loss, dim=0)
                     losses.append(loss)
                 losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
                 losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
