@@ -219,8 +219,8 @@ if __name__ == "__main__":
                                                 Rs=0*DA_s['pre_choice'], Vs=None,
                                                 acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'],
                                                 save_weights=True, reinit_hidden=True)
-                plt.plot(output.squeeze().detach())
-                plt.show()
+                # plt.plot(output.squeeze().detach())
+                # plt.show()
                 # use output to calculate action, reward, and record loss function
 
                 if args.task_type=='on_policy_double':
