@@ -147,7 +147,7 @@ class EILinear(nn.Module):
             return result
 
 class PlasticLeakyRNNCell(nn.Module):
-    def __init__(self, input_size, hidden_size, aux_input_size, plastic=True, 
+    def __init__(self, input_size, hidden_size, aux_input_size, input_plastic, plastic=True, 
                 activation='retanh', dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 balance_ei=False, plas_rule='mult', conn_mask={}, **kwargs):
@@ -200,7 +200,10 @@ class PlasticLeakyRNNCell(nn.Module):
         self.plastic = plastic
         if plastic:
             # separate lr for different neurons
-            self.kappa_in = nn.Parameter(torch.rand(1, self.hidden_size, self.input_size)/self.tau_w)
+            if input_plastic:
+                self.kappa_in = nn.Parameter(torch.rand(1, self.hidden_size, self.input_size)/self.tau_w)
+            else:
+                self.kappa_in = torch.zeros(1, self.hidden_size, self.input_size)
             self.kappa_rec = nn.Parameter(torch.rand(1, self.hidden_size, self.hidden_size)/self.tau_w)
 
     def plasticity_func(self, w, baseline, R, pre, post, kappa, lb, ub):
@@ -1021,7 +1024,7 @@ class MultiAreaRNN(nn.Module):
 
 class HierarchicalRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, num_areas, 
-                inter_regional_sparsity, inter_regional_gain,
+                inter_regional_sparsity, inter_regional_gain, input_plastic,
                 channel_group_size=None, plastic=True, activation='retanh', train_init_state=False,
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
@@ -1065,7 +1068,7 @@ class HierarchicalRNN(nn.Module):
         self.rnn = PlasticLeakyRNNCell(input_size=input_size, hidden_size=hidden_size*self.num_areas, aux_input_size=self.aux_input_size, plastic=plastic, 
                                        activation=activation, dt=dt, tau_x=tau_x, tau_w=tau_w, weight_bound=weight_bound, train_init_state=train_init_state, 
                                        e_prop=e_prop, sigma_rec=sigma_rec, sigma_in=sigma_in, sigma_w=sigma_w, init_spectral=init_spectral,
-                                       balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks)
+                                       balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks, input_plastic=input_plastic)
 
         # sparsify inter-regional connectivity, but not enforeced
         sparse_mask_ff = (torch.rand((self.conn_masks['rec_inter_ff'].abs().sum().long(),))<inter_regional_sparsity[0])

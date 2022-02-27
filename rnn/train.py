@@ -55,6 +55,7 @@ if __name__ == "__main__":
     parser.add_argument('--beta_attn_chosen', type=float, default=0.0, help='Weight for forcing attention on chosen stimuli')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
     parser.add_argument('--plas_rule', type=str, choices=['add', 'mult'], default='add', help='Plasticity rule')
+    parser.add_argument('--input_plas_off', action='store_true', help='Disable input plasticity')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
     parser.add_argument('--attn_type', type=str, choices=['none', 'bias', 'weight', 'sample'], 
                         default='weight', help='Type of attn. None, additive feedback, multiplicative weighing, gumbel-max sample')
@@ -158,6 +159,10 @@ if __name__ == "__main__":
     model_specs['num_areas'] = args.num_areas
     model_specs['inter_regional_sparsity'] = (1, 1)
     model_specs['inter_regional_gain'] = (1, 1)
+    if args.input_plas_off:
+        model_specs['input_plastic'] = False
+    else:
+        model_specs['input_plastic'] = True
     model = HierarchicalRNN(**model_specs)
     # else:
     #     model = SimpleRNN(**model_specs)
@@ -220,6 +225,7 @@ if __name__ == "__main__":
                                                 acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'],
                                                 save_weights=True, reinit_hidden=True)
                 # plt.plot(output.squeeze().detach())
+                # plt.plot(ch_s['pre_choice'][i].squeeze())
                 # plt.show()
                 # use output to calculate action, reward, and record loss function
 
