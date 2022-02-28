@@ -1084,8 +1084,8 @@ class HierarchicalRNN(nn.Module):
             self.rnn.h2h.weight.data *= init_spectral / torch.linalg.eigvals(self.rnn.h2h.effective_weight()).real.max()
 
         # choice and value output
-        self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=1)
-        # self.h2o = nn.Linear(self.e_size, self.output_size)
+        # self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=1)
+        self.h2o = nn.Linear(self.e_size, self.output_size)
 
         # init state
         if train_init_state:
