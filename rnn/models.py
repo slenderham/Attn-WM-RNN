@@ -147,7 +147,7 @@ class EILinear(nn.Module):
             return result
 
 class PlasticLeakyRNNCell(nn.Module):
-    def __init__(self, input_size, hidden_size, aux_input_size, input_plastic, plastic=True, 
+    def __init__(self, input_size, hidden_size, aux_input_size, input_plastic, num_areas, plastic=True, 
                 activation='retanh', dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 balance_ei=False, plas_rule='mult', conn_mask={}, **kwargs):
@@ -161,7 +161,7 @@ class PlasticLeakyRNNCell(nn.Module):
 
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='abs',
                             e_prop=1, zero_cols_prop=0, bias=False, 
-                            init_gain=math.sqrt(self.input_size/(input_size+aux_input_size)/hidden_size),
+                            init_gain=math.sqrt(self.input_size/(input_size+aux_input_size)/hidden_size*num_areas),
                             conn_mask=conn_mask.get('in', None))
         
         if self.aux_input_size>0:
@@ -1070,7 +1070,7 @@ class HierarchicalRNN(nn.Module):
         self.rnn = PlasticLeakyRNNCell(input_size=input_size, hidden_size=hidden_size*self.num_areas, aux_input_size=self.aux_input_size, plastic=plastic, 
                                        activation=activation, dt=dt, tau_x=tau_x, tau_w=tau_w, weight_bound=weight_bound, train_init_state=train_init_state, 
                                        e_prop=e_prop, sigma_rec=sigma_rec, sigma_in=sigma_in, sigma_w=sigma_w, init_spectral=init_spectral,
-                                       balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks, input_plastic=input_plastic)
+                                       balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks, input_plastic=input_plastic, num_areas=num_areas)
 
         # sparsify inter-regional connectivity, but not enforeced
         sparse_mask_ff = (torch.rand((self.conn_masks['rec_inter_ff'].abs().sum().long(),))<inter_regional_sparsity[0])
