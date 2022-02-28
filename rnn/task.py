@@ -247,6 +247,7 @@ class MDPRL():
                 ch_s[:,:,i,j] = self.filter_ch*prob_index[i, index_s_i[:,j]].reshape((len_seq,1))
 
         DA_s = self.filter_da.reshape((len(self.T),1,1))
+        DA_s = DA_s / np.sum(DA_s)
 
         output_mask = {'fixation': torch.from_numpy((self.T<0.0*self.s)).reshape(1, len(self.T), 1), \
                         'target': torch.from_numpy(self.T_ch).reshape(len(self.T))[self.T <= self.times['choice_end']*self.s]}
