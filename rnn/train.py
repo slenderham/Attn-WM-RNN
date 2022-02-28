@@ -157,8 +157,8 @@ if __name__ == "__main__":
     #     model = MultiAreaRNN(**model_specs)
         # model = MultiChoiceRNN(**model_specs)
     model_specs['num_areas'] = args.num_areas
-    model_specs['inter_regional_sparsity'] = (0.1, 0.1)
-    model_specs['inter_regional_gain'] = (0.75, 0.75)
+    model_specs['inter_regional_sparsity'] = (1, 1)
+    model_specs['inter_regional_gain'] = (1, 1)
     if args.input_plas_off:
         model_specs['input_plastic'] = False
     else:
