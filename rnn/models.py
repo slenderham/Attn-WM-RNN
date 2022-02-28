@@ -157,6 +157,7 @@ class PlasticLeakyRNNCell(nn.Module):
         self.aux_input_size = aux_input_size
         self.weight_bound = weight_bound
         self.plas_rule = plas_rule
+        self.input_plastic = input_plastic
 
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='abs',
                             e_prop=1, zero_cols_prop=0, bias=False, 
@@ -250,7 +251,8 @@ class PlasticLeakyRNNCell(nn.Module):
             else:
                 R = (R!=0)*(R.unsqueeze(-1)+1)/2
                 v = v.unsqueeze(-1)
-            wx = self.plasticity_func(wx, self.x2h.pos_func(self.x2h.weight).unsqueeze(0), R-v, x, new_output, 
+            if self.input_plastic:
+                wx = self.plasticity_func(wx, self.x2h.pos_func(self.x2h.weight).unsqueeze(0), R-v, x, new_output, 
                                         self.kappa_in.abs(), 0, self.weight_bound)
             wh = self.plasticity_func(wh, self.h2h.pos_func(self.h2h.weight).unsqueeze(0), R-v, output, new_output,
                                         self.kappa_rec.abs(), 0, self.weight_bound)
