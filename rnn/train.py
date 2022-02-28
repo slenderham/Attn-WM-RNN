@@ -96,7 +96,7 @@ if __name__ == "__main__":
         'stim_end': 1.0,
         'rwd_onset': 0.8,
         'rwd_end': 1.0,
-        'choice_onset': 0.65,
+        'choice_onset': 0.5,
         'choice_end': 0.8,
         'total_time': 1,
         'dt': args.dt}
