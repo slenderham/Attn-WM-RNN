@@ -94,10 +94,10 @@ if __name__ == "__main__":
         'end_time': 1.0,
         'stim_onset': 0.0,
         'stim_end': 1.0,
-        'rwd_onset': 0.9,
+        'rwd_onset': 0.8,
         'rwd_end': 1.0,
-        'choice_onset': 0.75,
-        'choice_end': 0.9,
+        'choice_onset': 0.5,
+        'choice_end': 0.8,
         'total_time': 1,
         'dt': args.dt}
     log_interval = 1
