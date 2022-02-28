@@ -43,7 +43,7 @@ if __name__ == "__main__":
     parser.add_argument('--init_spectral', type=float, default=None, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
-    parser.add_argument('--tau_w', type=float, default=200, help='Time constant for weight modification')
+    parser.add_argument('--tau_w', type=float, default=100, help='Time constant for weight modification')
     parser.add_argument('--dt', type=float, default=0.02, help='Discretization time step (ms)')
     parser.add_argument('--l2r', type=float, default=0.0, help='Weight for L2 reg on firing rate')
     parser.add_argument('--l2w', type=float, default=0.0, help='Weight for L2 reg on weight')
