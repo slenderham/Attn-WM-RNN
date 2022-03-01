@@ -228,7 +228,13 @@ class MDPRL():
             # index_s = np.repeat(np.random.permutation(27)[:subsample_stims], N_s)
             # index_s_i = [np.random.permutation(index_s) for _ in range(num_choices)]
             # index_s_i = np.stack(index_s_i, axis=1)
-            index_s_i = self.pairs[np.random.choice(np.arange(len(self.pairs)), size=len_seq)]
+            if num_choices==2:
+                index_s_i = self.pairs[np.random.choice(np.arange(len(self.pairs)), size=len_seq)]
+            elif num_choices==1:
+                index_s = np.repeat(np.random.permutation(27)[:subsample_stims], N_s)
+                index_s_i = np.random.permutation(index_s).reshape(len_seq,1)
+            else:
+                raise ValueError
             # while np.any([len(np.unique(index_s_i[:,j])) != len(index_s_i[:,j]) for j in range(len(index_s))]):
             #     print(np.sum([len(np.unique(index_s_i[:,j])) != len(index_s_i[:,j]) for j in range(len(index_s))]))
             #     index_s_i = [np.random.permutation(index_s) for _ in range(num_choices)]
