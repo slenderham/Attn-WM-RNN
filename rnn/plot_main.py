@@ -14,9 +14,7 @@ from torch.nn.functional import interpolate
 from torch.serialization import save
 
 from analysis import *
-from analysis import (anova, hierarchical_clustering, linear_regression,
-                      representational_similarity_analysis)
-from models import MultiChoiceRNN, SimpleRNN
+from models import MultiChoiceRNN, SimpleRNN, HierarchicalRNN
 from task import MDPRL
 from utils import load_checkpoint
 
@@ -45,7 +43,7 @@ def plot_imag_centered_cm(ax, im):
     im = ax.imshow(im, vmax=max_mag, vmin=-max_mag, cmap='coolwarm')
     return im
 
-def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, h2ob, h2vw, h2vb, h2attnw, h2attnb, aux2h, kappa_in, kappa_rec, kappa_fb, e_size):
+def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, h2ob, aux2h, kappa_rec, e_size):
     # maxmax = abs(max([x2hw.max().item(), h2hw.max().item(), hb.max().item(), h2ow.max().item()]))
     # minmin = abs(min([x2hw.min().item(), h2hw.min().item(), hb.min().item(), h2ow.min().item()]))
     # vbound = max([maxmax, minmin])
@@ -60,37 +58,37 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, h2ob, h2vw, h2vb, h2at
     hidden_size = h2hw.shape[0]
     PLOT_W = 0.6/hidden_size
     hidden_size = h2hw.shape[0]*PLOT_W
-    input_size = x2hw[0].shape[1]*PLOT_W
+    input_size = x2hw.shape[1]*PLOT_W
     output_size = h2ow.shape[0]*PLOT_W
-    attn_size = h2attnw.shape[0]*PLOT_W
+    # attn_size = h2attnw.shape[0]*PLOT_W
     aux_size = aux2h.shape[1]*PLOT_W
-    value_size = h2vw.shape[0]*PLOT_W
+    # value_size = h2vw.shape[0]*PLOT_W
     MARGIN = 0.01
     LEFT = 0.1
     BOTTOM = 0.1
     
-    ax01 = fig.add_axes((LEFT, BOTTOM+value_size+output_size+attn_size+MARGIN*3, input_size, hidden_size))
-    ims.append(ax01.imshow(x2hw[0][sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    ax01 = fig.add_axes((LEFT, BOTTOM+output_size+MARGIN, input_size, hidden_size))
+    ims.append(ax01.imshow(x2hw[sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax01.set_xticks([])
     ax01.set_yticks([])
     ax01.axis('off')
     ax01.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    ax02 = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+value_size+output_size+attn_size+MARGIN*3, input_size, hidden_size))
-    ims.append(ax02.imshow(x2hw[1][sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    ax02.set_xticks([])
-    ax02.set_yticks([])
-    ax02.axis('off')
-    ax02.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
+    # ax02 = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+output_size+MARGIN*3, input_size, hidden_size))
+    # ims.append(ax02.imshow(x2hw[1][sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # ax02.set_xticks([])
+    # ax02.set_yticks([])
+    # ax02.axis('off')
+    # ax02.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    axaux = fig.add_axes((LEFT+input_size*2+MARGIN*2, BOTTOM+value_size+output_size+attn_size+MARGIN*3, aux_size, hidden_size))
+    axaux = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+output_size+MARGIN, aux_size, hidden_size))
     ims.append(axaux.imshow(aux2h[sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     axaux.set_xticks([])
     axaux.set_yticks([])
     axaux.axis('off')
     axaux.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    ax1w = fig.add_axes((LEFT+input_size*2+aux_size+MARGIN*3, BOTTOM+value_size+output_size+attn_size+MARGIN*3, hidden_size, hidden_size))
+    ax1w = fig.add_axes((LEFT+input_size+aux_size+MARGIN*2, BOTTOM+output_size+MARGIN, hidden_size, hidden_size))
     ims.append(ax1w.imshow(h2hw[sort_inds][:,sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax1w.set_xticks([])
     ax1w.set_yticks([])
@@ -98,55 +96,56 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, h2ob, h2vw, h2vb, h2at
     ax1w.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     ax1w.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    ax1b = fig.add_axes((LEFT+input_size*2+aux_size+hidden_size+MARGIN*4, BOTTOM+value_size+output_size+attn_size+MARGIN*3, PLOT_W, hidden_size))
+    ax1b = fig.add_axes((LEFT+input_size+aux_size+hidden_size+MARGIN*3, BOTTOM+output_size+MARGIN, PLOT_W, hidden_size))
     ims.append(ax1b.imshow(hb[sort_inds].unsqueeze(1), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax1b.set_xticks([])
     ax1b.set_yticks([])
     ax1b.axis('off')
     ax1b.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    axattnw = fig.add_axes((LEFT+input_size*2+aux_size+MARGIN*3, BOTTOM+value_size+output_size+MARGIN*2, hidden_size, attn_size))
-    ims.append(axattnw.imshow(h2attnw[:,sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    axattnw.set_xticks([])
-    axattnw.set_yticks([])
-    axattnw.axis('off')
-    axattnw.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
+    # axattnw = fig.add_axes((LEFT+input_size*2+aux_size+MARGIN*3, BOTTOM+value_size+output_size+MARGIN*2, hidden_size, attn_size))
+    # ims.append(axattnw.imshow(h2attnw[:,sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # axattnw.set_xticks([])
+    # axattnw.set_yticks([])
+    # axattnw.axis('off')
+    # axattnw.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     
-    axattnb = fig.add_axes((LEFT+input_size*2+aux_size+hidden_size+MARGIN*4, BOTTOM+value_size+output_size+MARGIN*2, PLOT_W, attn_size))
-    ims.append(axattnb.imshow(h2attnb.unsqueeze(1), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    axattnb.set_xticks([])
-    axattnb.set_yticks([])
-    axattnb.axis('off')
+    # axattnb = fig.add_axes((LEFT+input_size*2+aux_size+hidden_size+MARGIN*4, BOTTOM+value_size+output_size+MARGIN*2, PLOT_W, attn_size))
+    # ims.append(axattnb.imshow(h2attnb.unsqueeze(1), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # axattnb.set_xticks([])
+    # axattnb.set_yticks([])
+    # axattnb.axis('off')
     
-    axoutputw = fig.add_axes((LEFT+input_size*2+aux_size+MARGIN*3, BOTTOM+value_size+MARGIN, hidden_size, output_size))
+    axoutputw = fig.add_axes((LEFT+input_size+aux_size+MARGIN*2, BOTTOM, hidden_size, output_size))
     ims.append(axoutputw.imshow(h2ow[:,sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     axoutputw.set_xticks([])
     axoutputw.set_yticks([])
     axoutputw.axis('off')
     axoutputw.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     
-    axoutputb = fig.add_axes((LEFT+input_size*2+aux_size+hidden_size+MARGIN*4, BOTTOM+value_size+MARGIN, PLOT_W, output_size))
+    axoutputb = fig.add_axes((LEFT+input_size+aux_size+hidden_size+MARGIN*3, BOTTOM, PLOT_W, output_size))
     ims.append(axoutputb.imshow(h2ob.unsqueeze(1), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     axoutputb.set_xticks([])
     axoutputb.set_yticks([])
     axoutputb.axis('off')
     
-    axvaluew = fig.add_axes((LEFT+input_size*2+aux_size+MARGIN*3, BOTTOM, hidden_size, value_size))
-    ims.append(axvaluew.imshow(h2vw[:,sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    axvaluew.set_xticks([])
-    axvaluew.set_yticks([])
-    axvaluew.axis('off')
-    axvaluew.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
+    # axvaluew = fig.add_axes((LEFT+input_size*2+aux_size+MARGIN*3, BOTTOM, hidden_size, value_size))
+    # ims.append(axvaluew.imshow(h2vw[:,sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # axvaluew.set_xticks([])
+    # axvaluew.set_yticks([])
+    # axvaluew.axis('off')
+    # axvaluew.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     
-    axvalueb = fig.add_axes((LEFT+input_size*2+aux_size+hidden_size+MARGIN*4, BOTTOM, PLOT_W, value_size))
-    ims.append(axvalueb.imshow(h2vb.unsqueeze(1), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    axvalueb.set_xticks([])
-    axvalueb.set_yticks([])
-    axvalueb.axis('off')
+    # axvalueb = fig.add_axes((LEFT+input_size*2+aux_size+hidden_size+MARGIN*4, BOTTOM, PLOT_W, value_size))
+    # ims.append(axvalueb.imshow(h2vb.unsqueeze(1), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # axvalueb.set_xticks([])
+    # axvalueb.set_yticks([])
+    # axvalueb.axis('off')
     # for i in range(2):
     #     for j in range(3):
     #         axes[i, j].axis('off')
     # plt.axis('off')
+    
     fig.subplots_adjust(right=0.7)
     cbar_ax = fig.add_axes([0.85, 0.15, 0.02, 0.6])
     fig.colorbar(ims[-1], cax=cbar_ax)
@@ -158,22 +157,22 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, h2ob, h2vw, h2vb, h2at
     vbound = 0.6
     fig = plt.figure('learning_rates')
     ims = []
-    ax01 = fig.add_axes((LEFT, BOTTOM+attn_size+MARGIN, input_size, hidden_size))
-    ims.append(ax01.imshow(kappa_in[0][sort_inds].squeeze(), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    ax01.set_xticks([])
-    ax01.set_yticks([])
-    ax01.axis('off')
-    ax01.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
+    # ax01 = fig.add_axes((LEFT, BOTTOM+attn_size+MARGIN, input_size, hidden_size))
+    # ims.append(ax01.imshow(kappa_in[0][sort_inds].squeeze(), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # ax01.set_xticks([])
+    # ax01.set_yticks([])
+    # ax01.axis('off')
+    # ax01.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    ax02 = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+attn_size+MARGIN*1, input_size, hidden_size))
-    ims.append(ax02.imshow(kappa_in[1][sort_inds].squeeze(), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    ax02.set_xticks([])
-    ax02.set_yticks([])
-    ax02.axis('off')
-    ax02.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
+    # ax02 = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+attn_size+MARGIN*1, input_size, hidden_size))
+    # ims.append(ax02.imshow(kappa_in[1][sort_inds].squeeze(), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # ax02.set_xticks([])
+    # ax02.set_yticks([])
+    # ax02.axis('off')
+    # ax02.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
     vbound = 0.1
-    ax1w = fig.add_axes((LEFT+input_size*2+MARGIN*2, BOTTOM+attn_size+MARGIN*1, hidden_size, hidden_size))
+    ax1w = fig.add_axes((LEFT, BOTTOM+output_size+MARGIN, hidden_size, hidden_size))
     ims.append(ax1w.imshow(kappa_rec[sort_inds][:,sort_inds].squeeze(), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax1w.set_xticks([])
     ax1w.set_yticks([])
@@ -181,12 +180,12 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, h2ob, h2vw, h2vb, h2at
     ax1w.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     ax1w.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    axfb = fig.add_axes((LEFT+input_size*2+MARGIN*2, BOTTOM, hidden_size, attn_size))
-    ims.append(axfb.imshow(kappa_fb[:,sort_inds].squeeze(), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    axfb.set_xticks([])
-    axfb.set_yticks([])
-    axfb.axis('off')
-    axfb.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
+    # axfb = fig.add_axes((LEFT+input_size*2+MARGIN*2, BOTTOM, hidden_size, attn_size))
+    # ims.append(axfb.imshow(kappa_fb[:,sort_inds].squeeze(), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # axfb.set_xticks([])
+    # axfb.set_yticks([])
+    # axfb.axis('off')
+    # axfb.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     
     fig.subplots_adjust(right=0.85)
     cbar_ax = fig.add_axes([0.85, 0.1, 0.02, 0.6])
@@ -221,7 +220,7 @@ def plot_output_analysis(output, stim_order, stim_probs, splits=8):
     # plt.savefig(f'plots/{plot_args.exp_dir}/rsa_coeffs')
     plt.show()    
 
-def plot_learning_curve(all_l, lm, lsd):
+def plot_learning_curve(args, all_l, lm, lsd):
     fig_all = plt.figure('perf_all')
     ax = fig_all.add_subplot()
     ax.imshow(all_l[0].squeeze(-1).t(), interpolation='nearest')
@@ -434,66 +433,78 @@ def plot_rsa(hs, stim_order, stim_probs, cluster_label, e_size, splits=8):
 def plot_rate_pca(hs):
     return
 
-def plot_weight_tca(ws):
-    return
+def plot_weight_tca(vsws, mode):
+    # time, trial number, batch, hidden / hidden X hidden
+    assert mode in ['rate', 'weight']
+    results = run_tca(vsws, ranks=[3, 20], num_reps=1)
+    return results
 
-def run_model(args, model, task_mdprl):
+def run_model(args, model, task_mdprl, n_samples):
     model.eval()
     accs = []
     rwds = []
     all_indices = []
+    all_probs = []
+    all_gen_levels = []
     all_saved_states_pre = defaultdict(list)
     all_saved_states_post = defaultdict(list)
-    n_samples = plot_args.n_samples
+    output_size = args['output_size']
     with torch.no_grad():
-        for batch_idx in range(10,10+n_samples):
+        for batch_idx in range(n_samples):
             print(batch_idx)
-            DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(
-                batch_size=1, test_N_s=args['test_N_s'], num_choices=2 if 'double' in args['task_type'] else 1, participant_num=batch_idx)
-            if args['task_type']=='value':
-                output, hs, _ = model(pop_s, DA_s)
-                output = output.reshape(args['stim_val']**args['stim_dim']*args['test_N_s'], output_mask.shape[1], 1) # trial X T X batch size
-                loss = (output[:, output_mask.squeeze()==1]-ch_s[:, output_mask.squeeze()==1].squeeze(-1)).pow(2).mean(1) # trial X batch size
-            else:
-                acc = []
-                curr_rwd = []
-                hidden = None
-                for i in range(len(pop_s['pre_choice'])):
-                    # first phase, give stimuli and no feedback
-                    output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
+            curr_gen_lvl = np.random.choice(task_mdprl.gen_levels)
+            DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(
+                batch_size=1, N_s=args['test_N_s'], num_choices=output_size, gen_level=curr_gen_lvl)
+            acc = []
+            curr_rwd = []
+            hidden = None
+            for i in range(len(pop_s['pre_choice'])):
+                # first phase, give stimuli and no feedback
+                output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
                                                 Rs=0*DA_s['pre_choice'], Vs=None,
-                                                acts=torch.zeros(1, 2)*DA_s['pre_choice'], 
-                                                save_attns=False if args['attn_type']=='none' else True, save_weights=False)
-                    for k, v in ss.items():
-                        all_saved_states_pre[k].append(v)
-                    all_saved_states_pre['hs'].append(hs)
+                                                acts=torch.zeros(1, output_size)*DA_s['pre_choice'],
+                                                save_weights=True, reinit_hidden=True)
 
+                for k, v in ss.items():
+                    all_saved_states_pre[k].append(v)
+                all_saved_states_pre['hs'].append(hs)
+
+                if args['task_type']=='on_policy_double':
                     # use output to calculate action, reward, and record loss function
-                    logprob, value = output
-                    m = torch.distributions.categorical.Categorical(logits=logprob[-1])
-                    action = m.sample().reshape(1)
-                    rwd = (torch.rand(1)<prob_s[i,0,action]).float()
-                    acc.append((torch.argmax(logprob[-1], -1)==torch.argmax(prob_s[i], -1)).float())
+                    action = torch.argmax(output[-1], -1)
+                    rwd = (torch.rand(1)<prob_s[i][range(1), action]).float()
+                    acc.append((action==torch.argmax(prob_s[i], -1)).float())
                     curr_rwd.append(rwd)
+                elif args['task_type'] == 'value':
+                    rwd = (torch.rand(1)<prob_s[i]).float()
+                    output = output.reshape(output_mask['target'].shape[0], 1, output_size)
+                    acc.append(((output-ch_s['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean(0))
+                    curr_rwd.append(rwd)
+                
+                if args['task_type']=='on_policy_double':
                     # use the action (optional) and reward as feedback
                     pop_post = pop_s['post_choice'][i]
-                    action_enc = torch.eye(2)[action]
-                    pop_post = pop_post*action_enc.reshape(1,1,2,1)
+                    action_enc = torch.eye(output_size)[action]
+                    if args['num_areas']==1 or not args['spatial_attn']:
+                        pop_post = pop_post*action_enc.reshape(1,1,2,1)
                     action_enc = action_enc*DA_s['post_choice']
                     R = (2*rwd-1)*DA_s['post_choice']
-                    if args['rpe']:
-                        V = value[-1]*DA_s['post_choice']
-                    else:
-                        V = None
-                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=V, acts=action_enc, save_attns=True, save_weights=False)
-                    for k, v in ss.items():
-                        all_saved_states_post[k].append(v)
-                    all_saved_states_post['hs'].append(hs)
-                acc = torch.stack(acc, dim=0)
-                curr_rwd = torch.stack(curr_rwd, dim=0)
+                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=action_enc, save_weights=True)
+                elif args['task_type'] == 'value':
+                    pop_post = pop_s['post_choice'][i]
+                    R = (2*rwd-1)*DA_s['post_choice']
+                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=None, save_weights=True)
+                
+                for k, v in ss.items():
+                    all_saved_states_post[k].append(v)
+                all_saved_states_post['hs'].append(hs)
+            acc = torch.stack(acc, dim=0)
+            curr_rwd = torch.stack(curr_rwd, dim=0)
             accs.append(acc)
             rwds.append(curr_rwd)
             all_indices.append(index_s)
+            all_gen_levels.append(curr_gen_lvl)
+            all_probs.append(prob_s)
         accs = torch.cat(accs, dim=1)
         rwds = torch.cat(rwds, dim=1)
         accs_means = accs.mean(1) # loss per trial
@@ -508,7 +519,8 @@ def run_model(args, model, task_mdprl):
             trial_len, _, *hidden_sizes = all_saved_states[k].shape
             all_saved_states[k] = all_saved_states[k].reshape(trial_len, n_samples, len(index_s), *hidden_sizes).transpose(1,2).transpose(0,1)
         all_indices = torch.stack(all_indices, dim=1) # trials X batch size X 2
-        return [accs, rwds], [accs_means, rwds_means], [accs_stds, rwds_stds], all_saved_states, all_indices
+        all_probs = torch.stack(all_probs, dim=1)
+        return [accs, rwds], [accs_means, rwds_means], [accs_stds, rwds_stds], all_saved_states, all_indices, all_probs, all_gen_levels
 
 def order_stim_probs(stim_order, stim_probs):
     n_trials, n_batch, n_choices = stim_order.shape
@@ -518,122 +530,123 @@ def order_stim_probs(stim_order, stim_probs):
         stim_probs_ordered.append(est[stim_order]) # output[t, b, c] = stim_probs[stim_order[t, b, c]]
     return stim_probs_ordered
 
-if __name__=='__main__':
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--exp_dir', type=str, help='Directory of trained model')
-    parser.add_argument('--connectivity_and_lr', action='store_true')
-    parser.add_argument('--n_samples', type=int, default=21)
-    parser.add_argument('--n_runs_per_sample', type=int, default=1)
-    parser.add_argument('--learning_rates', action='store_true')
-    parser.add_argument('--sort_rec_w', action='store_true')
-    parser.add_argument('--sort_rec_lr', action='store_true')
-    parser.add_argument('--tca', action='store_true')
-    parser.add_argument('--pca', action='store_true')
-    parser.add_argument('--rsa', action='store_true')
-    parser.add_argument('--tdr', action='store_true')
-    parser.add_argument('--learning_curve', action='store_true')
-    parser.add_argument('--attn_entropy', action='store_true')
-    parser.add_argument('--attn_distribution', action='store_true')
-    plot_args = parser.parse_args()
+# if __name__=='__main__':
+#     import argparse
+#     parser = argparse.ArgumentParser()
+#     parser.add_argument('--exp_dir', type=str, help='Directory of trained model')
+#     parser.add_argument('--connectivity_and_lr', action='store_true')
+#     parser.add_argument('--n_samples', type=int, default=21)
+#     parser.add_argument('--n_runs_per_sample', type=int, default=1)
+#     parser.add_argument('--learning_rates', action='store_true')
+#     parser.add_argument('--sort_rec_w', action='store_true')
+#     parser.add_argument('--sort_rec_lr', action='store_true')
+#     parser.add_argument('--tca', action='store_true')
+#     parser.add_argument('--pca', action='store_true')
+#     parser.add_argument('--rsa', action='store_true')
+#     parser.add_argument('--tdr', action='store_true')
+#     parser.add_argument('--learning_curve', action='store_true')
+#     parser.add_argument('--attn_entropy', action='store_true')
+#     parser.add_argument('--attn_distribution', action='store_true')
+#     plot_args = parser.parse_args()
 
-    # load training config
-    f = open(os.path.join(plot_args.exp_dir, 'args.json'), 'r')
-    args = json.load(f)
-    print('loaded args')
-    # load model
-    exp_times = {
-        'start_time': -0.25,
-        'end_time': 0.75,
-        'stim_onset': 0.0,
-        'stim_end': 0.6,
-        'rwd_onset': 0.5,
-        'rwd_end': 0.6,
-        'choice_onset': 0.35,
-        'choice_end': 0.5,
-        'total_time': 1}
-    exp_times['dt'] = args['dt']
-    task_mdprl = MDPRL(exp_times, args['input_type'])
-    print('loaded task')
+#     # load training config
+#     f = open(os.path.join(plot_args.exp_dir, 'args.json'), 'r')
+#     args = json.load(f)
+#     print('loaded args')
+#     # load model
+#     exp_times = {
+#         'start_time': -0.25,
+#         'end_time': 0.75,
+#         'stim_onset': 0.0,
+#         'stim_end': 0.6,
+#         'rwd_onset': 0.5,
+#         'rwd_end': 0.6,
+#         'choice_onset': 0.35,
+#         'choice_end': 0.5,
+#         'total_time': 1}
+#     exp_times['dt'] = args['dt']
+#     task_mdprl = MDPRL(exp_times, args['input_type'])
+#     print('loaded task')
 
-    input_size = {
-        'feat': args['stim_dim']*args['stim_val'],
-        'feat+obj': args['stim_dim']*args['stim_val']+args['stim_val']**args['stim_dim'], 
-        'feat+conj+obj': args['stim_dim']*args['stim_val']+args['stim_dim']*args['stim_val']*args['stim_val']+args['stim_val']**args['stim_dim'],
-    }[args['input_type']]
+#     input_size = {
+#         'feat': args['stim_dim']*args['stim_val'],
+#         'feat+obj': args['stim_dim']*args['stim_val']+args['stim_val']**args['stim_dim'], 
+#         'feat+conj+obj': args['stim_dim']*args['stim_val']+args['stim_dim']*args['stim_val']*args['stim_val']+args['stim_val']**args['stim_dim'],
+#     }[args['input_type']]
 
-    input_unit_group = {
-        'feat': [args['stim_dim']*args['stim_val']], 
-        'feat+obj': [args['stim_dim']*args['stim_val'], args['stim_val']**args['stim_dim']], 
-        'feat+conj+obj': [args['stim_dim']*args['stim_val'], args['stim_dim']*args['stim_val']*args['stim_val'], args['stim_val']**args['stim_dim']]
-    }[args['input_type']]
+#     input_unit_group = {
+#         'feat': [args['stim_dim']*args['stim_val']], 
+#         'feat+obj': [args['stim_dim']*args['stim_val'], args['stim_val']**args['stim_dim']], 
+#         'feat+conj+obj': [args['stim_dim']*args['stim_val'], args['stim_dim']*args['stim_val']*args['stim_val'], args['stim_val']**args['stim_dim']]
+#     }[args['input_type']]
 
-    if args['attn_type']!='none':
-        if args['input_type']=='feat':
-            channel_group_size = [args['stim_val']]*args['stim_dim']
-        elif args['input_type']=='feat+obj':
-            channel_group_size = [args['stim_val']]*args['stim_dim'] + [args['stim_val']**args['stim_dim']]
-        elif args['input_type']=='feat+conj+obj':
-            channel_group_size = [args['stim_val']]*args['stim_dim'] + [args['stim_val']*args['stim_val']]*args['stim_dim'] + [args['stim_val']**args['stim_dim']]
-    else:
-        channel_group_size = [input_size]
+#     if args['attn_type']!='none':
+#         if args['input_type']=='feat':
+#             channel_group_size = [args['stim_val']]*args['stim_dim']
+#         elif args['input_type']=='feat+obj':
+#             channel_group_size = [args['stim_val']]*args['stim_dim'] + [args['stim_val']**args['stim_dim']]
+#         elif args['input_type']=='feat+conj+obj':
+#             channel_group_size = [args['stim_val']]*args['stim_dim'] + [args['stim_val']*args['stim_val']]*args['stim_dim'] + [args['stim_val']**args['stim_dim']]
+#     else:
+#         channel_group_size = [input_size]
+
+#     output_size = 1 if args['task_type']=='value' else 2
+#     model_specs = {'input_size': input_size, 'hidden_size': args['hidden_size'], 'output_size': output_size, 
+#             'plastic': args['plas_type']=='all', 'attention_type': args['attn_type'], 'activation': args['activ_func'],
+#             'dt': args['dt'], 'tau_x': args['tau_x'], 'tau_w': args['tau_w'], 'channel_group_size': channel_group_size,
+#             'c_plasticity': None, 'e_prop': args['e_prop'], 'init_spectral': args['init_spectral'], 'balance_ei': args['balance_ei'],
+#             'sigma_rec': args['sigma_rec'], 'sigma_in': args['sigma_in'], 'sigma_w': args['sigma_w'], 
+#             'rwd_input': args.get('rwd_input', False), 'action_input': args['action_input'], 
+#             'input_unit_group': input_unit_group, 'sep_lr': args['sep_lr'], 'plastic_feedback': args['plastic_feedback'],
+#             'value_est': 'policy' in args['task_type'], 'num_choices': 2 if 'double' in args['task_type'] else 1}
+#     if 'double' in args['task_type']:
+#         model = MultiChoiceRNN(**model_specs)
+#     else:
+#         model = SimpleRNN(**model_specs)
+#     state_dict = torch.load(os.path.join(plot_args.exp_dir, 'checkpoint.pth.tar'), map_location=torch.device('cpu'))['model_state_dict']
+#     model.load_state_dict(state_dict)
+#     print('loaded model')
+
+
+#     # if plot_args.sort_rec_w:
+#         # plot_sorted_matrix(model.h2h.effective_weight().detach(), int(args['e_prop']*args['hidden_size']), 'weight')
+#     # if plot_args.sort_rec_lr:
+#         # plot_sorted_matrix(model.kappa_rec.relu().squeeze().detach(), int(args['e_prop']*args['hidden_size']), 'lr')
     
-    model_specs = {'input_size': input_size, 'hidden_size': args['hidden_size'], 'output_size': 2 if 'double' in args['task_type'] else 1, 
-            'plastic': args['plas_type']=='all', 'attention_type': args['attn_type'], 'activation': args['activ_func'],
-            'dt': args['dt'], 'tau_x': args['tau_x'], 'tau_w': args['tau_w'], 'channel_group_size': channel_group_size,
-            'c_plasticity': None, 'e_prop': args['e_prop'], 'init_spectral': args['init_spectral'], 'balance_ei': args['balance_ei'],
-            'sigma_rec': args['sigma_rec'], 'sigma_in': args['sigma_in'], 'sigma_w': args['sigma_w'], 
-            'rwd_input': args.get('rwd_input', False), 'action_input': args['action_input'], 
-            'input_unit_group': input_unit_group, 'sep_lr': args['sep_lr'], 'plastic_feedback': args['plastic_feedback'],
-            'value_est': 'policy' in args['task_type'], 'num_choices': 2 if 'double' in args['task_type'] else 1}
-    if 'double' in args['task_type']:
-        model = MultiChoiceRNN(**model_specs)
-    else:
-        model = SimpleRNN(**model_specs)
-    state_dict = torch.load(os.path.join(plot_args.exp_dir, 'checkpoint.pth.tar'), map_location=torch.device('cpu'))['model_state_dict']
-    model.load_state_dict(state_dict)
-    print('loaded model')
+#     losses, losses_means, losses_stds, all_saved_states, all_indices = run_model(args, model, task_mdprl)
+#     print('simulation complete')
 
+#     stim_probs_ordered = []
+#     for i in range(plot_args.n_samples):
+#         stim_probs_ordered.append(np.array([task_mdprl.prob_mdprl.reshape(27)[all_indices[:,i,0]], task_mdprl.prob_mdprl.reshape(27)[all_indices[:,i,1]]]).T)
+#     stim_probs_ordered = np.stack(stim_probs_ordered, axis=1)
 
-    # if plot_args.sort_rec_w:
-        # plot_sorted_matrix(model.h2h.effective_weight().detach(), int(args['e_prop']*args['hidden_size']), 'weight')
-    # if plot_args.sort_rec_lr:
-        # plot_sorted_matrix(model.kappa_rec.relu().squeeze().detach(), int(args['e_prop']*args['hidden_size']), 'lr')
+#     selectivity, sort_inds, cluster_label = unit_selectivity(all_saved_states['hs'], np.argmax(stim_probs_ordered, axis=-1), 
+#                                                         e_size=int(args['e_prop']*args['hidden_size']))
     
-    losses, losses_means, losses_stds, all_saved_states, all_indices = run_model(args, model, task_mdprl)
-    print('simulation complete')
-
-    stim_probs_ordered = []
-    for i in range(plot_args.n_samples):
-        stim_probs_ordered.append(np.array([task_mdprl.prob_mdprl.reshape(27)[all_indices[:,i,0]], task_mdprl.prob_mdprl.reshape(27)[all_indices[:,i,1]]]).T)
-    stim_probs_ordered = np.stack(stim_probs_ordered, axis=1)
-
-    selectivity, sort_inds, cluster_label = unit_selectivity(all_saved_states['hs'], np.argmax(stim_probs_ordered, axis=-1), 
-                                                        e_size=int(args['e_prop']*args['hidden_size']))
-    
-    # load metrics
-    metrics = json.load(open(os.path.join(plot_args.exp_dir, 'metrics.json'), 'r'))
-    if plot_args.connectivity_and_lr:
-        plot_connectivity_lr(sort_inds, x2hw=[mx2h.effective_weight().detach() for mx2h in model.x2h],
-                             h2hw=model.h2h.effective_weight().detach(),
-                             hb=state_dict['h2h.bias'].detach(),
-                             h2ow=model.h2o.effective_weight().detach(),
-                             h2ob=state_dict['h2o.bias'].detach(),
-                             h2vw=model.h2v.effective_weight().detach(),
-                             h2vb=state_dict['h2o.bias'].detach(),
-                             h2attnw=model.attn_func.effective_weight().detach(),
-                             h2attnb=torch.zeros(model.attn_func.weight.shape[0]),
-                             aux2h=model.aux2h.effective_weight().detach(),
-                             kappa_in=[ki.squeeze().abs().detach()*model.x2h[0].mask for ki in model.kappa_in],
-                             kappa_rec=model.kappa_rec.squeeze().abs().detach()*model.h2h.mask,
-                             kappa_fb=model.kappa_fb.squeeze().abs().detach()*model.attn_func.mask,
-                             e_size=int(args['e_prop']*args['hidden_size']))
-    if plot_args.learning_curve:
-        plot_learning_curve(losses, losses_means, losses_stds)
-    if plot_args.attn_entropy:
-        plot_attn_entropy(all_saved_states['attns'])
-    if plot_args.attn_distribution:
-        plot_attn_distribution(all_saved_states['attns'])
-    if plot_args.rsa:
-        print(cluster_label*0)
-        plot_rsa(all_saved_states['hs'], stim_probs=task_mdprl.value_est(), stim_order=all_indices, cluster_label=cluster_label*0, e_size=model.h2h.e_size)
+#     # load metrics
+#     metrics = json.load(open(os.path.join(plot_args.exp_dir, 'metrics.json'), 'r'))
+#     if plot_args.connectivity_and_lr:
+#         plot_connectivity_lr(sort_inds, x2hw=[mx2h.effective_weight().detach() for mx2h in model.x2h],
+#                              h2hw=model.h2h.effective_weight().detach(),
+#                              hb=state_dict['h2h.bias'].detach(),
+#                              h2ow=model.h2o.effective_weight().detach(),
+#                              h2ob=state_dict['h2o.bias'].detach(),
+#                              h2vw=model.h2v.effective_weight().detach(),
+#                              h2vb=state_dict['h2o.bias'].detach(),
+#                              h2attnw=model.attn_func.effective_weight().detach(),
+#                              h2attnb=torch.zeros(model.attn_func.weight.shape[0]),
+#                              aux2h=model.aux2h.effective_weight().detach(),
+#                              kappa_in=[ki.squeeze().abs().detach()*model.x2h[0].mask for ki in model.kappa_in],
+#                              kappa_rec=model.kappa_rec.squeeze().abs().detach()*model.h2h.mask,
+#                              kappa_fb=model.kappa_fb.squeeze().abs().detach()*model.attn_func.mask,
+#                              e_size=int(args['e_prop']*args['hidden_size']))
+#     if plot_args.learning_curve:
+#         plot_learning_curve(losses, losses_means, losses_stds)
+#     if plot_args.attn_entropy:
+#         plot_attn_entropy(all_saved_states['attns'])
+#     if plot_args.attn_distribution:
+#         plot_attn_distribution(all_saved_states['attns'])
+#     if plot_args.rsa:
+#         print(cluster_label*0)
+#         plot_rsa(all_saved_states['hs'], stim_probs=task_mdprl.value_est(), stim_order=all_indices, cluster_label=cluster_label*0, e_size=model.h2h.e_size)

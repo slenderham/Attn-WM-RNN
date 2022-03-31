@@ -84,3 +84,13 @@ def load_list_from_fs(outpath):
     with open(outpath, 'r') as fp:
         l = fp.read().split('\n')[:-1]
         return [float(n) for n in l]
+
+def add_weight_decay_group(model, weight_decay):
+    decay = dict()
+    no_decay = dict()
+    for n, p in model.named_parameters():
+        if 'weight' in n:
+            decay.append(n)
+        else:
+            no_decay.append(p)
+    return [{'params': no_decay, 'weight_decay': 0.}, {'params': decay, 'weight_decay': weight_decay}]
