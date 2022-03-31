@@ -1,7 +1,5 @@
-from asyncio import log
 import math
 import os
-from argparse import Action
 from collections import defaultdict
 
 import numpy as np
@@ -69,7 +67,7 @@ if __name__ == "__main__":
     parser.add_argument('--rwd_input', action='store_true', help='Whether to use reward as input')
     parser.add_argument('--action_input', action='store_true', help='Whether to use action as input')
     parser.add_argument('--rpe', action='store_true', help='Whether to use reward prediction error as modulation')
-    parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'retanh', 'sigmoid'], 
+    parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'softplus2', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
     parser.add_argument('--structured_conn', action='store_true', help='Whether to use restricted connectivity')
     parser.add_argument('--reversal_every', type=int, default=100000, help='Number of trials between reversals')
@@ -90,15 +88,15 @@ if __name__ == "__main__":
     save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
     exp_times = {
-        'start_time': 0.0,
+        'start_time': -0.5,
         'end_time': 1.0,
         'stim_onset': 0.0,
         'stim_end': 1.0,
-        'rwd_onset': 0.8,
+        'rwd_onset': 0.9,
         'rwd_end': 1.0,
-        'choice_onset': 0.5,
-        'choice_end': 0.8,
-        'total_time': 1,
+        'choice_onset': 0.7,
+        'choice_end': 0.9,
+        'total_time': 1.5,
         'dt': args.dt}
     log_interval = 1
 
@@ -159,10 +157,7 @@ if __name__ == "__main__":
     model_specs['num_areas'] = args.num_areas
     model_specs['inter_regional_sparsity'] = (1, 1)
     model_specs['inter_regional_gain'] = (1, 1)
-    if args.input_plas_off:
-        model_specs['input_plastic'] = False
-    else:
-        model_specs['input_plastic'] = True
+    model_specs['input_plastic'] = not args.input_plas_off
     model = HierarchicalRNN(**model_specs)
     # else:
     #     model = SimpleRNN(**model_specs)
@@ -223,9 +218,10 @@ if __name__ == "__main__":
                 output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
                                                 Rs=0*DA_s['pre_choice'], Vs=None,
                                                 acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'],
-                                                save_weights=True, reinit_hidden=True)
+                                                save_weights=True, reinit_hidden=False)
                 # plt.plot(output.squeeze().detach())
                 # plt.plot(ch_s['pre_choice'][i].squeeze())
+                # plt.ylim([-0.1, 1.1])
                 # plt.show()
                 # use output to calculate action, reward, and record loss function
 

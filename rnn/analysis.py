@@ -5,29 +5,80 @@ import pingouin as pg
 import scipy.cluster.hierarchy as sch
 from joblib import Parallel, delayed
 from joblib.parallel import delayed
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, linear_sum_assignment
 from scipy.spatial.distance import pdist
 from scipy.stats import zscore
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_score
 from sklearn.model_selection import cross_val_score
 from sklearn.svm import LinearSVC
-from tensorly.decomposition import parafac
-from dPCA import dPCA
+from tensorly.decomposition import parafac, non_negative_parafac
+import tensorly as tl
+from tensorly.tenalg import mode_dot
 
-def run_pca(hs):
+def run_pca(hs, rank=3):
     trials, timesteps, batch_size, hidden_dim = hs.shape
-    pca = PCA(n_components=3)
+    pca = PCA(n_components=rank)
     low_x = pca.fit_transform(hs.reshape(trials*timesteps*batch_size, hidden_dim)).reshape(trials, timesteps, batch_size, 3)
     return low_x.reshape(trials, timesteps, batch_size, 3)
 
-def run_tca(ws, rank=9):
-    trials, timesteps, batch_size, post_dim, pre_dim = ws.shape
-    factors = parafac(ws.reshape(trials*timesteps*batch_size, post_dim, pre_dim), rank=rank)
-    low_w = factors[0]
-    post_factor = factors[1]
-    pre_factor = factors[1]
-    return low_w.reshape(trials, timesteps, batch_size, rank), post_factor, pre_factor
+def kronecker_mat_ten(matrices, X):
+    for k in range(len(matrices)):
+        M = matrices[k]
+        Y = mode_dot(X, M, k)
+        X = Y
+        X = tl.moveaxis(X, [0, 1, 2], [2, 1, 0])
+    return Y
+
+def corcondia(X, k):
+    # https://gist.github.com/willshiao/2c0d7cc1133d8fa31587e541fef480fb
+
+    rank_X = len(X)
+    Us = [];
+    Ss = [];
+    Vs = [];
+
+    for F in X:
+        U, S, V = np.linalg.svd(F, )
+        Us.append(U.T)
+        Ss.append(S)
+        Vs.append(V.T)
+
+    for i, S in enumerate(Ss):
+        Ss[i] = np.diag(1/S)
+
+    part1 = kronecker_mat_ten(Us, X)
+    part2 = kronecker_mat_ten(Ss, part1)
+    G = kronecker_mat_ten(Vs, part2)
+
+    T = np.zeros(tuple([k]*rank_X))
+    T[np.diag_indices(k, rank_X)]=1
+
+    return (1 - ((G-T)**2).sum() / float(k))
+
+def run_tca(xs, ranks=[1, 27], num_reps=5):
+    results = {}
+    for r in range(ranks[0], ranks[1]+1):
+        print(f'fitting model of rank {r}')
+        results[r] = []
+        for n in range(num_reps):
+            cp, errs = non_negative_parafac(xs, rank=r, return_errors=True)
+            results[r].append({'cp_tensor': cp, 'errors': errs})
+    
+    # print('sorting errors')
+    # for r in range(ranks[0], ranks[1]+1):
+    #     idx = np.argsort([rr['errors'][-1] for rr in results[r]])
+    #     results[r] = [results[r][i] for i in idx]
+
+    # print('adding corcondia')
+    # # For each rank, align everything to the best model
+    # for r in range(ranks[0], ranks[1]+1):
+    #     # align lesser fit models to best models
+    #     for i, res in enumerate(results[r]):
+    #         results[r][i]['corcondia'] = corcondia(res['cp_tensor'].factors, k=r)
+    
+    return results
 
 def linear_regression(X, y):
     res = pg.linear_regression(X, y)
@@ -85,8 +136,13 @@ def hierarchical_clustering(x):
     Z = sch.linkage(dmat, method='centroid')
     return Z
 
-def cluster(x, n_clusters=3):
-    kmeans = KMeans(n_clusters=n_clusters).fit(x)
+def cluster(x, max_clusters=20):
+    silhouettes = []
+    for k in range(2, max_clusters+1):
+        kmeans = KMeans(n_clusters=k).fit(x)
+        silhouettes.append(silhouette_score(x, kmeans.labels_, metric='euclidean'))
+    argmax_k = np.argmax(silhouettes)
+    kmeans = KMeans(n_clusters=argmax_k+1).fit(x)
     return kmeans.labels_
 
 def targeted_dimensionality_reduction(hs, xs, ortho=False):

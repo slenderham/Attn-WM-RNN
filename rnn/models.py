@@ -1,6 +1,5 @@
 import math
 from collections import defaultdict
-from tkinter import E
 
 import numpy as np
 import torch
@@ -12,7 +11,9 @@ def _get_activation_function(func_name):
     if func_name=='relu':
         return F.relu
     elif func_name=='softplus':
-        return F.softplus
+        return lambda x: F.softplus(x-1)
+    elif func_name=='softplus2':
+        return lambda x: x/(1-torch.exp(-x))
     elif func_name=='retanh':
         return lambda x: torch.tanh(F.relu(x))
     elif func_name=='sigmoid':
@@ -116,7 +117,7 @@ class EILinear(nn.Module):
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
             # nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
-            nn.init.kaiming_uniform_(self.weight, a=1)
+            nn.init.kaiming_normal_(self.weight, a=1)
             # Scale E weight by E-I ratio
             if balance_ei is not None and self.i_size!=0:
                 # self.weight.data[:, :self.e_size] /= self.e_size/self.i_size
@@ -167,7 +168,7 @@ class PlasticLeakyRNNCell(nn.Module):
         if self.aux_input_size>0:
             self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='abs',
                                   e_prop=1, zero_cols_prop=0, bias=False,
-                                  init_gain=math.sqrt(self.aux_input_size/(input_size+aux_input_size)/hidden_size),
+                                  init_gain=math.sqrt(self.aux_input_size/(input_size+aux_input_size)/hidden_size*num_areas),
                                   conn_mask=conn_mask.get('aux', None))
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='abs',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
