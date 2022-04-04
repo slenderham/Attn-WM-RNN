@@ -88,15 +88,15 @@ if __name__ == "__main__":
     save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
     exp_times = {
-        'start_time': -0.5,
-        'end_time': 1.0,
+        'start_time': -0.25,
+        'end_time': 1.10,
         'stim_onset': 0.0,
-        'stim_end': 1.0,
-        'rwd_onset': 0.9,
-        'rwd_end': 1.0,
-        'choice_onset': 0.7,
-        'choice_end': 0.9,
-        'total_time': 1.5,
+        'stim_end': 1.10,
+        'rwd_onset': 1.0,
+        'rwd_end': 1.10,
+        'choice_onset': 0.8,
+        'choice_end': 1.0,
+        'total_time': 1.35,
         'dt': args.dt}
     log_interval = 1
 
@@ -237,8 +237,8 @@ if __name__ == "__main__":
                 elif args.task_type == 'value':
                     rwd = (torch.rand(args.batch_size)<prob_s[i]).float()
                     output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)
-                    loss += ((output-ch_s['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean()
-                    total_acc += ((output-ch_s['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean().item()
+                    loss += ((output-ch_s['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean()/output_mask['target'].float().mean()
+                    total_acc += ((output-ch_s['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean().item()/output_mask['target'].float().mean()
                 
                 # plt.imshow(ss['wxs'][-1,0].detach(), aspect='auto', interpolation='nearest')
                 # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
@@ -356,7 +356,7 @@ if __name__ == "__main__":
                         output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
                                                         Rs=0*DA_s['pre_choice'], Vs=None,
                                                         acts=torch.zeros(args.batch_size, output_size)*DA_s['pre_choice'],
-                                                        save_weights=True, reinit_hidden=True)
+                                                        save_weights=True, reinit_hidden=False)
 
                         if args.task_type=='on_policy_double':
                             # use output to calculate action, reward, and record loss function
@@ -366,7 +366,7 @@ if __name__ == "__main__":
                         elif args.task_type == 'value':
                             rwd = (torch.rand(args.batch_size)<prob_s[i]).float()
                             output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)
-                            loss.append(((output-ch_s['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean(0))
+                            loss.append(((output-ch_s['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean(0)/output_mask['target'].float().mean())
                         
                         if args.task_type=='on_policy_double':
                             # use the action (optional) and reward as feedback

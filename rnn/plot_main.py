@@ -463,7 +463,7 @@ def run_model(args, model, task_mdprl, n_samples):
                 output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
                                                 Rs=0*DA_s['pre_choice'], Vs=None,
                                                 acts=torch.zeros(1, output_size)*DA_s['pre_choice'],
-                                                save_weights=True, reinit_hidden=True)
+                                                save_weights=False, reinit_hidden=False)
 
                 for k, v in ss.items():
                     all_saved_states_pre[k].append(v)
@@ -478,7 +478,7 @@ def run_model(args, model, task_mdprl, n_samples):
                 elif args['task_type'] == 'value':
                     rwd = (torch.rand(1)<prob_s[i]).float()
                     output = output.reshape(output_mask['target'].shape[0], 1, output_size)
-                    acc.append(((output-ch_s['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean(0))
+                    acc.append(((output-ch_s['pre_choice'][i])*output_mask['target'].float().unsqueeze(-1)).pow(2).mean(0)/output_mask['target'].float().mean())
                     curr_rwd.append(rwd)
                 
                 if args['task_type']=='on_policy_double':
@@ -489,11 +489,11 @@ def run_model(args, model, task_mdprl, n_samples):
                         pop_post = pop_post*action_enc.reshape(1,1,2,1)
                     action_enc = action_enc*DA_s['post_choice']
                     R = (2*rwd-1)*DA_s['post_choice']
-                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=action_enc, save_weights=True)
+                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=action_enc, save_weights=False)
                 elif args['task_type'] == 'value':
                     pop_post = pop_s['post_choice'][i]
                     R = (2*rwd-1)*DA_s['post_choice']
-                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=None, save_weights=True)
+                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=None, save_weights=False)
                 
                 for k, v in ss.items():
                     all_saved_states_post[k].append(v)
