@@ -87,16 +87,21 @@ if __name__ == "__main__":
     print(f"Parameters saved to {os.path.join(args.exp_dir, 'args.json')}")
     save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
+    ITI = 0.25
+    choice_start = 0.4
+    rwd_start = 0.6
+    stim_end = 0.75
+
     exp_times = {
-        'start_time': -0.25,
-        'end_time': 1.10,
+        'start_time': -ITI,
+        'end_time': stim_end,
         'stim_onset': 0.0,
-        'stim_end': 1.10,
-        'rwd_onset': 1.0,
-        'rwd_end': 1.10,
-        'choice_onset': 0.8,
-        'choice_end': 1.0,
-        'total_time': 1.35,
+        'stim_end': stim_end,
+        'rwd_onset': rwd_start,
+        'rwd_end': stim_end,
+        'choice_onset': choice_start,
+        'choice_end': rwd_start,
+        'total_time': ITI+stim_end,
         'dt': args.dt}
     log_interval = 1
 
@@ -155,8 +160,8 @@ if __name__ == "__main__":
     #     model = MultiAreaRNN(**model_specs)
         # model = MultiChoiceRNN(**model_specs)
     model_specs['num_areas'] = args.num_areas
-    model_specs['inter_regional_sparsity'] = (1, 1)
-    model_specs['inter_regional_gain'] = (1, 1)
+    model_specs['inter_regional_sparsity'] = (1, 1) # (1/math.sqrt(args.hidden_size), 1/math.sqrt(args.hidden_size))
+    model_specs['inter_regional_gain'] = (1, 1) # (1/math.sqrt(args.hidden_size), 1/math.sqrt(args.hidden_size))
     model_specs['input_plastic'] = not args.input_plas_off
     model = HierarchicalRNN(**model_specs)
     # else:
@@ -188,7 +193,7 @@ if __name__ == "__main__":
             # plt.imshow(model.rnn.aux2h.effective_weight().detach())
             # plt.colorbar()
             # plt.show()                
-            # plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.1, vmin=-0.1, cmap='seismic')
+            # plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.25, vmin=-0.25, cmap='seismic')
             # plt.colorbar()
             # plt.show()
             # plt.imshow(model.rnn.kappa_in.abs().detach().squeeze())
@@ -221,26 +226,26 @@ if __name__ == "__main__":
                                                 save_weights=True, reinit_hidden=False)
                 # plt.plot(output.squeeze().detach())
                 # plt.plot(ch_s['pre_choice'][i].squeeze())
-                # plt.ylim([-0.1, 1.1])
+                # plt.ylim([-0.1, 2.1])
                 # plt.show()
                 # use output to calculate action, reward, and record loss function
 
                 if args.task_type=='on_policy_double':
                     action = torch.argmax(output[-1], -1)
                     output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)
-                    output = (output*output_mask['target'].reshape(-1, 1, 1)).flatten(1)
+                    output = output[output_mask['target'].squeeze(),:,:].flatten(1)
                     target = torch.argmax(prob_s[i], -1).reshape(1, args.batch_size)
-                    target = torch.repeat_interleave(target, output_mask['target'].shape[0], dim=0).flatten()
+                    target = torch.repeat_interleave(target, output.shape[0], dim=0).flatten()
                     loss += F.multi_margin_loss(output, target, p=2)
                     rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
-                    total_acc += (action==torch.argmax(prob_s[i], -1)).float().item()
+                    total_acc += F.multi_margin_loss(output, target, p=2).detach().item()
                 elif args.task_type == 'value':
                     rwd = (torch.rand(args.batch_size)<prob_s[i]).float()
                     output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)
                     loss += ((output-ch_s['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean()/output_mask['target'].float().mean()
                     total_acc += ((output-ch_s['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean().item()/output_mask['target'].float().mean()
                 
-                # plt.imshow(ss['wxs'][-1,0].detach(), aspect='auto', interpolation='nearest')
+                # plt.imshow(model.rnn.h2h.effective_weight(ss['whs'][-1,0]).detach().squeeze(), aspect='auto', interpolation='nearest', cmap='seismic', vmin=-0.1, vmax=0.1)
                 # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
                 # plt.colorbar()
                 # plt.show()
@@ -284,7 +289,8 @@ if __name__ == "__main__":
                     _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=None, save_weights=True)
 
                 # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
-                # plt.colorbar()                    
+                # plt.colorbar()
+                # plt.show()
                 # plt.plot(ss['sas'].squeeze().detach().softmax(-1))
                 # plt.plot(ss['fas'].squeeze().detach().softmax(-1))
                 # plt.show()
@@ -316,6 +322,9 @@ if __name__ == "__main__":
 
                 loss += reg*len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
             
+            # add weight decay for static weights
+            loss += args.l2w*(model.rnn.aux2h.effective_weight().pow(2).sum()+model.h2o.effective_weight().pow(2).sum())
+
             (loss/args.grad_accumulation_steps/len(pop_s['pre_choice'])).backward()
             if (batch_idx+1) % args.grad_accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
@@ -330,7 +339,7 @@ if __name__ == "__main__":
             if (batch_idx+1) % log_interval == 0:
                 if torch.isnan(loss):
                     quit()
-                pbar.set_description('Iteration {} Loss: {:.4f}'.format(batch_idx, total_acc/len(pop_s['pre_choice'])/(batch_idx+1)))
+                pbar.set_description('Iteration {} Loss: {:.4f}'.format(batch_idx+1, total_acc/len(pop_s['pre_choice'])/(batch_idx+1)))
                 pbar.refresh()
                 
             pbar.update()
@@ -387,7 +396,7 @@ if __name__ == "__main__":
                 losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
                 losses_means_by_gen[curr_gen_level] = losses_means.tolist()
                 losses_stds_by_gen[curr_gen_level] = losses_stds.tolist()
-                print('====> Epoch {} Gen Level: {} Eval Loss: {:.4f}'.format(epoch, curr_gen_level, losses_means.mean()))
+                print('====> Epoch {} Gen Level: {} Eval Loss: {:.4f}'.format(epoch+1, curr_gen_level, losses_means.mean()))
             return losses_means_by_gen, losses_stds_by_gen
 
     metrics = defaultdict(list)
