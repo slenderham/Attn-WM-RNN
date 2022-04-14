@@ -33,8 +33,9 @@ def _get_connectivity_mask(in_mask, aux_mask, rec_mask, input_units, aux_input_u
     conn_mask = {}
 
     num_areas = in_mask.shape[0]
+    num_objs = in_mask.shape[1]
     assert(aux_mask.shape==(num_areas,1))
-    assert(in_mask.shape==(num_areas,1))
+    assert(in_mask.shape==(num_areas,num_objs))
     assert(rec_mask.shape==(num_areas,num_areas))
 
     in_mask_e = torch.kron(in_mask, torch.ones(e_hidden_units_per_area, input_units))
@@ -117,7 +118,9 @@ class EILinear(nn.Module):
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
             # nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
-            nn.init.kaiming_uniform_(self.weight, a=1)
+            # nn.init.kaiming_uniform_(self.weight, a=1)
+            self.weight.data = torch.from_numpy(
+                np.random.gamma(np.ones_like(self.mask.numpy()), np.sqrt(1/(self.mask.sum(dim=1, keepdim=True).numpy()+1e-8)), size=self.weight.data.shape)).float()
             # Scale E weight by E-I ratio
             if balance_ei is not None and self.i_size!=0:
                 # self.weight.data[:, :self.e_size] /= self.e_size/self.i_size
@@ -208,10 +211,12 @@ class PlasticLeakyRNNCell(nn.Module):
         if plastic:
             # separate lr for different neurons
             if input_plastic:
-                self.kappa_in = nn.Parameter(torch.rand(1, self.hidden_size, self.input_size)/self.tau_w)
+                # self.kappa_in = nn.Parameter(torch.rand(1, self.hidden_size, self.input_size)/self.tau_w)
+                self.kappa_in = nn.Parameter(self.x2h.effective_weight().abs().detach()/self.tau_w)
             else:
                 self.kappa_in = torch.zeros(1, self.hidden_size, self.input_size)
-            self.kappa_rec = nn.Parameter(torch.rand(1, self.hidden_size, self.hidden_size)/self.tau_w)
+            # self.kappa_rec = nn.Parameter(torch.rand(1, self.hidden_size, self.hidden_size)/self.tau_w)
+            self.kappa_rec = nn.Parameter(self.h2h.effective_weight().abs().detach()/self.tau_w)
 
     def plasticity_func(self, w, baseline, R, pre, post, kappa, lb, ub):
         if self.plas_rule=='add':
@@ -1033,15 +1038,17 @@ class HierarchicalRNN(nn.Module):
         self.plastic = plastic
         self.weight_bound = weight_bound
         self.plas_rule = plas_rule
-        input_size = input_size*output_size
+        input_size = input_size*(output_size+1)
 
         # specify connectivity
-        in_mask = torch.FloatTensor([1, *[0]*(self.num_areas-1)]).unsqueeze(-1)
+        in_mask = torch.FloatTensor([[1, *[0]*(self.num_areas-1)]]).T
+        for _ in range(self.output_size):
+            in_mask = torch.cat([in_mask, torch.FloatTensor([[0, 1, *[0]*(self.num_areas-2)]]).T], dim=-1)
         aux_mask = torch.FloatTensor([*[1]*self.num_areas]).unsqueeze(-1)
         rec_mask = torch.eye(self.num_areas) + torch.diag(torch.ones(self.num_areas-1), 1) + torch.diag(torch.ones(self.num_areas-1), -1)
 
         self.conn_masks = _get_connectivity_mask(in_mask=in_mask, aux_mask=aux_mask, rec_mask=rec_mask,
-                                                 input_units=input_size, aux_input_units=self.aux_input_size, 
+                                                 input_units=self.input_size, aux_input_units=self.aux_input_size, 
                                                  e_hidden_units_per_area=self.e_size, i_hidden_units_per_area=hidden_size-self.e_size)
 
         balance_ei = self.conn_masks['rec_intra']\
@@ -1112,6 +1119,7 @@ class HierarchicalRNN(nn.Module):
             # modulate input by spatial attention
             curr_x = x[i]
             curr_x = torch.cat(torch.split(curr_x, 1, dim=1), dim=-1).squeeze(1)
+            curr_x = torch.cat([curr_x, x[i].sum(dim=1)], dim=-1)
             # modulate input by feature attention
             if self.aux_input_size>0:
                 aux_x = []

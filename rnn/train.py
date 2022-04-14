@@ -161,7 +161,7 @@ if __name__ == "__main__":
         # model = MultiChoiceRNN(**model_specs)
     model_specs['num_areas'] = args.num_areas
     model_specs['inter_regional_sparsity'] = (1, 1) # (1/math.sqrt(args.hidden_size), 1/math.sqrt(args.hidden_size))
-    model_specs['inter_regional_gain'] = (1, 1) # (1/math.sqrt(args.hidden_size), 1/math.sqrt(args.hidden_size))
+    model_specs['inter_regional_gain'] = (0.5, 0.5) # (1/math.sqrt(args.hidden_size), 1/math.sqrt(args.hidden_size))
     model_specs['input_plastic'] = not args.input_plas_off
     model = HierarchicalRNN(**model_specs)
     # else:
@@ -246,7 +246,7 @@ if __name__ == "__main__":
                     total_acc += ((output-ch_s['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean().item()/output_mask['target'].float().mean()
                 
                 # plt.imshow(model.rnn.h2h.effective_weight(ss['whs'][-1,0]).detach().squeeze(), aspect='auto', interpolation='nearest', cmap='seismic', vmin=-0.1, vmax=0.1)
-                # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
+                # plt.imshow(hs.squeeze().detach().t(), aspect='auto', interpolation='nearest')
                 # plt.colorbar()
                 # plt.show()
                 # plt.ylabel('choice prob')
@@ -278,7 +278,7 @@ if __name__ == "__main__":
                     # use the action (optional) and reward as feedback
                     pop_post = pop_s['post_choice'][i]
                     action_enc = torch.eye(output_size)[action]
-                    if args.num_areas==1 or not args.spatial_attn:
+                    if args.num_areas==1 or not args.spatial_attn or args.input_plas_off:
                         pop_post = pop_post*action_enc.reshape(1,1,2,1)
                     action_enc = action_enc*DA_s['post_choice']
                     R = (2*rwd-1)*DA_s['post_choice']
@@ -288,7 +288,7 @@ if __name__ == "__main__":
                     R = (2*rwd-1)*DA_s['post_choice']
                     _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=None, save_weights=True)
 
-                # plt.imshow(hs.squeeze().detach().t(), aspect='auto')
+                # plt.imshow(hs.squeeze().detach().t(), aspect='auto', interpolation='nearest')
                 # plt.colorbar()
                 # plt.show()
                 # plt.plot(ss['sas'].squeeze().detach().softmax(-1))
@@ -381,7 +381,7 @@ if __name__ == "__main__":
                             # use the action (optional) and reward as feedback
                             pop_post = pop_s['post_choice'][i]
                             action_enc = torch.eye(output_size)[action]
-                            if args.num_areas==1 or not args.spatial_attn:
+                            if args.num_areas==1 or not args.spatial_attn or args.input_plas_off:
                                 pop_post = pop_post*action_enc.reshape(1,1,2,1)
                             action_enc = action_enc*DA_s['post_choice']
                             R = (2*rwd-1)*DA_s['post_choice']
