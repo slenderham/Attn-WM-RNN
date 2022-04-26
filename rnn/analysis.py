@@ -1,4 +1,5 @@
 import math
+from warnings import WarningMessage
 
 import numpy as np
 import pingouin as pg
@@ -12,6 +13,7 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
 from sklearn.model_selection import cross_val_score
+from sklearn.linear_model import LinearRegression
 from sklearn.svm import LinearSVC
 from tensorly.decomposition import parafac, non_negative_parafac
 import tensorly as tl
@@ -66,22 +68,22 @@ def run_tca(xs, ranks=[1, 27], num_reps=5):
             cp, errs = non_negative_parafac(xs, rank=r, return_errors=True)
             results[r].append({'cp_tensor': cp, 'errors': errs})
     
-    # print('sorting errors')
-    # for r in range(ranks[0], ranks[1]+1):
-    #     idx = np.argsort([rr['errors'][-1] for rr in results[r]])
-    #     results[r] = [results[r][i] for i in idx]
+    print('sorting errors')
+    for r in range(ranks[0], ranks[1]+1):
+        idx = np.argsort([rr['errors'][-1] for rr in results[r]])
+        results[r] = [results[r][i] for i in idx]
 
-    # print('adding corcondia')
-    # # For each rank, align everything to the best model
-    # for r in range(ranks[0], ranks[1]+1):
-    #     # align lesser fit models to best models
-    #     for i, res in enumerate(results[r]):
-    #         results[r][i]['corcondia'] = corcondia(res['cp_tensor'].factors, k=r)
+    print('adding corcondia')
+    # For each rank, align everything to the best model
+    for r in range(ranks[0], ranks[1]+1):
+        # align lesser fit models to best models
+        for i, res in enumerate(results[r]):
+            results[r][i]['corcondia'] = corcondia(res['cp_tensor'].factors, k=r)
     
     return results
 
 def linear_regression(X, y):
-    res = pg.linear_regression(X, y)
+    res = LinearRegression().fit(X, y)
     return res
 
 def anova(X, dv):
@@ -145,31 +147,57 @@ def cluster(x, max_clusters=20):
     kmeans = KMeans(n_clusters=argmax_k+1).fit(x)
     return kmeans.labels_
 
-def targeted_dimensionality_reduction(hs, xs, ortho=False):
+def targeted_dimensionality_reduction(hs, xs, do_zscore=True, denoise=False, ortho=False, n_jobs=1):
     n_time_steps, n_trials, n_hidden = hs.shape
     assert(xs.shape[0]==n_trials)
     n_vars = xs.shape[-1]
 
     # z-score the hidden activity
-    hs = zscore(hs.reshape(n_time_steps*n_trials, n_hidden), axis=0).reshape(n_time_steps, n_trials, n_hidden)
+    if do_zscore:
+        hs = zscore(hs.reshape(n_time_steps*n_trials, n_hidden), axis=0).reshape(n_time_steps, n_trials, n_hidden)
 
     # denoise with PCA
-    # U, S, Vh = np.linalg.svd(hs) # n_time_steps*n_trials x n_hidden, n_hidden X n_hidden, n_hidden X n_hidden
-    # npca = 0
-    # while np.cumsum(S[:npca]**2)/np.sum(S**2) < 0.9:
-    #     npca += 1
-    
-    # D = Vh[:npca].T@Vh[:npca]
+    if denoise:
+        U, S, Vh = np.linalg.svd(hs) # n_time_steps*n_trials x n_hidden, n_hidden X n_hidden, n_hidden X n_hidden
+        npca = 0
+        while np.cumsum(S[:npca]**2)/np.sum(S**2) < 0.95:
+            npca += 1
+        D = Vh[:npca].T@Vh[:npca]
 
-    hat = xs@np.linalg.inv((xs@xs.T)) # n_trials X n_feats
-    betas = (hs.transpose(0,2,1)@hat.reshape(1, n_trials, n_vars)) # n_time_steps X n_hidden X n_feats
-    
-    coeff_norms = np.linalg.norm(betas, axis=1) # n_time_steps X n_feats
-    coeff_max = betas[np.argmax(coeff_norms, axis=0), :, np.arange(n_vars)] # argmax has size n_feats
-    assert coeff_max.shape==(n_hidden, n_vars)
+    hs_flat = hs.reshape(n_time_steps*n_trials, n_hidden)
+    xs_flat = np.repeat(xs, n_time_steps, axis=0)
 
+    lr = LinearRegression(fit_intercept=not do_zscore, n_jobs=n_jobs).fit(xs_flat, hs_flat)
+    betas = lr.coef_.reshape(n_time_steps, n_trials, n_hidden)
+    
     if ortho:
+        raise NotImplementedError('Not using orthogonal functionality')
+        coeff_norms = np.linalg.norm(betas, axis=1) # n_time_steps X n_feats
+        coeff_max = betas[np.argmax(coeff_norms, axis=0), :, np.arange(n_vars)] # argmax has size n_feats
+        assert coeff_max.shape==(n_hidden, n_vars)
         Q, R = np.linalg.qr(coeff_max)
         coeff_max = Q
+    
+    return lr, betas
 
-    return betas, coeff_max
+def get_CPD(hs, xs, full_model):
+    n_time_steps, n_trials, n_hidden = hs.shape
+    assert(xs.shape[0]==n_trials)
+    n_vars = xs.shape[1]
+
+    hs_flat = hs.reshape(n_time_steps*n_trials, n_hidden)
+    xs_flat = np.repeat(xs, n_time_steps, axis=0)
+
+    sse = np.sum((full_model.predict(xs_flat) - hs_flat)**2, axis=0)
+
+    cpd = np.empty(n_time_steps*n_trials, n_vars)
+
+    for i in range(n_vars):
+        X_i = xs_flat.copy()
+        X_i[:,i] = 0 # remove one factor
+        sse_X_i = np.sum((full_model.predict(X_i) - hs_flat)**2, axis=0)
+        cpd[:,i]=(sse_X_i-sse)/sse_X_i
+
+    cpd = cpd.reshape(n_time_steps, n_trials, n_hidden)
+
+    return cpd

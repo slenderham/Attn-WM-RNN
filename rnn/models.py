@@ -184,7 +184,6 @@ class PlasticLeakyRNNCell(nn.Module):
         #                            /math.sqrt(hidden_size/num_areas)
         #    self.x2h.weight.requires_grad = False
 
-        
         if self.aux_input_size>0:
             self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='abs',
                                   e_prop=1, zero_cols_prop=0, bias=False,

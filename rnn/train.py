@@ -89,10 +89,10 @@ if __name__ == "__main__":
     print(f"Parameters saved to {os.path.join(args.exp_dir, 'args.json')}")
     save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
-    ITI = 0.25
+    ITI = 0.3
     choice_start = 0.4
     rwd_start = 0.6
-    stim_end = 0.75
+    stim_end = 0.8
 
     exp_times = {
         'start_time': -ITI,
@@ -235,27 +235,31 @@ if __name__ == "__main__":
                                                 save_weights=True, reinit_hidden=False)
 
                 if args.debug:
-                    plt.plot(output.squeeze().detach())
+                    plt.plot(output[:,:,index_s[i]].squeeze().detach())
                     # plt.plot(ch_s['pre_choice'][i].squeeze())
-                    plt.ylim([-0.1, 2.1])
+                    plt.ylim([-0.1, 10.1])
                     plt.show()
                 # use output to calculate action, reward, and record loss function
 
                 if args.task_type=='on_policy_double':       
-                    action = torch.argmax(output[-1,:,:], -1)
                     if args.decision_space=='action':
+                        action = torch.argmax(output[-1,:,:], -1) # batch size
                         target = torch.argmax(prob_s[i], -1).reshape(1, args.batch_size)
                         rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
                     elif args.decision_space=='good':
-                        # TODO: finish this
-                        action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # the object that can be chosen (0~1)
-                        target = index_s[i, torch.argmax(prob_s[i], -1).reshape(1, args.batch_size)]
+                        action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # the object that can be chosen (0~1), (batch size, )
+                        action = index_s[i, action_valid] # (batch size, )
+                        target = index_s[i, torch.argmax(prob_s[i], -1).reshape(1, args.batch_size)] # (1, batch size)
                         rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action_valid]).float()
+                        # make weight large for the presented stimuli, smaller for the non-presented
+                        weights = torch.ones(output_size)
+                        weights[index_s[i]] *= 5
+                        weights /= weights.mean()
                     output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)
                     output = output[output_mask['target'].squeeze(),:,:].flatten(1)    
                     target = torch.repeat_interleave(target, output.shape[0], dim=0).flatten()
-                    loss += F.multi_margin_loss(output, target, p=2)
-                    total_acc += F.multi_margin_loss(output, target, p=2).detach().item()
+                    loss += F.multi_margin_loss(output, target, p=2, weight=weights)
+                    total_acc += F.multi_margin_loss(output, target, p=2, weight=weights).detach().item()
                 elif args.task_type == 'value':
                     rwd = (torch.rand(args.batch_size)<prob_s[i]).float()
                     output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)
@@ -295,13 +299,13 @@ if __name__ == "__main__":
                 if args.task_type=='on_policy_double':
                     # use the action (optional) and reward as feedback
                     pop_post = pop_s['post_choice'][i]
-                    if args.num_areas==1 or not args.spatial_attn or args.input_plas_off:
-                        action_enc = torch.eye(output_size)[action]
-                        if args.decision_space=='good':
-                            action_valid_enc = torch.eye(num_options)[action_valid]
-                            pop_post = pop_post*action_valid_enc.reshape(1,1,num_options,1)
-                        elif args.decision_space=='action':
-                            pop_post = pop_post*action_enc.reshape(1,1,output_size,1)
+                    action_enc = torch.eye(output_size)[action]
+                    # if args.num_areas==1 or not args.spatial_attn or args.input_plas_off:
+                    #if args.decision_space=='good':
+                    #    action_valid_enc = torch.eye(num_options)[action_valid]
+                    #     pop_post = pop_post*action_valid_enc.reshape(1,1,num_options,1)
+                    #elif args.decision_space=='action':
+                    #    pop_post = pop_post*action_enc.reshape(1,1,output_size,1)
                     action_enc = action_enc*DA_s['post_choice']
                     R = (2*rwd-1)*DA_s['post_choice']
                     _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=action_enc, save_weights=True)
@@ -392,12 +396,13 @@ if __name__ == "__main__":
 
                         if args.task_type=='on_policy_double':
                             # use output to calculate action, reward, and record loss function
-                            action = torch.argmax(output[-1,:,:], -1)
                             if args.decision_space=='action':
+                                action = torch.argmax(output[-1,:,:], -1)
                                 rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
                                 loss.append((action==torch.argmax(prob_s[i], -1)).float())
                             elif args.decision_space=='good':
                                 action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # the object that can be chosen (0~1)
+                                action = index_s[i, action_valid] # the object chosen (0~26), but only the valid one
                                 rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action_valid]).float()
                                 loss.append((action_valid==torch.argmax(prob_s[i], -1)).float())
                         elif args.task_type == 'value':
@@ -408,13 +413,13 @@ if __name__ == "__main__":
                         if args.task_type=='on_policy_double':
                             # use the action (optional) and reward as feedback
                             pop_post = pop_s['post_choice'][i]
-                            if args.num_areas==1 or not args.spatial_attn or args.input_plas_off:
-                                action_enc = torch.eye(output_size)[action]
-                                if args.decision_space=='good':
-                                    action_valid_enc = torch.eye(num_options)[action_valid]
-                                    pop_post = pop_post*action_valid_enc.reshape(1,1,num_options,1)
-                                elif args.decision_space=='action':
-                                    pop_post = pop_post*action_enc.reshape(1,1,output_size,1)
+                            action_enc = torch.eye(output_size)[action]
+                            # if args.num_areas==1 or not args.spatial_attn or args.input_plas_off:
+                            #if args.decision_space=='good':
+                            #    action_valid_enc = torch.eye(num_options)[action_valid]
+                            #    pop_post = pop_post*action_valid_enc.reshape(1,1,num_options,1)
+                            #elif args.decision_space=='action':
+                            #    pop_post = pop_post*action_enc.reshape(1,1,output_size,1)
                             action_enc = action_enc*DA_s['post_choice']
                             R = (2*rwd-1)*DA_s['post_choice']
                             _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=action_enc, save_weights=True)
