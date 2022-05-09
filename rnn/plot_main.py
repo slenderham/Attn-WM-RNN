@@ -12,9 +12,11 @@ from statsmodels.formula.api import ols
 from statsmodels.stats.anova import anova_lm
 from torch.nn.functional import interpolate
 from torch.serialization import save
+import tqdm
 
 from analysis import *
 from models import MultiChoiceRNN, SimpleRNN, HierarchicalRNN
+from analysis import targeted_dimensionality_reduction
 from task import MDPRL
 from utils import load_checkpoint
 
@@ -307,6 +309,58 @@ def plot_sorted_matrix(w, e_size, w_type):
     else:
         raise ValueError
 
+def plot_tdr(hs, stim_order, stim_encoding, stim_probs):
+    '''
+    (1) regress hs activity (z-scored) with stimulus encoding (F/C/O)
+    (2) get beta weights which is a mixture of value and stimulus intensity: h ~ Xw. 
+        This will give beta weights timepoints X trials X hidden X latent variables,
+        calculate cpd gives timepoints X trials X hidden X latent variables CPD values
+    (3) compare w with marginal reward probability? see which it dimension it corresponds to the best
+    '''
+
+    n_trials, n_timesteps, n_batch, n_hidden = hs.shape
+    assert(stim_order.shape[:2]==(n_trials, n_batch))
+    n_choice = stim_order.shape[2]
+    assert(stim_encoding.shape==(27, 63))
+    # get stimulus encoding
+    stim_encoding_ordered = stim_encoding[stim_order.reshape(n_trials*n_batch*n_choice),:].reshape(n_trials, n_batch, n_choice, 27)
+    stim_encoding_ordered = stim_encoding_ordered.sum(axis=2) # sum over choices to get location independent active feat/conj/obj
+
+    # get stimulus probablity
+    # stim_probs_ordered = []
+    # for i in range(7):
+    #     stim_probs_ordered.append(stim_probs[i,stim_order.reshape(n_trials*n_batch*n_choice)].reshape(n_trials, n_batch, n_choice, 1))
+    # stim_probs_ordered = np.concatenate(stim_probs_ordered, axis=-1)
+    # assert(stim_probs_ordered.shape==(n_trials, n_batch, n_choice, 7))
+    # stim_probs_ordered = np.concatenate([
+    #     stim_probs_ordered.sum(2, keepdim=True), 
+    #     np.abs(stim_probs_ordered[0:1]-stim_probs_ordered[1:2]), 
+    #     stim_probs_ordered.max(2, keepdim=True)
+    # ], axis=2)
+    # assert(stim_probs_ordered.shape==(n_trials, n_batch, 3, 7))
+
+    # xs = np.concatenate([stim_encoding_ordered, stim_probs_ordered], axis=-1)
+
+    xs = stim_encoding_ordered
+    num_vars = stim_encoding_ordered.shape[-1]
+    
+    lr, betas = targeted_dimensionality_reduction(hs.reshape(n_trials*n_timesteps, n_batch, n_hidden), xs)
+
+    channel_groups = np.array([3, 3, 3, 9, 9, 9, 27])
+    all_cpds = get_CPD(hs.reshape(n_trials*n_timesteps, n_batch, n_hidden), xs, lr, channel_groups).reshape(n_trials, n_timesteps, n_batch, len(channel_groups))
+
+    split_trials = 4
+    all_cpds = all_cpds.reshape(4, n_trials//4, n_timesteps, n_batch, len(channel_groups))
+
+    fig, axes = plt.subplots(2, 2)
+    for i in range(4):
+        plot_mean_and_std(axes[i//2, i%2], all_cpds[i].mean([0, 2]), 
+                          all_cpds[i].std([0, 2])/np.sqrt(n_trials//4*n_batch), label=['F1', 'F2', 'F3', 'C1', 'C2', 'C3', 'O'])
+    return betas, all_cpds
+
+def plot_subspace(ws):
+    raise NotImplementedError
+
 def plot_single_unit_val_selectivity(hs, stim_order, stim_probs):
     n_trials, n_timesteps, n_batch, n_hidden = hs.shape
     stim_probs_ordered = order_stim_probs(stim_order, stim_probs)
@@ -360,7 +414,6 @@ def plot_single_unit_stim_selectivity(hs, stim_order, stim_encoding, sort_inds, 
     for i, l in enumerate(labels):
         coeffs = [split_res.params[i+1] for res in reg_results for split_res in res]
         ax.violin_plot(coeffs, alpha=0.1)
-        # ax.errorbar(range(n_hidden), coeffs, ses, capsize=3)
 
 def unit_selectivity(hs, target, e_size):
     n_trials, n_timesteps, n_batch, n_hidden = hs.shape
@@ -439,22 +492,23 @@ def plot_weight_tca(vsws, mode):
     results = run_tca(vsws, ranks=[3, 20], num_reps=1)
     return results
 
-def run_model(args, model, task_mdprl, n_samples):
+def run_model(args, model, task_mdprl, n_samples=None):
     model.eval()
     accs = []
     rwds = []
     all_indices = []
     all_probs = []
-    all_gen_levels = []
     all_saved_states_pre = defaultdict(list)
     all_saved_states_post = defaultdict(list)
+    all_saved_states = {}
     output_size = args['output_size']
+    if n_samples is None:
+        n_samples = task_mdprl.test_stim_order.shape[1]
     with torch.no_grad():
-        for batch_idx in range(n_samples):
+        for batch_idx in tqdm.tqdm(range(n_samples)):
             print(batch_idx)
-            curr_gen_lvl = np.random.choice(task_mdprl.gen_levels)
-            DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinput(
-                batch_size=1, N_s=args['test_N_s'], num_choices=output_size, gen_level=curr_gen_lvl)
+            DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(
+                batch_size=1, test_N_s=args['test_N_s'], num_choices=args['num_options'], participant_num=batch_idx)
             acc = []
             curr_rwd = []
             hidden = None
@@ -467,13 +521,19 @@ def run_model(args, model, task_mdprl, n_samples):
 
                 for k, v in ss.items():
                     all_saved_states_pre[k].append(v)
-                all_saved_states_pre['hs'].append(hs)
+                all_saved_states_pre['hs'].append(hs) # num_trials lists, each with shape time_pre, batch_size=1, hidden_size
 
                 if args['task_type']=='on_policy_double':
                     # use output to calculate action, reward, and record loss function
-                    action = torch.argmax(output[-1], -1)
-                    rwd = (torch.rand(1)<prob_s[i][range(1), action]).float()
-                    acc.append((action==torch.argmax(prob_s[i], -1)).float())
+                    if args['decision_space']=='action':
+                        action = torch.argmax(output[-1,:,:], -1) # batch size
+                        rwd = (torch.rand(args['batch_size'])<prob_s[i][range(args['batch_size']), action]).float()
+                        acc.append((action==torch.argmax(prob_s[i], -1)).float())    
+                    elif args['decision_space']=='good':
+                        action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # the object that can be chosen (0~1), (batch size, )
+                        action = index_s[i, action_valid] # (batch size, )
+                        rwd = (torch.rand(args['batch_size'])<prob_s[i][range(args['batch_size']), action_valid]).float()
+                        acc.append((action_valid==torch.argmax(prob_s[i], -1)).float())    
                     curr_rwd.append(rwd)
                 elif args['task_type'] == 'value':
                     rwd = (torch.rand(1)<prob_s[i]).float()
@@ -485,8 +545,11 @@ def run_model(args, model, task_mdprl, n_samples):
                     # use the action (optional) and reward as feedback
                     pop_post = pop_s['post_choice'][i]
                     action_enc = torch.eye(output_size)[action]
-                    if args['num_areas']==1 or not args['spatial_attn']:
-                        pop_post = pop_post*action_enc.reshape(1,1,2,1)
+                    if args['decision_space']=='good':
+                        action_valid_enc = torch.eye(args['num_options'])[action_valid]
+                        pop_post = pop_post*action_valid_enc.reshape(1,1,args['num_options'],1)
+                    elif args['decision_space']=='action':
+                        pop_post = pop_post*action_enc.reshape(1,1,output_size,1)
                     action_enc = action_enc*DA_s['post_choice']
                     R = (2*rwd-1)*DA_s['post_choice']
                     _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=action_enc, save_weights=False)
@@ -497,13 +560,13 @@ def run_model(args, model, task_mdprl, n_samples):
                 
                 for k, v in ss.items():
                     all_saved_states_post[k].append(v)
-                all_saved_states_post['hs'].append(hs)
+                all_saved_states_post['hs'].append(hs) # num_trials lists, each with shape time_post, batch_size=1, hidden_size
+                all_saved_states['whs'].append(hidden[3])
             acc = torch.stack(acc, dim=0)
             curr_rwd = torch.stack(curr_rwd, dim=0)
             accs.append(acc)
             rwds.append(curr_rwd)
             all_indices.append(index_s)
-            all_gen_levels.append(curr_gen_lvl)
             all_probs.append(prob_s)
         accs = torch.cat(accs, dim=1)
         rwds = torch.cat(rwds, dim=1)
@@ -517,10 +580,14 @@ def run_model(args, model, task_mdprl, n_samples):
             all_saved_states[k] = torch.cat([torch.cat(all_saved_states_pre[k], dim=1),
                                              torch.cat(all_saved_states_post[k], dim=1)], dim=0)
             trial_len, _, *hidden_sizes = all_saved_states[k].shape
+            assert(len(hidden_sizes)==1 or len(hidden_sizes)==2)
             all_saved_states[k] = all_saved_states[k].reshape(trial_len, n_samples, len(index_s), *hidden_sizes).transpose(1,2).transpose(0,1)
+        
+        # only save the weight on the last timestep
+        
         all_indices = torch.stack(all_indices, dim=1) # trials X batch size X 2
         all_probs = torch.stack(all_probs, dim=1)
-        return [accs, rwds], [accs_means, rwds_means], [accs_stds, rwds_stds], all_saved_states, all_indices, all_probs, all_gen_levels
+        return [accs, rwds], [accs_means, rwds_means], [accs_stds, rwds_stds], all_saved_states, all_indices, all_probs
 
 def order_stim_probs(stim_order, stim_probs):
     n_trials, n_batch, n_choices = stim_order.shape

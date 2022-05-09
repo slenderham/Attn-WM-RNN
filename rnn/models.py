@@ -17,7 +17,7 @@ def _get_activation_function(func_name):
     elif func_name=='retanh':
         return lambda x: torch.tanh(F.relu(x))
     elif func_name=='sigmoid':
-        return torch.sigmoid
+        return lambda x: torch.tanh(x-1)+1
     else:
         raise RuntimeError(F"{func_name} is an invalid activation function.")
 

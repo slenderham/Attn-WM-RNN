@@ -147,17 +147,32 @@ class MDPRL():
         # -----------------------------------------------------------------------------------------
         # loading experimental conditions
         # -----------------------------------------------------------------------------------------
-        # subjects = ['aa', 'ab', 'ac', 'ae', 'af', 'ag', 'ah', 'ai', 'aj', 'al',
-        #             'am', 'an', 'ao', 'aq', 'ar', 'as', 'at', 'av', 'aw', 'ax', 'ay']
-        # base_dir = '../Multi-dimensional-probablistic-learning/Behavioral task/PRLexp/inputs'
-        # self.test_stim_order = []
-        # # self.test_rwd = []
-        # for s in subjects:
-        #     exp_inputs = sio.loadmat(os.path.join(base_dir, f'input_{s}.mat'))
-        #     self.choiceMap = exp_inputs['expr']['choiceMap'][0,0]
-        #     self.test_stim_order.append(exp_inputs['input']['inputTarget'][0,0])
-        #     # self.test_rwd.append(exp_inputs['input']['inputReward'][0,0])
-        # self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1)-1
+        subjects = ['AA', 'AB',
+                    'AC', 'AD',
+                    'AE', 'AF', 'AG', 'AH', 'AI', 'AJ', 'AK', 'AL', 
+                    'AM', 'AN', 'AO', 'AP', 'AQ', 'AR', 'AS', 'AT', 'AU', 
+                    'AV', 'AW', 'AX', 'AY', 'AZ', 'BA', 'BB', 'BC', 'BD', 
+                    'BE', 'BF', 'BG', 'BH', 'BI', 'BJ', 'BK', 'BL', 
+                    'BM', 'BN', 'BO', 'BP', 'BQ', 'BR', 'CC', 'DD', 
+                    'EE', 'FF', 'GG', 'HH', 'II', 'JJ', 'KK', 'LL', 
+                    'MM', 'NN', 'OO', 'PP', 'QQ', 'RR', 'SS', 'TT', 
+                    'UU', 'VV', 'WW', 'XX', 'YY', 'ZZ']
+        subjects = [f'inputs/input_{s.lower()}' for s in subjects]
+        subjects2 = ['AA', 'AB',
+                     'AC', 'AD', 
+                     'AE', 'AF', 'AG', 'AH', 'AI', 'AJ', 'AK', 'AL', 'AM', 
+                     'AN', 'AO', 'AP', 'AQ', 'AR', 'AS', 'AT', 'AU', 'AV', 
+                     'AW', 'AX', 'AY']
+        subjects += [f'inputs2/input_{s}' for s in subjects2]
+        base_dir = '../MdPRL/Behavioral task/PRLexp/inputs_all'
+        self.test_stim_order = []
+        # self.test_rwd = []
+        for s in subjects:
+            exp_inputs = sio.loadmat(os.path.join(base_dir, f'{s}.mat'))
+            self.choiceMap = exp_inputs['expr']['choiceMap'][0,0]
+            self.test_stim_order.append(exp_inputs['input']['inputTarget'][0,0])
+            # self.test_rwd.append(exp_inputs['input']['inputReward'][0,0])
+        self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1)-1
         # self.test_rwd = torch.from_numpy(np.stack(self.test_rwd, axis=0).transpose(2,0,1))
 
     def _generate_generalizable_prob(self, gen_level, jitter=0.0):
@@ -273,7 +288,7 @@ class MDPRL():
             'post_choice': torch.from_numpy(ch_s[:, self.T > self.times['choice_end']*self.s]).float()
         }
 
-        return DA_s, ch_s, pop_s, torch.from_numpy(index_s_i), \
+        return DA_s, ch_s, pop_s, torch.from_numpy(index_s_i).long(), \
                torch.from_numpy(prob_s).transpose(0, 1), output_mask
 
     def generateinputfromexp(self, batch_size, test_N_s, num_choices, participant_num):
@@ -315,8 +330,15 @@ class MDPRL():
                 self.est_shppttrn, self.est_pttrnclr, self.est_shpclr, 
                 self.est_shppttrnclr]
 
-    def stim_encoding(self):
-        return {'C': self.index_clr, 'P': self.index_pttrn, 'S': self.index_shp}
+    def stim_encoding(self, encoding_type='feature_idx'):
+        if encoding_type=='feature_idx':
+            return {'C': self.index_clr, 'P': self.index_pttrn, 'S': self.index_shp}
+        elif encoding_type=='all_onehot':
+            stim_onset_time = np.argmax(self.filter_s)
+            encmat = self.pop_s[:, stim_onset_time, :]
+            assert(encmat.shape==(27,63))
+            assert(encmat.sum()>0)
+            return encmat
 
     def generalizability(self, probdata=None):
         raise NotImplementedError

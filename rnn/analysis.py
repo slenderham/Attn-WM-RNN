@@ -13,7 +13,7 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
 from sklearn.model_selection import cross_val_score
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.svm import LinearSVC
 from tensorly.decomposition import parafac, non_negative_parafac
 import tensorly as tl
@@ -147,7 +147,7 @@ def cluster(x, max_clusters=20):
     kmeans = KMeans(n_clusters=argmax_k+1).fit(x)
     return kmeans.labels_
 
-def targeted_dimensionality_reduction(hs, xs, do_zscore=True, denoise=False, ortho=False, n_jobs=1):
+def targeted_dimensionality_reduction(hs, xs, do_zscore=False, denoise=False, ortho=False, n_jobs=1):
     n_time_steps, n_trials, n_hidden = hs.shape
     assert(xs.shape[0]==n_trials)
     n_vars = xs.shape[-1]
@@ -180,7 +180,7 @@ def targeted_dimensionality_reduction(hs, xs, do_zscore=True, denoise=False, ort
     
     return lr, betas
 
-def get_CPD(hs, xs, full_model):
+def get_CPD(hs, xs, full_model, channel_groups):
     n_time_steps, n_trials, n_hidden = hs.shape
     assert(xs.shape[0]==n_trials)
     n_vars = xs.shape[1]
@@ -190,14 +190,19 @@ def get_CPD(hs, xs, full_model):
 
     sse = np.sum((full_model.predict(xs_flat) - hs_flat)**2, axis=0)
 
-    cpd = np.empty(n_time_steps*n_trials, n_vars)
+    assert(np.sum(channel_groups)==n_vars)
+    channel_groups = np.cumsum(channel_groups)
+    channel_groups = np.insert(channel_groups, 0, 0)
+    # manually calculate SSE for categorical IVs
 
-    for i in range(n_vars):
+    cpd = np.empty(n_time_steps*n_trials, len(channel_groups))
+
+    for i in range(1, len(channel_groups)):
         X_i = xs_flat.copy()
-        X_i[:,i] = 0 # remove one factor
+        X_i[:,channel_groups[i-1]:channel_groups[i]] = 0 # remove one factor
         sse_X_i = np.sum((full_model.predict(X_i) - hs_flat)**2, axis=0)
         cpd[:,i]=(sse_X_i-sse)/sse_X_i
 
-    cpd = cpd.reshape(n_time_steps, n_trials, n_hidden)
+    cpd = cpd.reshape(n_time_steps, n_trials, len(channel_groups))
 
     return cpd

@@ -86,13 +86,14 @@ if __name__ == "__main__":
     if args.task_type=='on_policy':
         raise NotImplementedError
 
-    print(f"Parameters saved to {os.path.join(args.exp_dir, 'args.json')}")
-    save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
+    if args.save_checkpoint:
+        print(f"Parameters saved to {os.path.join(args.exp_dir, 'args.json')}")
+        save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
-    ITI = 0.3
+    ITI = 0.25
     choice_start = 0.4
     rwd_start = 0.6
-    stim_end = 0.8
+    stim_end = 0.75
 
     exp_times = {
         'start_time': -ITI,
@@ -198,11 +199,19 @@ if __name__ == "__main__":
             if args.debug:
                 plt.imshow(model.rnn.x2h.effective_weight().detach())
                 plt.colorbar()
-                plt.show()           
+                plt.show()
+                # plt.imshow(model.rnn.kappa_in.abs().detach())
+                # plt.colorbar()
+                # plt.show()
                 plt.imshow(model.rnn.aux2h.effective_weight().detach())
                 plt.colorbar()
                 plt.show()                
-                plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=0.25, vmin=-0.25, cmap='seismic')
+                wlim = np.percentile(model.rnn.h2h.effective_weight().detach().abs(), 90)
+                plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=wlim, vmin=-wlim, cmap='RdBu_r')
+                plt.colorbar()
+                plt.show()
+                wlim = np.percentile(model.rnn.kappa_rec.abs().detach(), 90)
+                plt.imshow(model.rnn.h2h.effective_weight(model.rnn.kappa_rec.abs()).detach().squeeze(), vmax=wlim, vmin=-wlim, cmap='RdBu_r')
                 plt.colorbar()
                 plt.show()
                 v = torch.linalg.eigvals(model.rnn.h2h.effective_weight()).detach()
@@ -235,9 +244,10 @@ if __name__ == "__main__":
                                                 save_weights=True, reinit_hidden=False)
 
                 if args.debug:
-                    plt.plot(output[:,:,index_s[i]].squeeze().detach())
+                    plt.plot(output.softmax(-1)[:,:,index_s[i, torch.sort(prob_s[i])[1]]].squeeze().detach())
+                    plt.plot(output.softmax(-1).squeeze().detach(), c='k', alpha=0.1)
                     # plt.plot(ch_s['pre_choice'][i].squeeze())
-                    plt.ylim([-0.1, 10.1])
+                    plt.ylim([-0.1, 1.1])
                     plt.show()
                 # use output to calculate action, reward, and record loss function
 
@@ -251,15 +261,11 @@ if __name__ == "__main__":
                         action = index_s[i, action_valid] # (batch size, )
                         target = index_s[i, torch.argmax(prob_s[i], -1).reshape(1, args.batch_size)] # (1, batch size)
                         rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action_valid]).float()
-                        # make weight large for the presented stimuli, smaller for the non-presented
-                        weights = torch.ones(output_size)
-                        weights[index_s[i]] *= 5
-                        weights /= weights.mean()
                     output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)
                     output = output[output_mask['target'].squeeze(),:,:].flatten(1)    
                     target = torch.repeat_interleave(target, output.shape[0], dim=0).flatten()
-                    loss += F.multi_margin_loss(output, target, p=2, weight=weights)
-                    total_acc += F.multi_margin_loss(output, target, p=2, weight=weights).detach().item()
+                    loss += F.cross_entropy(output, target)
+                    total_acc += F.cross_entropy(output, target).detach().item()
                 elif args.task_type == 'value':
                     rwd = (torch.rand(args.batch_size)<prob_s[i]).float()
                     output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)
@@ -268,7 +274,7 @@ if __name__ == "__main__":
                 
                 if args.debug:
                     # plt.imshow(model.rnn.h2h.effective_weight(ss['whs'][-1,0]).detach().squeeze(), aspect='auto', interpolation='nearest', cmap='seismic', vmin=-0.1, vmax=0.1)
-                    plt.imshow(hs.squeeze().detach().t(), aspect='auto', interpolation='nearest')
+                    plt.imshow(hs.squeeze().detach().t(), aspect='auto', cmap='hot', interpolation='nearest')
                     plt.colorbar()
                     plt.show()
                 # plt.ylabel('choice prob')
@@ -301,11 +307,11 @@ if __name__ == "__main__":
                     pop_post = pop_s['post_choice'][i]
                     action_enc = torch.eye(output_size)[action]
                     # if args.num_areas==1 or not args.spatial_attn or args.input_plas_off:
-                    #if args.decision_space=='good':
-                    #    action_valid_enc = torch.eye(num_options)[action_valid]
-                    #     pop_post = pop_post*action_valid_enc.reshape(1,1,num_options,1)
-                    #elif args.decision_space=='action':
-                    #    pop_post = pop_post*action_enc.reshape(1,1,output_size,1)
+                    if args.decision_space=='good':
+                        action_valid_enc = torch.eye(num_options)[action_valid]
+                        pop_post = pop_post*action_valid_enc.reshape(1,1,num_options,1)
+                    elif args.decision_space=='action':
+                        pop_post = pop_post*action_enc.reshape(1,1,output_size,1)
                     action_enc = action_enc*DA_s['post_choice']
                     R = (2*rwd-1)*DA_s['post_choice']
                     _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=action_enc, save_weights=True)
@@ -315,8 +321,11 @@ if __name__ == "__main__":
                     _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=None, save_weights=True)
 
                 if args.debug:
-                    plt.imshow(hs.squeeze().detach().t(), aspect='auto', interpolation='nearest')
+                    plt.imshow(hs.squeeze().detach().t(), aspect='auto', cmap='hot', interpolation='nearest')
                     plt.colorbar()
+                    plt.show()
+                    v = torch.linalg.eigvals(model.rnn.h2h.effective_weight(hidden[3])).detach()
+                    plt.scatter(v.real,v.imag)
                     plt.show()
                 # plt.plot(ss['sas'].squeeze().detach().softmax(-1))
                 # plt.plot(ss['fas'].squeeze().detach().softmax(-1))
@@ -415,11 +424,11 @@ if __name__ == "__main__":
                             pop_post = pop_s['post_choice'][i]
                             action_enc = torch.eye(output_size)[action]
                             # if args.num_areas==1 or not args.spatial_attn or args.input_plas_off:
-                            #if args.decision_space=='good':
-                            #    action_valid_enc = torch.eye(num_options)[action_valid]
-                            #    pop_post = pop_post*action_valid_enc.reshape(1,1,num_options,1)
-                            #elif args.decision_space=='action':
-                            #    pop_post = pop_post*action_enc.reshape(1,1,output_size,1)
+                            if args.decision_space=='good':
+                                action_valid_enc = torch.eye(num_options)[action_valid]
+                                pop_post = pop_post*action_valid_enc.reshape(1,1,num_options,1)
+                            elif args.decision_space=='action':
+                                pop_post = pop_post*action_enc.reshape(1,1,output_size,1)
                             action_enc = action_enc*DA_s['post_choice']
                             R = (2*rwd-1)*DA_s['post_choice']
                             _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=action_enc, save_weights=True)
