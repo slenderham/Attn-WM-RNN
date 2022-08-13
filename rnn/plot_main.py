@@ -13,10 +13,10 @@ from statsmodels.stats.anova import anova_lm
 from torch.nn.functional import interpolate
 from torch.serialization import save
 import tqdm
-
 from analysis import *
 from models import MultiChoiceRNN, SimpleRNN, HierarchicalRNN
 from analysis import targeted_dimensionality_reduction
+from analysis import participation_ratio, run_svd_time_varying_w
 from task import MDPRL
 from utils import load_checkpoint
 
@@ -33,6 +33,50 @@ def convert_pvalue_to_asterisks(pvalue):
         return "*"
     return "ns"
 
+def get_sub_mats(ws, num_areas, e_hidden_size, i_hidden_size):
+    trials, timesteps, batch_size, post_dim, pre_dim = ws.shape
+    assert((e_hidden_size+i_hidden_size)*num_areas==pre_dim and (e_hidden_size+i_hidden_size)*num_areas==post_dim)
+    total_e_size = e_hidden_size*num_areas
+    submats = {}
+    for i in range(num_areas):
+        submats[f"rec_intra_{i}"] = ws[:,:,:,list(range(i*e_hidden_size, (i+1)*e_hidden_size))+\
+                                             list(range(total_e_size+i*i_hidden_size, total_e_size+(i+1)*i_hidden_size))]\
+                                      [:,:,:,:,list(range(i*e_hidden_size, (i+1)*e_hidden_size))+\
+                                             list(range(total_e_size+i*i_hidden_size, total_e_size+(i+1)*i_hidden_size))]
+
+    for i in range(num_areas-1):
+        submats[f"rec_inter_ff_{i}_{i+1}"] = ws[:,:,:,list(range((i+1)*e_hidden_size, (i+2)*e_hidden_size))+\
+                                                 list(range(total_e_size+(i+1)*i_hidden_size, total_e_size+(i+2)*i_hidden_size))]\
+                                        [:,:,:,:,list(range(i*e_hidden_size, (i+1)*e_hidden_size))]
+        submats[f"rec_inter_fb_{i+1}_{i}"] = ws[:,:,:,list(range(i*e_hidden_size, i*e_hidden_size))+\
+                                                 list(range(total_e_size+(i+1)*i_hidden_size, total_e_size+(i+2)*i_hidden_size))]\
+                                        [:,:,:,:,list(range((i+1)*e_hidden_size, (i+2)*e_hidden_size))]
+    return submats
+
+def get_input_encodings(wxs, stim_enc_mat):
+    # wxs: hidden_size X input_size
+    # stim_enc_mat: stim_nums X input_size
+    # hypothesis: input pattern for each input ~ avg + feature + conj + obj
+    hidden_size, input_size = wxs.shape
+    assert(stim_enc_mat.shape==(63, input_size))
+    stims = wxs@stim_enc_mat.t() # hidden_size X stim_nums
+    global_avg = stims.mean(1)
+    stims = stims-global_avg
+    ft_avg = np.empty(9, hidden_size)
+    for i in range(9):
+        ft_avg[i,:] = stims@stim_enc_mat[:,i].squeeze()/sum(stim_enc_mat[:,i].squeeze()) # hidden_size X stim_nums @ stim_nums
+    
+    conj_avg = np.empty(27, hidden_size)
+    for i in range(27):
+        conj_avg[i,:] = stims@stim_enc_mat[:,9+i].squeeze()/sum(stim_enc_mat[:,i].squeeze()) # hidden_size X stim_nums @ stim_nums
+
+    obj_avg = np.empty(27, hidden_size)
+    for i in range(27):
+        obj_avg[i,:] = stims-ft_avg@stim_enc_mat[i,0:9]-conj_avg@stim_enc_mat[i,9:36]-global_avg
+
+    return global_avg, ft_avg, conj_avg, obj_avg
+        
+
 def plot_mean_and_std(ax, m, sd, label, alpha=1):
     if label is not None:
         ax.plot(m, alpha=alpha, label=label)
@@ -42,17 +86,17 @@ def plot_mean_and_std(ax, m, sd, label, alpha=1):
 
 def plot_imag_centered_cm(ax, im):
     max_mag = im.abs().max()*0.3
-    im = ax.imshow(im, vmax=max_mag, vmin=-max_mag, cmap='coolwarm')
+    im = ax.imshow(im, vmax=max_mag, vmin=-max_mag, cmap='RdBu_r')
     return im
 
-def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, h2ob, aux2h, kappa_rec, e_size):
+def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_size, args):
     # maxmax = abs(max([x2hw.max().item(), h2hw.max().item(), hb.max().item(), h2ow.max().item()]))
     # minmin = abs(min([x2hw.min().item(), h2hw.min().item(), hb.min().item(), h2ow.min().item()]))
     # vbound = max([maxmax, minmin])
     # selectivity = h2ow[0,:e_size]-h2ow[1,:e_size]
     # sort_inds = torch.argsort(selectivity)
     # sort_inds = torch.cat([sort_inds, torch.arange(e_size, h2hw.shape[0])])
-    vbound = 0.15
+
     # fig, axes = plt.subplots(2, 3, \
         # gridspec_kw={'width_ratios': [h2hw.shape[1], x2hw.shape[1], 1], 'height_ratios': [h2hw.shape[0], 1]})
     fig = plt.figure('connectivity')
@@ -66,80 +110,85 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, h2ob, aux2h, kappa_rec
     aux_size = aux2h.shape[1]*PLOT_W
     # value_size = h2vw.shape[0]*PLOT_W
     MARGIN = 0.01
-    LEFT = 0.1
+    LEFT = (1-(input_size+aux_size+hidden_size+MARGIN*3+PLOT_W))/2
     BOTTOM = 0.1
     
+    vbound = np.percentile(x2hw.abs(), 99)
     ax01 = fig.add_axes((LEFT, BOTTOM+output_size+MARGIN, input_size, hidden_size))
-    ims.append(ax01.imshow(x2hw[sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    ims.append(ax01.imshow(x2hw[sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax01.set_xticks([])
     ax01.set_yticks([])
     ax01.axis('off')
     ax01.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
     # ax02 = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+output_size+MARGIN*3, input_size, hidden_size))
-    # ims.append(ax02.imshow(x2hw[1][sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # ims.append(ax02.imshow(x2hw[1][sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     # ax02.set_xticks([])
     # ax02.set_yticks([])
     # ax02.axis('off')
     # ax02.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
+    vbound = np.percentile(aux2h.abs(), 99)
     axaux = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+output_size+MARGIN, aux_size, hidden_size))
-    ims.append(axaux.imshow(aux2h[sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    ims.append(axaux.imshow(aux2h[sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     axaux.set_xticks([])
     axaux.set_yticks([])
     axaux.axis('off')
     axaux.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
+    vbound = np.percentile(h2hw.abs(), 99)
     ax1w = fig.add_axes((LEFT+input_size+aux_size+MARGIN*2, BOTTOM+output_size+MARGIN, hidden_size, hidden_size))
-    ims.append(ax1w.imshow(h2hw[sort_inds][:,sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    ims.append(ax1w.imshow(h2hw[sort_inds][:,sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax1w.set_xticks([])
     ax1w.set_yticks([])
     ax1w.axis('off')
     ax1w.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     ax1w.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
+    vbound = np.percentile(hb.abs(), 99)
     ax1b = fig.add_axes((LEFT+input_size+aux_size+hidden_size+MARGIN*3, BOTTOM+output_size+MARGIN, PLOT_W, hidden_size))
-    ims.append(ax1b.imshow(hb[sort_inds].unsqueeze(1), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    ims.append(ax1b.imshow(hb[sort_inds].unsqueeze(1), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax1b.set_xticks([])
     ax1b.set_yticks([])
     ax1b.axis('off')
     ax1b.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
     # axattnw = fig.add_axes((LEFT+input_size*2+aux_size+MARGIN*3, BOTTOM+value_size+output_size+MARGIN*2, hidden_size, attn_size))
-    # ims.append(axattnw.imshow(h2attnw[:,sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # ims.append(axattnw.imshow(h2attnw[:,sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     # axattnw.set_xticks([])
     # axattnw.set_yticks([])
     # axattnw.axis('off')
     # axattnw.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     
     # axattnb = fig.add_axes((LEFT+input_size*2+aux_size+hidden_size+MARGIN*4, BOTTOM+value_size+output_size+MARGIN*2, PLOT_W, attn_size))
-    # ims.append(axattnb.imshow(h2attnb.unsqueeze(1), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # ims.append(axattnb.imshow(h2attnb.unsqueeze(1), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     # axattnb.set_xticks([])
     # axattnb.set_yticks([])
     # axattnb.axis('off')
     
+    vbound = np.percentile(h2ow.abs(), 99)
     axoutputw = fig.add_axes((LEFT+input_size+aux_size+MARGIN*2, BOTTOM, hidden_size, output_size))
-    ims.append(axoutputw.imshow(h2ow[:,sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    ims.append(axoutputw.imshow(h2ow[:,sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     axoutputw.set_xticks([])
     axoutputw.set_yticks([])
     axoutputw.axis('off')
     axoutputw.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     
-    axoutputb = fig.add_axes((LEFT+input_size+aux_size+hidden_size+MARGIN*3, BOTTOM, PLOT_W, output_size))
-    ims.append(axoutputb.imshow(h2ob.unsqueeze(1), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    axoutputb.set_xticks([])
-    axoutputb.set_yticks([])
-    axoutputb.axis('off')
+    # axoutputb = fig.add_axes((LEFT+input_size+aux_size+hidden_size+MARGIN*3, BOTTOM, PLOT_W, output_size))
+    # ims.append(axoutputb.imshow(h2ob.unsqueeze(1), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # axoutputb.set_xticks([])
+    # axoutputb.set_yticks([])
+    # axoutputb.axis('off')
     
     # axvaluew = fig.add_axes((LEFT+input_size*2+aux_size+MARGIN*3, BOTTOM, hidden_size, value_size))
-    # ims.append(axvaluew.imshow(h2vw[:,sort_inds], cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # ims.append(axvaluew.imshow(h2vw[:,sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     # axvaluew.set_xticks([])
     # axvaluew.set_yticks([])
     # axvaluew.axis('off')
     # axvaluew.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     
     # axvalueb = fig.add_axes((LEFT+input_size*2+aux_size+hidden_size+MARGIN*4, BOTTOM, PLOT_W, value_size))
-    # ims.append(axvalueb.imshow(h2vb.unsqueeze(1), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # ims.append(axvalueb.imshow(h2vb.unsqueeze(1), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     # axvalueb.set_xticks([])
     # axvalueb.set_yticks([])
     # axvalueb.axis('off')
@@ -148,34 +197,34 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, h2ob, aux2h, kappa_rec
     #         axes[i, j].axis('off')
     # plt.axis('off')
     
-    fig.subplots_adjust(right=0.7)
-    cbar_ax = fig.add_axes([0.85, 0.15, 0.02, 0.6])
-    fig.colorbar(ims[-1], cax=cbar_ax)
-    plt.suptitle('Model Connectivity', y=0.8)
+    # fig.subplots_adjust(right=0.7)
+    # cbar_ax = fig.add_axes([0.85, 0.15, 0.02, 0.6])
+    # fig.colorbar(ims[-1], cax=cbar_ax)
+    plt.suptitle('Model Connectivity', y=0.9)
     # plt.tight_layout()
     plt.show()
-    # plt.savefig(f'plots/{plot_args.exp_dir}/connectivity')
+    # plt.savefig(f'plots/{args["exp_dir"]}/connectivity.jpg')
 
-    vbound = 0.6
     fig = plt.figure('learning_rates')
     ims = []
     # ax01 = fig.add_axes((LEFT, BOTTOM+attn_size+MARGIN, input_size, hidden_size))
-    # ims.append(ax01.imshow(kappa_in[0][sort_inds].squeeze(), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # ims.append(ax01.imshow(kappa_in[0][sort_inds].squeeze(), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     # ax01.set_xticks([])
     # ax01.set_yticks([])
     # ax01.axis('off')
     # ax01.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
     # ax02 = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+attn_size+MARGIN*1, input_size, hidden_size))
-    # ims.append(ax02.imshow(kappa_in[1][sort_inds].squeeze(), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # ims.append(ax02.imshow(kappa_in[1][sort_inds].squeeze(), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     # ax02.set_xticks([])
     # ax02.set_yticks([])
     # ax02.axis('off')
     # ax02.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    vbound = 0.1
+    LEFT = (1-hidden_size)/2
+    vbound = np.percentile(kappa_rec.abs(), 99)
     ax1w = fig.add_axes((LEFT, BOTTOM+output_size+MARGIN, hidden_size, hidden_size))
-    ims.append(ax1w.imshow(kappa_rec[sort_inds][:,sort_inds].squeeze(), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    ims.append(ax1w.imshow(kappa_rec[sort_inds][:,sort_inds].squeeze(), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax1w.set_xticks([])
     ax1w.set_yticks([])
     ax1w.axis('off')
@@ -183,19 +232,19 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, h2ob, aux2h, kappa_rec
     ax1w.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
     # axfb = fig.add_axes((LEFT+input_size*2+MARGIN*2, BOTTOM, hidden_size, attn_size))
-    # ims.append(axfb.imshow(kappa_fb[:,sort_inds].squeeze(), cmap='coolwarm', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    # ims.append(axfb.imshow(kappa_fb[:,sort_inds].squeeze(), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     # axfb.set_xticks([])
     # axfb.set_yticks([])
     # axfb.axis('off')
     # axfb.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     
-    fig.subplots_adjust(right=0.85)
-    cbar_ax = fig.add_axes([0.85, 0.1, 0.02, 0.6])
-    fig.colorbar(ims[-1], cax=cbar_ax)
-    plt.suptitle('Model Learning Rates', y=0.8)
+    # fig.subplots_adjust(right=0.85)
+    # cbar_ax = fig.add_axes([0.85, 0.1, 0.02, 0.6])
+    # fig.colorbar(ims[-1], cax=cbar_ax)
+    plt.suptitle('Model Learning Rates', y=0.9)
     # plt.tight_layout()
     plt.show()
-
+    
 def plot_output_analysis(output, stim_order, stim_probs, splits=8):
     n_trials, n_timesteps, n_batch, n_output = output.shape
     output = output[:,-1]
@@ -323,7 +372,8 @@ def plot_tdr(hs, stim_order, stim_encoding, stim_probs):
     n_choice = stim_order.shape[2]
     assert(stim_encoding.shape==(27, 63))
     # get stimulus encoding
-    stim_encoding_ordered = stim_encoding[stim_order.reshape(n_trials*n_batch*n_choice),:].reshape(n_trials, n_batch, n_choice, 27)
+    stim_encoding_ordered = stim_encoding[stim_order.reshape(n_trials*n_batch*n_choice),:].reshape(n_trials, n_batch, n_choice, 63)
+    
     stim_encoding_ordered = stim_encoding_ordered.sum(axis=2) # sum over choices to get location independent active feat/conj/obj
 
     # get stimulus probablity
@@ -343,23 +393,74 @@ def plot_tdr(hs, stim_order, stim_encoding, stim_probs):
 
     xs = stim_encoding_ordered
     num_vars = stim_encoding_ordered.shape[-1]
+    hs = hs.numpy()
     
-    lr, betas = targeted_dimensionality_reduction(hs.reshape(n_trials*n_timesteps, n_batch, n_hidden), xs)
+    print('Calculating regression')
+    all_lrs, all_betas = targeted_dimensionality_reduction(hs, xs)
 
+    print('Calculating CPDs')
     channel_groups = np.array([3, 3, 3, 9, 9, 9, 27])
-    all_cpds = get_CPD(hs.reshape(n_trials*n_timesteps, n_batch, n_hidden), xs, lr, channel_groups).reshape(n_trials, n_timesteps, n_batch, len(channel_groups))
+    all_cpds = get_CPD(hs, xs, all_lrs, channel_groups)
 
     split_trials = 4
-    all_cpds = all_cpds.reshape(4, n_trials//4, n_timesteps, n_batch, len(channel_groups))
+    all_cpds = all_cpds.reshape(4, n_trials//4, n_timesteps, len(channel_groups), n_hidden)
 
-    fig, axes = plt.subplots(2, 2)
-    for i in range(4):
-        plot_mean_and_std(axes[i//2, i%2], all_cpds[i].mean([0, 2]), 
-                          all_cpds[i].std([0, 2])/np.sqrt(n_trials//4*n_batch), label=['F1', 'F2', 'F3', 'C1', 'C2', 'C3', 'O'])
-    return betas, all_cpds
+#     fig, axes = plt.subplots(2, 2)
+#     for i in range(4):
+#         plot_mean_and_std(axes[i//2, i%2], all_cpds[i].mean([0, 2]), 
+#                           all_cpds[i].std([0, 2])/np.sqrt(n_trials//4*n_batch), label=['F1', 'F2', 'F3', 'C1', 'C2', 'C3', 'O'])
+    return all_lrs, all_cpds, all_betas
 
-def plot_subspace(ws):
-    raise NotImplementedError
+def plot_subspace(ws, xs, num_areas, e_hidden_size, i_hidden_size):
+    submats = get_sub_mats(ws, num_areas=num_areas, e_hidden_size=e_hidden_size, i_hidden_size=i_hidden_size)
+    all_us = {}
+    all_ss = {}
+    all_vhs = {}
+    for w_name, w_vals in submats.items():
+        us, ss, vhs = run_svd_time_varying_w(w_vals)
+        all_us[w_name] = us
+        all_ss[w_name] = ss
+        all_vhs[w_name] = vhs
+
+    # plot participation ratios for change of dimensionality through training
+    fig, axes = plt.subplots(num_areas, num_areas)
+    for i in range(num_areas):
+        pr_rec = participation_ratio(all_ss[f"rec_intra_{i}"])
+        plot_mean_and_std(axes[i, i], pr_rec.mean(0), pr_rec.std(0)/np.sqrt(pr_rec.shape[0]))
+        axes[i,i].set_title(fr"Area {i} Recurrent")
+
+    for i in range(num_areas-1):
+        pr_ff = participation_ratio(all_ss[f"rec_inter_ff_{i}_{i+1}"])
+        plot_mean_and_std(axes[i, i+1], pr_ff.mean(0), pr_ff.std(0)/np.sqrt(pr_ff.shape[0]))
+        pr_fb = participation_ratio(all_ss[f"rec_inter_fb_{i}_{i+1}"])
+        plot_mean_and_std(axes[i+1, i], pr_fb.mean(0), pr_fb.std(0)/np.sqrt(pr_fb.shape[0]))
+        axes[i,i+1].set_title(fr"Area {i} \to Area {i+1} FF")
+        axes[i+1,i].set_title(fr"Area {i+1} \to Area {i} FB")
+
+    fig.supylabel('Participation Ratios')
+    fig.supxlabel('Trials')
+
+    # plot dimensional alignment?
+    # for each recurrent matrix's right singular vector, see how much it is accepted by its left singular vector 
+    # each column of U is a dimension of the output space, match it with rows of V^T through V^TU
+    # then each column of V^TU is the match between all of V^T and one column of U
+    # pre-multiplying with S weighs each 
+    # size (trials, batch_size, post_dim, pre_dim)
+
+    fig, axes = plt.subplots(num_areas, num_areas)
+    for i in range(num_areas):
+        w_name = f"rec_intra_{i}"
+        align_ratio = np.sum(all_ss[w_name]*(all_vhs[w_name]@all_us[w_name]))**2/all_ss[w_name]**2
+        
+
+    for i in range(num_areas-1):
+        w_name = f"rec_inter_ff_{i}_{i+1}"
+        pr_ff = all_ss[w_name]
+        plot_mean_and_std(axes[i, i+1], pr_ff.mean(0), pr_ff.std(0)/np.sqrt(pr_ff.shape[0]))
+        pr_fb = participation_ratio(all_ss[f"rec_inter_fb_{i}_{i+1}"])
+        plot_mean_and_std(axes[i+1, i], pr_fb.mean(0), pr_fb.std(0)/np.sqrt(pr_fb.shape[0]))
+        axes[i,i+1].set_title(fr"Area {i} \to Area {i+1} FF")
+        axes[i+1,i].set_title(fr"Area {i+1} \to Area {i} FB")
 
 def plot_single_unit_val_selectivity(hs, stim_order, stim_probs):
     n_trials, n_timesteps, n_batch, n_hidden = hs.shape
@@ -500,18 +601,18 @@ def run_model(args, model, task_mdprl, n_samples=None):
     all_probs = []
     all_saved_states_pre = defaultdict(list)
     all_saved_states_post = defaultdict(list)
-    all_saved_states = {}
+    all_saved_states = defaultdict(list)
     output_size = args['output_size']
     if n_samples is None:
         n_samples = task_mdprl.test_stim_order.shape[1]
     with torch.no_grad():
         for batch_idx in tqdm.tqdm(range(n_samples)):
-            print(batch_idx)
             DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(
                 batch_size=1, test_N_s=args['test_N_s'], num_choices=args['num_options'], participant_num=batch_idx)
             acc = []
             curr_rwd = []
             hidden = None
+            all_saved_states_pre
             for i in range(len(pop_s['pre_choice'])):
                 # first phase, give stimuli and no feedback
                 output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
@@ -519,9 +620,18 @@ def run_model(args, model, task_mdprl, n_samples=None):
                                                 acts=torch.zeros(1, output_size)*DA_s['pre_choice'],
                                                 save_weights=False, reinit_hidden=False)
 
+                # add empty list for the current episode
+                if i==0:
+                    for k in ss.keys():
+                        all_saved_states_pre[k].append([])
+                        all_saved_states_post[k].append([])
+                    all_saved_states['whs_final'].append([])
+                    all_saved_states_pre['hs'].append([])
+                    all_saved_states_post['hs'].append([])
+
                 for k, v in ss.items():
-                    all_saved_states_pre[k].append(v)
-                all_saved_states_pre['hs'].append(hs) # num_trials lists, each with shape time_pre, batch_size=1, hidden_size
+                    all_saved_states_pre[k][-1].append(v)
+                all_saved_states_pre['hs'][-1].append(hs) # [num_sessions, [num_trials, [time_pre, num_batch_size, hidden_size]]]
 
                 if args['task_type']=='on_policy_double':
                     # use output to calculate action, reward, and record loss function
@@ -559,31 +669,52 @@ def run_model(args, model, task_mdprl, n_samples=None):
                     _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=None, save_weights=False)
                 
                 for k, v in ss.items():
-                    all_saved_states_post[k].append(v)
-                all_saved_states_post['hs'].append(hs) # num_trials lists, each with shape time_post, batch_size=1, hidden_size
-                all_saved_states['whs'].append(hidden[3])
+                    all_saved_states_post[k][-1].append(v)
+                all_saved_states_post['hs'][-1].append(hs) # [num_sessions, [num_trials, [time_post, num_batch_size, hidden_size]]]
+                all_saved_states['whs_final'][-1].append(hidden[3].reshape(1, args['batch_size'], \
+                    args['hidden_size']*args['num_areas'], args['hidden_size']*args['num_areas'])) 
+                    # [num_sessions, [num_trials, [1, num_batch_size, hidden_size, hidden_size]]]
+
+            # stack trials for each session
+            for k in all_saved_states_pre.keys():
+                all_saved_states_pre[k][-1] = torch.stack(all_saved_states_pre[k][-1], axis=0)
+            for k in all_saved_states_post.keys():
+                all_saved_states_post[k][-1] = torch.stack(all_saved_states_post[k][-1], axis=0)
+            for k in all_saved_states.keys():
+                all_saved_states[k][-1] = torch.stack(all_saved_states[k][-1], axis=0)
+            # [num_sessions, [num_trials, time_steps, num_batch_size, hidden_size, hidden_size]]
+
+            # save accuracies and reward
             acc = torch.stack(acc, dim=0)
             curr_rwd = torch.stack(curr_rwd, dim=0)
             accs.append(acc)
             rwds.append(curr_rwd)
             all_indices.append(index_s)
             all_probs.append(prob_s)
+
+        # concatenate all accuracies and rewards
         accs = torch.cat(accs, dim=1)
         rwds = torch.cat(rwds, dim=1)
         accs_means = accs.mean(1) # loss per trial
         accs_stds = accs.std(1)/math.sqrt(n_samples) # loss per trial
         rwds_means = rwds.mean(1) # loss per trial
         rwds_stds = rwds.std(1)/math.sqrt(n_samples) # loss per trial
-        all_saved_states = {}
         print(rwds_means.mean(), accs_means.mean())
+
+        # concatenate all saved states
         for k in all_saved_states_pre.keys():
-            all_saved_states[k] = torch.cat([torch.cat(all_saved_states_pre[k], dim=1),
-                                             torch.cat(all_saved_states_post[k], dim=1)], dim=0)
-            trial_len, _, *hidden_sizes = all_saved_states[k].shape
-            assert(len(hidden_sizes)==1 or len(hidden_sizes)==2)
-            all_saved_states[k] = all_saved_states[k].reshape(trial_len, n_samples, len(index_s), *hidden_sizes).transpose(1,2).transpose(0,1)
-        
-        # only save the weight on the last timestep
+            all_saved_states_pre[k] = torch.cat(all_saved_states_pre[k], axis=2)
+        for k in all_saved_states_post.keys():
+            all_saved_states_post[k] = torch.cat(all_saved_states_post[k], axis=2)
+        for k in all_saved_states.keys():
+            all_saved_states[k] = torch.cat(all_saved_states[k], axis=2)
+
+        # merge pre and post if necessary
+        for k in all_saved_states_pre.keys():
+            all_saved_states[k] = torch.cat([all_saved_states_pre[k], all_saved_states_post[k]], dim=1)
+
+        for k, v in all_saved_states.items():
+            print(k, v.shape)
         
         all_indices = torch.stack(all_indices, dim=1) # trials X batch size X 2
         all_probs = torch.stack(all_probs, dim=1)

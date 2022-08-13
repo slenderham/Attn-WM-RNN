@@ -352,3 +352,16 @@ MigrationBackup/
 exp/
 plots/
 settings.json
+.ipynb_checkpoints/
+.DS_Store
+*.out
+
+# shell scripts for running jobs
+*.sh
+
+# slurm output
+slurm_*.txt
+
+# jupyter notebook jobs output
+jupyter_notebook_*.txt
+jupyter_notebook_*.err

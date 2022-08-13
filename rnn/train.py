@@ -274,9 +274,10 @@ if __name__ == "__main__":
                 
                 if args.debug:
                     # plt.imshow(model.rnn.h2h.effective_weight(ss['whs'][-1,0]).detach().squeeze(), aspect='auto', interpolation='nearest', cmap='seismic', vmin=-0.1, vmax=0.1)
-                    plt.imshow(hs.squeeze().detach().t(), aspect='auto', cmap='hot', interpolation='nearest')
-                    plt.colorbar()
-                    plt.show()
+                    # plt.imshow(hs.squeeze().detach().t(), aspect='auto', cmap='hot', interpolation='nearest')
+                    # plt.colorbar()
+                    # plt.show()
+                    hs_pre = hs;
                 # plt.ylabel('choice prob')
                 # print(hs.shape)
                 # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
@@ -321,7 +322,7 @@ if __name__ == "__main__":
                     _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=None, save_weights=True)
 
                 if args.debug:
-                    plt.imshow(hs.squeeze().detach().t(), aspect='auto', cmap='hot', interpolation='nearest')
+                    plt.imshow(torch.cat([hs_pre, hs], dim=0).squeeze().detach().t(), aspect='auto', cmap='hot', interpolation='nearest')
                     plt.colorbar()
                     plt.show()
                     v = torch.linalg.eigvals(model.rnn.h2h.effective_weight(hidden[3])).detach()

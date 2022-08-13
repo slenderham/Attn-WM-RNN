@@ -2,6 +2,7 @@ import math
 from warnings import WarningMessage
 
 import numpy as np
+import tqdm
 import pingouin as pg
 import scipy.cluster.hierarchy as sch
 from joblib import Parallel, delayed
@@ -13,7 +14,7 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
 from sklearn.model_selection import cross_val_score
-from sklearn.linear_model import LinearRegression, Ridge
+from sklearn.linear_model import LinearRegression, Ridge, RidgeCV
 from sklearn.svm import LinearSVC
 from tensorly.decomposition import parafac, non_negative_parafac
 import tensorly as tl
@@ -82,6 +83,25 @@ def run_tca(xs, ranks=[1, 27], num_reps=5):
     
     return results
 
+def run_svd_time_varying_w(ws):
+    trials, batch_size, post_dim, pre_dim = ws.shape
+    us, ss, vhs = np.linalg.svd(ws)
+    return us, ss, vhs
+
+def participation_ratio(ss, dim=-1):
+    return np.sum(ss, axis=-1)**2/np.sum(ss**2, axis=-1)
+
+def cross_alignment_ratio(ss, us, vhs):
+    '''
+    ss: singular values of template matrix (..., N)
+    us: upstream patterns (..., N, N)
+    vhs: templates of the current matrix (..., N, N)
+    
+    output = ||SS\otimes V^H U_{\cdot,i}||_2/||SS||_2 \in [0, 1]^{..., N} for each column of U
+
+    '''
+    return np.sum((np.diag(ss)@vhs@us)**2, axis=-1)/np.sum(ss**2, axis=-1)
+
 def linear_regression(X, y):
     res = LinearRegression().fit(X, y)
     return res
@@ -148,8 +168,8 @@ def cluster(x, max_clusters=20):
     return kmeans.labels_
 
 def targeted_dimensionality_reduction(hs, xs, do_zscore=False, denoise=False, ortho=False, n_jobs=1):
-    n_time_steps, n_trials, n_hidden = hs.shape
-    assert(xs.shape[0]==n_trials)
+    n_trials, n_time_steps, n_batch, n_hidden = hs.shape
+    assert(xs.shape[:2]==(n_trials, n_batch))
     n_vars = xs.shape[-1]
 
     # z-score the hidden activity
@@ -164,11 +184,17 @@ def targeted_dimensionality_reduction(hs, xs, do_zscore=False, denoise=False, or
             npca += 1
         D = Vh[:npca].T@Vh[:npca]
 
-    hs_flat = hs.reshape(n_time_steps*n_trials, n_hidden)
-    xs_flat = np.repeat(xs, n_time_steps, axis=0)
-
-    lr = LinearRegression(fit_intercept=not do_zscore, n_jobs=n_jobs).fit(xs_flat, hs_flat)
-    betas = lr.coef_.reshape(n_time_steps, n_trials, n_hidden)
+    lrs = []
+    betas = []
+    for i in tqdm.tqdm(range(n_trials)):
+        lrs.append([])
+        betas.append([])
+        for j in range(n_time_steps):
+            lrs[-1].append(Ridge(fit_intercept=not do_zscore).fit(xs[i], hs[i,j]))
+            betas[-1].append(lrs[-1][-1].coef_)
+        betas[-1] = np.stack(betas[-1])
+            
+    betas = np.stack(betas)
     
     if ortho:
         raise NotImplementedError('Not using orthogonal functionality')
@@ -178,31 +204,27 @@ def targeted_dimensionality_reduction(hs, xs, do_zscore=False, denoise=False, or
         Q, R = np.linalg.qr(coeff_max)
         coeff_max = Q
     
-    return lr, betas
+    return lrs, betas
 
 def get_CPD(hs, xs, full_model, channel_groups):
-    n_time_steps, n_trials, n_hidden = hs.shape
-    assert(xs.shape[0]==n_trials)
-    n_vars = xs.shape[1]
-
-    hs_flat = hs.reshape(n_time_steps*n_trials, n_hidden)
-    xs_flat = np.repeat(xs, n_time_steps, axis=0)
-
-    sse = np.sum((full_model.predict(xs_flat) - hs_flat)**2, axis=0)
-
+    n_trials, n_time_steps, n_batch, n_hidden = hs.shape
+    assert(xs.shape[:2]==(n_trials, n_batch))
+    n_vars = xs.shape[-1]
+        
     assert(np.sum(channel_groups)==n_vars)
     channel_groups = np.cumsum(channel_groups)
     channel_groups = np.insert(channel_groups, 0, 0)
     # manually calculate SSE for categorical IVs
 
-    cpd = np.empty(n_time_steps*n_trials, len(channel_groups))
+    cpd = np.empty((n_trials, n_time_steps, len(channel_groups)-1, n_hidden))
 
-    for i in range(1, len(channel_groups)):
-        X_i = xs_flat.copy()
-        X_i[:,channel_groups[i-1]:channel_groups[i]] = 0 # remove one factor
-        sse_X_i = np.sum((full_model.predict(X_i) - hs_flat)**2, axis=0)
-        cpd[:,i]=(sse_X_i-sse)/sse_X_i
-
-    cpd = cpd.reshape(n_time_steps, n_trials, len(channel_groups))
+    for i in tqdm.tqdm(range(n_trials)):
+        for j in range(n_time_steps):
+            sse = np.sum((full_model[i][j].predict(xs[i]) - hs[i,j])**2, axis=0)
+            for k in range(1, len(channel_groups)):
+                X_k = xs[i].copy()
+                X_k[:,channel_groups[k-1]:channel_groups[k]] = 0 # remove one factor
+                sse_X_k = np.sum((full_model[i][j].predict(X_k) - hs[i,j])**2, axis=0)
+                cpd[i,j,k-1,:]=(sse_X_k-sse)/(sse_X_k+1e-6)
 
     return cpd

@@ -160,7 +160,7 @@ class MDPRL():
         subjects = [f'inputs/input_{s.lower()}' for s in subjects]
         subjects2 = ['AA', 'AB',
                      'AC', 'AD', 
-                     'AE', 'AF', 'AG', 'AH', 'AI', 'AJ', 'AK', 'AL', 'AM', 
+                     'AE', 'AG', 'AH', 'AI', 'AJ', 'AK', 'AL', 'AM', 
                      'AN', 'AO', 'AP', 'AQ', 'AR', 'AS', 'AT', 'AU', 'AV', 
                      'AW', 'AX', 'AY']
         subjects += [f'inputs2/input_{s}' for s in subjects2]
