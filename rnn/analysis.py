@@ -11,6 +11,7 @@ from scipy.optimize import curve_fit, linear_sum_assignment
 from scipy.spatial.distance import pdist
 from scipy.stats import zscore
 from sklearn.cluster import KMeans
+from sklearn.mixture import BayesianGaussianMixture
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
 from sklearn.model_selection import cross_val_score
@@ -19,6 +20,7 @@ from sklearn.svm import LinearSVC
 from tensorly.decomposition import parafac, non_negative_parafac
 import tensorly as tl
 from tensorly.tenalg import mode_dot
+from dPCA import dPCA
 
 def run_pca(hs, rank=3):
     trials, timesteps, batch_size, hidden_dim = hs.shape
@@ -166,6 +168,10 @@ def cluster(x, max_clusters=20):
     argmax_k = np.argmax(silhouettes)
     kmeans = KMeans(n_clusters=argmax_k+1).fit(x)
     return kmeans.labels_
+
+def gmm(x, n_components):
+    bgm = BayesianGaussianMixture(n_components=n_components).fit(x)
+    return bgm
 
 def targeted_dimensionality_reduction(hs, xs, do_zscore=False, denoise=False, ortho=False, n_jobs=1):
     n_trials, n_time_steps, n_batch, n_hidden = hs.shape

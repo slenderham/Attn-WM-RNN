@@ -75,7 +75,6 @@ def get_input_encodings(wxs, stim_enc_mat):
         obj_avg[i,:] = stims-ft_avg@stim_enc_mat[i,0:9]-conj_avg@stim_enc_mat[i,9:36]-global_avg
 
     return global_avg, ft_avg, conj_avg, obj_avg
-        
 
 def plot_mean_and_std(ax, m, sd, label, alpha=1):
     if label is not None:
@@ -99,7 +98,7 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
 
     # fig, axes = plt.subplots(2, 3, \
         # gridspec_kw={'width_ratios': [h2hw.shape[1], x2hw.shape[1], 1], 'height_ratios': [h2hw.shape[0], 1]})
-    fig = plt.figure('connectivity')
+    fig = plt.figure('connectivity', (10, 10))
     ims = []
     hidden_size = h2hw.shape[0]
     PLOT_W = 0.6/hidden_size
@@ -205,7 +204,7 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     plt.show()
     # plt.savefig(f'plots/{args["exp_dir"]}/connectivity.jpg')
 
-    fig = plt.figure('learning_rates')
+    fig = plt.figure('learning_rates', (10, 10))
     ims = []
     # ax01 = fig.add_axes((LEFT, BOTTOM+attn_size+MARGIN, input_size, hidden_size))
     # ims.append(ax01.imshow(kappa_in[0][sort_inds].squeeze(), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
@@ -294,42 +293,12 @@ def plot_learning_curve(args, all_l, lm, lsd):
     # plt.savefig(f'plots/{plot_args.exp_dir}/learning_curve')
     plt.show()
 
-def plot_attn_entropy(attns):
-    log_attns = np.log(attns+1e-6)
-    ents = -(attns*log_attns).sum(axis=-1)
-    ents_mean = ents.mean(1)
-    ents_std = ents.std(1)
-    fig, ax = plt.subplots()
-    plot_mean_and_std(ax, ents_mean, ents_std)
-    ax.set_xlabel('Time step')
-    ax.set_ylabel('Entropy')
-    plt.tight_layout()
-    plt.savefig(f'plots/{plot_args.exp_dir}/attn_entropy')
-
-def plot_attn_distribution(attns):
-    fig = plt.figure('attn_dist')
-    mean_attns = attns.flatten(0,1).mean(1)
-    std_attns = attns.flatten(0,1).std(1)
-    ax = fig.add_subplot()
-    labels = ['Shape (C1)', 'Pattern (F)', 'Color (C2)']
-    for i in range(attns.shape[-1]):
-        plot_mean_and_std(ax, mean_attns[:,i], std_attns[:,i], labels[i], alpha=0.6)
-    ax.legend()
-    ax.set_xlabel('Time step')
-    ax.set_ylabel('Attention Weight')
-    # fig.subplots_adjust(right=0.8)
-    # cbar_ax = fig.add_axes([0.85, 0.15, 0.05, 0.7])
-    # fig.colorbar(im)
-    plt.tight_layout()
-    plt.show()
-    # plt.savefig(f'plots/{plot_args.exp_dir}/attn_dist')
-
 def plot_attn_selectivity(attns, stim_order, stim_probs, pre_choice_time):
     n_trials, n_timesteps, n_batch, n_channels = attns.shape
     # analyze separately for pre and post choice and feedback
     raise NotImplementedError
 
-def plot_sorted_matrix(w, e_size, w_type):
+def plot_sorted_matrix(w, e_size, w_type, plot_args):
     # from https://github.com/gyyang/nn-brain/blob/master/EI_RNN.ipynb
     Z = hierarchical_clustering(w[:e_size, :e_size])
     fig = plt.figure()
@@ -411,7 +380,59 @@ def plot_tdr(hs, stim_order, stim_encoding, stim_probs):
 #                           all_cpds[i].std([0, 2])/np.sqrt(n_trials//4*n_batch), label=['F1', 'F2', 'F3', 'C1', 'C2', 'C3', 'O'])
     return all_lrs, all_cpds, all_betas
 
-def plot_subspace(ws, xs, num_areas, e_hidden_size, i_hidden_size):
+def plot_initial_subspace(init_w, num_areas, e_hidden_size, i_hidden_size):
+    submats = get_sub_mats(init_w.reshape(1,1,1,-1,-1), num_areas=num_areas, e_hidden_size=e_hidden_size, i_hidden_size=i_hidden_size)
+    all_us = {}
+    all_ss = {}
+    all_vhs = {}
+    for w_name, w_vals in submats.items():
+        u, s, vh = np.linalg.svd(w_vals)
+        all_us[w_name] = u
+        all_ss[w_name] = s
+        all_vhs[w_name] = vh
+
+    # plot dimensional alignment?
+    # SVD(W) = U S VT
+    # for each recurrent matrix's left singular vector (columns of V), see how much it is accepted by its left singular vector (columns of U)
+    # each column of U is a dimension of the output space, match it with rows of V^T through V^TU
+    # then each column of V^TU is the match between all of V^T and one column of U
+    # pre-multiplying with S weighs each 
+    # size (trials, batch_size, post_dim, pre_dim)
+
+    '''
+    for each area, m-intra, n-intra, I-fb, w-ff
+        mn - recurrence if overlap
+        
+        mI - direct feedforward if no overlap
+        nI - feedforward to recurrence
+        
+        mw - recurrence to readout
+        Iw - feedforward to readout
+
+        nw - ? not important
+    '''
+
+    fig, axes = plt.subplots(num_areas)
+    for i in range(num_areas):
+        w_name = f"rec_intra_{i}"
+        axes[i].imshow(all_vhs[w_name]@(all_us[w_name] * np.diag(all_ss[w_name])))
+    fig.show()
+
+    fig, axes = plt.subplots(num_areas-1, 4)
+    for i in range(num_areas-1):
+        ff_name = f"rec_inter_ff_{i}_{i+1}"
+        fb_name = f"rec_inter_fb_{i}_{i+1}"
+        w_name = f"rec_intra_{i}"
+
+        axes[i,0].imshow((np.diag(all_ss[ff_name])*all_vhs[ff_name])@all_us[w_name])
+        axes[i,1].imshow(all_vhs[w_name]@(np.diag(all_ss[ff_name])*all_vhs[ff_name]))
+        axes[i,2].imshow((np.diag(all_ss[fb_name])*all_vhs[fb_name])@all_us[w_name])
+        axes[i,3].imshow(all_vhs[w_name]@(np.diag(all_ss[fb_name])*all_vhs[fb_name]))
+    fig.show()
+
+    
+
+def plot_subspace(ws, num_areas, e_hidden_size, i_hidden_size):
     submats = get_sub_mats(ws, num_areas=num_areas, e_hidden_size=e_hidden_size, i_hidden_size=i_hidden_size)
     all_us = {}
     all_ss = {}
@@ -441,91 +462,60 @@ def plot_subspace(ws, xs, num_areas, e_hidden_size, i_hidden_size):
     fig.supxlabel('Trials')
 
     # plot dimensional alignment?
-    # for each recurrent matrix's right singular vector, see how much it is accepted by its left singular vector 
+    # SVD(W) = U S VT
+    # for each recurrent matrix's left singular vector (columns of V), see how much it is accepted by its left singular vector (columns of U)
     # each column of U is a dimension of the output space, match it with rows of V^T through V^TU
     # then each column of V^TU is the match between all of V^T and one column of U
     # pre-multiplying with S weighs each 
     # size (trials, batch_size, post_dim, pre_dim)
 
+    '''
+    for each area, m-intra, n-intra, I-fb, w-ff
+        mn - recurrence if overlap
+        
+        mI - direct feedforward if no overlap
+        nI - feedforward to recurrence
+        
+        mw - recurrence to readout
+        Iw - feedforward to readout
+
+        nw - ? not important
+    '''
+
     fig, axes = plt.subplots(num_areas, num_areas)
+    mn_cov = []
     for i in range(num_areas):
         w_name = f"rec_intra_{i}"
-        align_ratio = np.sum(all_ss[w_name]*(all_vhs[w_name]@all_us[w_name]))**2/all_ss[w_name]**2
+        mn_cov.append(all_vhs[w_name]@(all_us[w_name] * all_ss[w_name]))
+    
+    mff_cov = []
+    mfb_cov = []
+    nff_cov = []
+    nfb_cov = []
+    for i in range(num_areas-1):
+        ff_name = f"rec_inter_ff_{i}_{i+1}"
+        fb_name = f"rec_inter_fb_{i}_{i+1}"
+        w_name = f"rec_intra_{i}"
+
+        mff_cov.append((all_ss[ff_name]*all_vhs[ff_name])@all_us[w_name])
+        mfb_cov.append(all_vhs[w_name]@all_us[w_name])
         
 
-    for i in range(num_areas-1):
-        w_name = f"rec_inter_ff_{i}_{i+1}"
-        pr_ff = all_ss[w_name]
-        plot_mean_and_std(axes[i, i+1], pr_ff.mean(0), pr_ff.std(0)/np.sqrt(pr_ff.shape[0]))
-        pr_fb = participation_ratio(all_ss[f"rec_inter_fb_{i}_{i+1}"])
-        plot_mean_and_std(axes[i+1, i], pr_fb.mean(0), pr_fb.std(0)/np.sqrt(pr_fb.shape[0]))
-        axes[i,i+1].set_title(fr"Area {i} \to Area {i+1} FF")
-        axes[i+1,i].set_title(fr"Area {i+1} \to Area {i} FB")
-
-def plot_single_unit_val_selectivity(hs, stim_order, stim_probs):
-    n_trials, n_timesteps, n_batch, n_hidden = hs.shape
-    stim_probs_ordered = order_stim_probs(stim_order, stim_probs)
+def plot_weight_matrix_clustered(wx, wh, wff, wfb):
     
-    reg_results = []
-    xs = np.stack(stim_probs_ordered, -1)
-    reg_results.append([])
-    for i in range(n_trials):
-        for j in range(n_timesteps):
-            for k in range(n_hidden):
-                reg_results[-1].append(linear_regression(xs, hs[i,j,:,k].reshape(n_batch)))
-
-    fig = fig = plt.figure('rsa_coeffs')
-    labels = ['Shape', 'Pattern', 'Color', 'Shape+Pattern', 'Pattern+Color', 'Shape+Color', 'Shape+Pattern+Color']
-    ax = fig.add_subplot()
-    for i in range(7):
-        coeffs = [res.coef[i+1] for res in reg_results]
-        ses = [res.se[i+1] for res in reg_results]
-        ax.plot(coeffs, alpha=0.1)
-        ax.errorbar(range(n_hidden), coeffs, ses, capsize=3)
-
-def plot_single_unit_stim_selectivity(hs, stim_order, stim_encoding, sort_inds, splits=8):
-    # Changes in single unit selectivity to each stimulus (or combination) prescence
-    # For each split (8), for each input combination (7*2), display distribution over all units (violin plot)
-    n_trials, n_timesteps, n_batch, n_hidden = hs.shape
-    hs = hs.mean(1)
-    stim_encoding_ordered = {}
-    for name, enc in stim_encoding.items():
-        stim_encoding_ordered[name+'L'] = []
-        stim_encoding_ordered[name+'R'] = []
-        for i in range(n_batch):
-            stim_encoding_ordered[name+'L'].append(enc[stim_order[:,i,0]])
-            stim_encoding_ordered[name+'R'].append(enc[stim_order[:,i,1]])
-        stim_encoding_ordered[name+'L'] = np.stack(stim_encoding_ordered[name+'L'], axis=-1).reshape(n_trials*n_batch) # timestep X batch
-        stim_encoding_ordered[name+'R'] = np.stack(stim_encoding_ordered[name+'R'], axis=-1).reshape(n_trials*n_batch)
-
-    reg_results = []
-    n_steps_par_split = n_trials//splits
-    for j in range(n_hidden):
-        reg_results.append([])
-        for i in range(splits-1):
-            xs = {(k, v[i*n_steps_par_split:(i+1)*n_steps_par_split]) for (k,v) in stim_encoding_ordered}
-            formula = "H ~ C(CL) * C(PL) * C(SL) + C(CR) * C(PR) * C(SR)"
-            reg_results[-1].append(ols(formula, {xs, {'H': hs[i*n_steps_par_split:(i+1)*n_steps_par_split,:,j].reshape(n_steps_par_split*n_batch)}}).fit())
-    reg_results = reg_results[sort_inds]
-
-    fig = fig = plt.figure('unit_stim_slctvty_coeffs')
-    labels = ['Shape', 'Pattern', 'Color', 'Shape+Pattern', 'Pattern+Color', 'Shape+Color', 'Shape+Pattern+Color']
-    labels = [l+loc for loc in ['_L', '_R'] for l in labels]
-    ax = fig.add_subplot()
-    for i, l in enumerate(labels):
-        coeffs = [split_res.params[i+1] for res in reg_results for split_res in res]
-        ax.violin_plot(coeffs, alpha=0.1)
+    return
 
 def unit_selectivity(hs, target, e_size):
     n_trials, n_timesteps, n_batch, n_hidden = hs.shape
-    hs = hs.mean(1)
-    mean_hs = []
-    std_hs = []
-    for i in range(2):
-        mean_hs.append(hs[target==i].mean(axis=0))
-        std_hs.append(hs[target==i].std(axis=0))
-
-    selectivity = (mean_hs[0]-mean_hs[1])/((std_hs[0]**2+std_hs[1]**2+1e-7)/2)**0.5
+    hs = hs.mean(1) # n_trials, n_batch, n_hidden
+    selectivity = []
+    # grand_mean_hs = hs.mean(axis=0)
+    grand_var_hs = hs.std(axis=0)
+    for i in range(np.unique(target).max()):
+        sse_i = (hs-hs[target==i].mean(axis=0))**2
+        sse_not_i = (hs-hs[target!=i].mean(axis=0))**2
+        selectivity.append(1-(sse_i+sse_not_i)/(grand_var_hs+1e-8)) # sum sq explained by target
+    selectivity = torch.stack(selectivity) # n_targets, n_batch, n_hidden
     plt.hist(selectivity.flatten().numpy(), bins=20)
     plt.xlabel('Selectivity')
     plt.ylabel('Frequency')
