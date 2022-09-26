@@ -446,7 +446,7 @@ def run_model(args, model, task_mdprl):
     all_saved_states_post = defaultdict(list)
     n_samples = plot_args.n_samples
     with torch.no_grad():
-        for batch_idx in range(10,10+n_samples):
+        for batch_idx in range(n_samples):
             print(batch_idx)
             DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(
                 batch_size=1, test_N_s=args['test_N_s'], num_choices=2 if 'double' in args['task_type'] else 1, participant_num=batch_idx)

@@ -10,20 +10,33 @@ from scipy.spatial.distance import pdist
 from scipy.stats import zscore
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_score
 from sklearn.model_selection import cross_val_score
 from sklearn.svm import LinearSVC
-from tensorly.decomposition import parafac
+from tensorly.decomposition import parafac, CP
 from dPCA import dPCA
 
-def run_pca(hs):
+def run_pca(hs, rank=3):
     trials, timesteps, batch_size, hidden_dim = hs.shape
-    pca = PCA(n_components=3)
+    pca = PCA(n_components=rank)
     low_x = pca.fit_transform(hs.reshape(trials*timesteps*batch_size, hidden_dim)).reshape(trials, timesteps, batch_size, 3)
     return low_x.reshape(trials, timesteps, batch_size, 3)
 
-def run_tca(ws, rank=9):
+def run_tca(ws, ranks=9, num_reps=5, rank_err_tol):
     trials, timesteps, batch_size, post_dim, pre_dim = ws.shape
-    factors = parafac(ws.reshape(trials*timesteps*batch_size, post_dim, pre_dim), rank=rank)
+    results = {}
+    for r in ranks:
+        results[r] = []
+        for n in num_reps:
+            cp = CP(rank=r)
+            cp.fit_transform(ws.reshape(trials*timesteps*batch_size, post_dim, pre_dim), return_errors=True)
+            results[r].append(cp)
+    
+    for r in ranks:
+        idx = np.argsort([rr.errors_[-1] for rr in results[r]])
+        
+
+
     low_w = factors[0]
     post_factor = factors[1]
     pre_factor = factors[1]
@@ -85,8 +98,13 @@ def hierarchical_clustering(x):
     Z = sch.linkage(dmat, method='centroid')
     return Z
 
-def cluster(x, n_clusters=3):
-    kmeans = KMeans(n_clusters=n_clusters).fit(x)
+def cluster(x, max_clusters=20):
+    silhouettes = []
+    for k in range(2, max_clusters+1):
+        kmeans = KMeans(n_clusters=k).fit(x)
+        silhouettes.append(silhouette_score(x, kmeans.labels_, metric='euclidean'))
+    argmax_k = np.argmax(silhouettes)
+    kmeans = KMeans(n_clusters=argmax_k+1).fit(x)
     return kmeans.labels_
 
 def targeted_dimensionality_reduction(hs, xs, ortho=False):

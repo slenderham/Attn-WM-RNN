@@ -147,17 +147,17 @@ class MDPRL():
         # -----------------------------------------------------------------------------------------
         # loading experimental conditions
         # -----------------------------------------------------------------------------------------
-        subjects = ['aa', 'ab', 'ac', 'ae', 'af', 'ag', 'ah', 'ai', 'aj', 'al',
-                    'am', 'an', 'ao', 'aq', 'ar', 'as', 'at', 'av', 'aw', 'ax', 'ay']
-        base_dir = '../Multi-dimensional-probablistic-learning/Behavioral task/PRLexp/inputs'
-        self.test_stim_order = []
-        # self.test_rwd = []
-        for s in subjects:
-            exp_inputs = sio.loadmat(os.path.join(base_dir, f'input_{s}.mat'))
-            self.choiceMap = exp_inputs['expr']['choiceMap'][0,0]
-            self.test_stim_order.append(exp_inputs['input']['inputTarget'][0,0])
-            # self.test_rwd.append(exp_inputs['input']['inputReward'][0,0])
-        self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1)-1
+        # subjects = ['aa', 'ab', 'ac', 'ae', 'af', 'ag', 'ah', 'ai', 'aj', 'al',
+        #             'am', 'an', 'ao', 'aq', 'ar', 'as', 'at', 'av', 'aw', 'ax', 'ay']
+        # base_dir = '../Multi-dimensional-probablistic-learning/Behavioral task/PRLexp/inputs'
+        # self.test_stim_order = []
+        # # self.test_rwd = []
+        # for s in subjects:
+        #     exp_inputs = sio.loadmat(os.path.join(base_dir, f'input_{s}.mat'))
+        #     self.choiceMap = exp_inputs['expr']['choiceMap'][0,0]
+        #     self.test_stim_order.append(exp_inputs['input']['inputTarget'][0,0])
+        #     # self.test_rwd.append(exp_inputs['input']['inputReward'][0,0])
+        # self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1)-1
         # self.test_rwd = torch.from_numpy(np.stack(self.test_rwd, axis=0).transpose(2,0,1))
 
     def _generate_generalizable_prob(self, gen_level, jitter=0.0):
