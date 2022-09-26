@@ -199,7 +199,7 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     # fig.subplots_adjust(right=0.7)
     # cbar_ax = fig.add_axes([0.85, 0.15, 0.02, 0.6])
     # fig.colorbar(ims[-1], cax=cbar_ax)
-    plt.suptitle('Model Connectivity', y=0.9)
+    plt.suptitle('Model Connectivity', y=0.85)
     # plt.tight_layout()
     plt.show()
     # plt.savefig(f'plots/{args["exp_dir"]}/connectivity.jpg')
@@ -240,10 +240,46 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     # fig.subplots_adjust(right=0.85)
     # cbar_ax = fig.add_axes([0.85, 0.1, 0.02, 0.6])
     # fig.colorbar(ims[-1], cax=cbar_ax)
-    plt.suptitle('Model Learning Rates', y=0.9)
+    plt.suptitle('Model Learning Rates', y=0.85)
     # plt.tight_layout()
     plt.show()
     
+def plot_weight_summary(args, ws):
+    trials, timesteps, batch_size, post_dim, pre_dim = ws.shape
+    assert(timesteps==1)
+    ws = ws.squeeze()
+    
+    # norm of update
+    fig = plt.figure()
+    ax = fig.add_subplot()
+    diff_ws = ((ws[1:]-ws[:-1])**2).sum([-1, -2])
+    plot_mean_and_std(ax, diff_ws.mean(1), diff_ws.std(1))
+    ax.set_xlabel('Trial')
+    ax.set_ylabel(r'$|\Delta W|_2$')
+    fig.show()
+
+    # norm of weights
+    fig = plt.figure()
+    ax = fig.add_subplot()
+    _, ss, _ = np.linalg.svd(ws)
+    norm_ws = ss[:,:,0] # largest singular value
+    plot_mean_and_std(ax, norm_ws.mean(1), norm_ws.std(1))
+    ax.set_xlabel('Trial')
+    ax.set_ylabel(r'$\sigma_{max}(W)$')
+    fig.show()
+    
+
+    # variance of entries across trials
+    fig = plt.figure()
+    ax = fig.add_subplot()
+    mean_ws = ws.mean(1, keepdims=True)
+    std_ws = ((ws-mean_ws)**2).sum([-1, -2])
+    plot_mean_and_std(ax, )
+    plot_mean_and_std(ax, std_ws.mean(1), std_ws.std(1))
+    ax.set_xlabel('Trial')
+    ax.set_ylabel('Cross session consistency')
+    fig.show()
+
 def plot_output_analysis(output, stim_order, stim_probs, splits=8):
     n_trials, n_timesteps, n_batch, n_output = output.shape
     output = output[:,-1]
@@ -430,8 +466,6 @@ def plot_initial_subspace(init_w, num_areas, e_hidden_size, i_hidden_size):
         axes[i,3].imshow(all_vhs[w_name]@(np.diag(all_ss[fb_name])*all_vhs[fb_name]))
     fig.show()
 
-    
-
 def plot_subspace(ws, num_areas, e_hidden_size, i_hidden_size):
     submats = get_sub_mats(ws, num_areas=num_areas, e_hidden_size=e_hidden_size, i_hidden_size=i_hidden_size)
     all_us = {}
@@ -500,7 +534,6 @@ def plot_subspace(ws, num_areas, e_hidden_size, i_hidden_size):
         mff_cov.append((all_ss[ff_name]*all_vhs[ff_name])@all_us[w_name])
         mfb_cov.append(all_vhs[w_name]@all_us[w_name])
         
-
 def plot_weight_matrix_clustered(wx, wh, wff, wfb):
     
     return
@@ -709,6 +742,114 @@ def run_model(args, model, task_mdprl, n_samples=None):
         all_indices = torch.stack(all_indices, dim=1) # trials X batch size X 2
         all_probs = torch.stack(all_probs, dim=1)
         return [accs, rwds], [accs_means, rwds_means], [accs_stds, rwds_stds], all_saved_states, all_indices, all_probs
+
+
+def run_model_all_pairs_with_hidden_init(args, model, task_mdprl, n_samples=30, hidden_init=None):
+    model.eval()
+    accs = []
+    rwds = []
+    all_indices = []
+    all_probs = []
+    all_saved_states_pre = defaultdict(list) # each entry has value of size (num pairs X num_samples X ...)
+    all_saved_states_post = defaultdict(list)
+    all_saved_states = defaultdict(list)
+    output_size = args['output_size']
+    with torch.no_grad():
+        for pair_idx in tqdm.tqdm(range(task_mdprl.pairs.shape[0])):
+            for batch_idx in range(n_samples):
+                DA_s, ch_s, pop_s, index_s, prob_s, output_mask = \
+                    task_mdprl.generateinput(batch_size=1, N_s=0, num_choices=args['num_options'], prob_index=task_mdprl.prob_mdprl, \
+                                             stim_order=task_mdprl.pairs[pair_idx:pair_idx+1,:])
+                acc = []
+                curr_rwd = []
+                hidden = hidden_init
+                all_saved_states_pre
+                    # first phase, give stimuli and no feedback
+                output, hs, hidden, ss = model(pop_s['pre_choice'][0], hidden=hidden, 
+                                                Rs=0*DA_s['pre_choice'], Vs=None,
+                                                acts=torch.zeros(1, output_size)*DA_s['pre_choice'],
+                                                save_weights=False, reinit_hidden=False)
+
+                # add empty list for the current episode
+                if batch_idx==0:
+                    for k in ss.keys():
+                        all_saved_states_pre[k].append([])
+                        all_saved_states_post[k].append([])
+                    all_saved_states['whs_final'].append([])
+                    all_saved_states_pre['hs'].append([])
+                    all_saved_states_post['hs'].append([])
+
+                # save pre-feedback states
+                for k, v in ss.items():
+                    all_saved_states_pre[k][-1].append(v)
+                all_saved_states_pre['hs'][-1].append(hs) # [num_pairs, [num_samples_per_pair, [time_pre, 1, hidden_size]]]
+
+                # use output to calculate action, reward, and record loss function
+                action_valid = torch.argmax(output[-1,:,index_s[0]], -1) # the object that can be chosen (0~1), (batch size, )
+                action = index_s[0, action_valid] # (batch size, )
+                rwd = (torch.rand(args['batch_size'])<prob_s[0][range(args['batch_size']), action_valid]).float()
+                acc.append((action_valid==torch.argmax(prob_s[0], -1)).float())    
+                curr_rwd.append(rwd)
+                
+                # use the action (optional) and reward as feedback
+                pop_post = pop_s['post_choice'][0]
+                action_enc = torch.eye(output_size)[action]
+                action_valid_enc = torch.eye(args['num_options'])[action_valid]
+                pop_post = pop_post*action_valid_enc.reshape(1,1,args['num_options'],1)
+                action_enc = action_enc*DA_s['post_choice']
+                R = (2*rwd-1)*DA_s['post_choice']
+                _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=action_enc, save_weights=False)
+                
+                # save the post-feedback states
+                for k, v in ss.items():
+                    all_saved_states_post[k][-1].append(v)
+                all_saved_states_post['hs'][-1].append(hs) # [num_pairs, [num_samples_per_pair, [time_post, 1, hidden_size]]]
+
+            # stack trials for each session
+            for k in all_saved_states_pre.keys():
+                all_saved_states_pre[k] = torch.stack(all_saved_states_pre[k], axis=0)
+            for k in all_saved_states_post.keys():
+                all_saved_states_post[k] = torch.stack(all_saved_states_post[k], axis=0)
+            for k in all_saved_states.keys():
+                all_saved_states[k] = torch.stack(all_saved_states[k], axis=0)
+            # [num_pairs, [num_samples_per_pair, time_steps, 1, hidden_size]]
+
+            # save accuracies and reward
+            acc = torch.stack(acc, dim=0)
+            curr_rwd = torch.stack(curr_rwd, dim=0)
+            accs.append(acc)
+            rwds.append(curr_rwd)
+            all_indices.append(index_s)
+            all_probs.append(prob_s)
+
+        # concatenate all accuracies and rewards
+        accs = torch.cat(accs, dim=1)
+        rwds = torch.cat(rwds, dim=1)
+        accs_means = accs.mean(1) # loss per trial
+        accs_stds = accs.std(1)/math.sqrt(n_samples) # loss per trial
+        rwds_means = rwds.mean(1) # loss per trial
+        rwds_stds = rwds.std(1)/math.sqrt(n_samples) # loss per trial
+
+        # concatenate all saved states
+        for k in all_saved_states_pre.keys():
+            all_saved_states_pre[k] = torch.stack(all_saved_states_pre[k], axis=0)
+        for k in all_saved_states_post.keys():
+            all_saved_states_post[k] = torch.stack(all_saved_states_post[k], axis=0)
+        for k in all_saved_states.keys():
+            all_saved_states[k] = torch.stack(all_saved_states[k], axis=0)
+        # [num_pairs, num_samples_per_pair, time_steps, 1, hidden_size]
+
+        # merge pre and post if necessary
+        for k in all_saved_states_pre.keys():
+            all_saved_states[k] = torch.cat([all_saved_states_pre[k], all_saved_states_post[k]], dim=2)
+
+        for k, v in all_saved_states.items():
+            print(k, v.shape)
+        
+        all_indices = torch.stack(all_indices, dim=1) # trials X batch size X 2
+        all_probs = torch.stack(all_probs, dim=1)
+        return [accs, rwds], [accs_means, rwds_means], [accs_stds, rwds_stds], all_saved_states
+
 
 def order_stim_probs(stim_order, stim_probs):
     n_trials, n_batch, n_choices = stim_order.shape
