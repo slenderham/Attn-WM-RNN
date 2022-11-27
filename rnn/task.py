@@ -7,31 +7,6 @@ import os
 # TODO: Add reversal functionality
 # TODO: support different dimensions and stim values
 
-class RolloutBuffer:
-    def __init__(self):
-        self.actions = []
-        self.logprobs = []
-        self.rewards = []
-        self.values = []
-    
-    def clear(self):
-        del self.actions[:]
-        del self.logprobs[:]
-        del self.rewards[:]
-        del self.values[:]
-    
-    def convert2torch(self):
-        return {'action': torch.stack(self.actions, dim=0),
-                'logprobs': torch.stack(self.logprobs, dim=0),
-                'rewards': torch.stack(self.rewards, dim=0),
-                'values': torch.stack(self.values, dim=0)}
-    
-    def append(self, a, log_p, r, v):
-        self.actions.append(a)
-        self.logprobs.append(log_p)
-        self.rewards.append(r)
-        self.values.append(v)
-
 class MDPRL():
     def __init__(self, times, input_type):
         self.prob_mdprl = np.zeros((1, 3, 3, 3))

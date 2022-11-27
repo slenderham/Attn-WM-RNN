@@ -11,8 +11,8 @@ from sklearn.metrics import accuracy_score
 from torch import optim
 from tqdm import tqdm
 
-from models import MultiChoiceRNN, SimpleRNN, MultiAreaRNN, HierarchicalRNN, HierarchicalRemappingRNN
-from task import MDPRL, RolloutBuffer
+from models import HierarchicalRNN
+from task import MDPRL
 from utils import (AverageMeter, load_checkpoint, load_list_from_fs,
                    save_checkpoint, save_defaultdict_to_fs, save_list_to_fs)
 
