@@ -1,6 +1,5 @@
 import math
 from collections import defaultdict
-from tkinter import E
 
 import numpy as np
 import torch
@@ -12,11 +11,13 @@ def _get_activation_function(func_name):
     if func_name=='relu':
         return F.relu
     elif func_name=='softplus':
-        return F.softplus
+        return lambda x: F.softplus(x-1)
+    elif func_name=='softplus2':
+        return lambda x: x/(1-torch.exp(-x))
     elif func_name=='retanh':
         return lambda x: torch.tanh(F.relu(x))
     elif func_name=='sigmoid':
-        return torch.sigmoid
+        return lambda x: torch.tanh(x-1)+1
     else:
         raise RuntimeError(F"{func_name} is an invalid activation function.")
 
@@ -28,22 +29,9 @@ def _get_pos_function(func_name):
     else:
         raise RuntimeError(F"{func_name} is an invalid function enforcing positive weight.")
 
-def _get_connectivity_mask(in_mask, aux_mask, rec_mask, input_units, aux_input_units, e_hidden_units_per_area, i_hidden_units_per_area):
+
+def _get_connectivity_mask_rec(rec_mask, num_areas, e_hidden_units_per_area, i_hidden_units_per_area):
     conn_mask = {}
-
-    num_areas = in_mask.shape[0]
-    assert(aux_mask.shape==(num_areas,1))
-    assert(in_mask.shape==(num_areas,1))
-    assert(rec_mask.shape==(num_areas,num_areas))
-
-    in_mask_e = torch.kron(in_mask, torch.ones(e_hidden_units_per_area, input_units))
-    in_mask_i = torch.kron(in_mask, torch.ones(i_hidden_units_per_area, input_units))
-    conn_mask['in'] = torch.cat([in_mask_e, in_mask_i], dim=0)
-
-    aux_mask_e = torch.kron(aux_mask, torch.ones(e_hidden_units_per_area, aux_input_units))
-    aux_mask_i = torch.kron(aux_mask, torch.ones(i_hidden_units_per_area, aux_input_units))
-    conn_mask['aux'] = torch.cat([aux_mask_e, aux_mask_i], dim=0)
-
     # recurrent connection mask
     rec_mask_ee = torch.kron(rec_mask, torch.ones(e_hidden_units_per_area, e_hidden_units_per_area))
     rec_mask_ie = torch.kron(rec_mask, torch.ones(i_hidden_units_per_area, e_hidden_units_per_area))
@@ -76,7 +64,28 @@ def _get_connectivity_mask(in_mask, aux_mask, rec_mask, input_units, aux_input_u
 
 
     conn_mask['rec_inter'] = conn_mask['rec']-conn_mask['rec_intra']
+    return conn_mask
 
+def _get_connectivity_mask_in(in_mask, input_units, e_hidden_units_per_area, i_hidden_units_per_area, key_name):
+    conn_mask = {}
+    in_mask_e = torch.kron(in_mask, torch.ones(e_hidden_units_per_area, input_units))
+    in_mask_i = torch.kron(in_mask, torch.ones(i_hidden_units_per_area, input_units))
+    conn_mask[key_name] = torch.cat([in_mask_e, in_mask_i], dim=0)
+    return conn_mask
+
+
+def _get_connectivity_mask(in_mask, aux_mask, rec_mask, input_units, aux_input_units, e_hidden_units_per_area, i_hidden_units_per_area):
+    conn_mask = {}
+
+    num_areas = in_mask.shape[0]
+    num_objs = in_mask.shape[1]
+    assert(aux_mask.shape==(num_areas,1))
+    assert(in_mask.shape==(num_areas,num_objs))
+    assert(rec_mask.shape==(num_areas,num_areas))
+
+    conn_mask.update(_get_connectivity_mask_rec(rec_mask, num_areas, e_hidden_units_per_area, i_hidden_units_per_area))
+    conn_mask.update(_get_connectivity_mask_in(in_mask, input_units, e_hidden_units_per_area, i_hidden_units_per_area, key_name='in'))
+    conn_mask.update(_get_connectivity_mask_in(aux_mask, aux_input_units, e_hidden_units_per_area, i_hidden_units_per_area, key_name='aux'))
     return conn_mask
 
 class EILinear(nn.Module):
@@ -116,7 +125,9 @@ class EILinear(nn.Module):
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
             # nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
-            nn.init.kaiming_uniform_(self.weight, a=1)
+            # nn.init.kaiming_uniform_(self.weight, a=1)
+            self.weight.data = torch.from_numpy(
+                np.random.gamma(np.ones_like(self.mask.numpy()), np.sqrt(1/(self.mask.sum(dim=1, keepdim=True).numpy()+1e-8)), size=self.weight.data.shape)).float()
             # Scale E weight by E-I ratio
             if balance_ei is not None and self.i_size!=0:
                 # self.weight.data[:, :self.e_size] /= self.e_size/self.i_size
@@ -159,11 +170,20 @@ class PlasticLeakyRNNCell(nn.Module):
         self.plas_rule = plas_rule
         self.input_plastic = input_plastic
 
+        eff_input_size = conn_mask['in'].sum(1, keepdim=True)
+        eff_output_size = conn_mask['in'].sum(0, keepdim=True)
+        eff_aux_input_size = conn_mask['aux'].sum(1, keepdim=True)
+        eff_aux_output_size = conn_mask['aux'].sum(0, keepdim=True)
+
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='abs',
                             e_prop=1, zero_cols_prop=0, bias=False, 
                             init_gain=math.sqrt(self.input_size/(input_size+aux_input_size)/hidden_size*num_areas),
                             conn_mask=conn_mask.get('in', None))
-        
+        # if not self.input_plastic:
+        #    self.x2h.weight.data = torch.cat([torch.eye(input_size), torch.zeros(hidden_size-input_size, input_size)], dim=0)\
+        #                            /math.sqrt(hidden_size/num_areas)
+        #    self.x2h.weight.requires_grad = False
+
         if self.aux_input_size>0:
             self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='abs',
                                   e_prop=1, zero_cols_prop=0, bias=False,
@@ -172,7 +192,7 @@ class PlasticLeakyRNNCell(nn.Module):
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='abs',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
                             init_spectral=init_spectral, balance_ei=balance_ei,
-                            conn_mask=conn_mask.get('rec', None))
+                            conn_mask=conn_mask['rec'])
 
         self.tau_x = tau_x
         self.tau_w = tau_w
@@ -202,10 +222,12 @@ class PlasticLeakyRNNCell(nn.Module):
         if plastic:
             # separate lr for different neurons
             if input_plastic:
-                self.kappa_in = nn.Parameter(torch.rand(1, self.hidden_size, self.input_size)/self.tau_w)
+                # self.kappa_in = nn.Parameter(torch.rand(1, self.hidden_size, self.input_size)/self.tau_w)
+                self.kappa_in = nn.Parameter(self.x2h.effective_weight().abs().detach()/self.tau_w)
             else:
                 self.kappa_in = torch.zeros(1, self.hidden_size, self.input_size)
-            self.kappa_rec = nn.Parameter(torch.rand(1, self.hidden_size, self.hidden_size)/self.tau_w)
+            # self.kappa_rec = nn.Parameter(torch.rand(1, self.hidden_size, self.hidden_size)/self.tau_w)
+            self.kappa_rec = nn.Parameter(self.h2h.effective_weight().abs().detach()/self.tau_w)
 
     def plasticity_func(self, w, baseline, R, pre, post, kappa, lb, ub):
         if self.plas_rule=='add':
@@ -842,11 +864,11 @@ class SimpleRNN(nn.Module):
             return os, hs, hidden, saved_states
 
 class MultiAreaRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, num_areas, add_sa, add_fa,
+    def __init__(self, input_size, hidden_size, output_size, num_areas, inter_regional_sparsity, inter_regional_gain,
                 channel_group_size=None, plastic=True, activation='retanh', train_init_state=False,
-                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, inter_regional_sparsity=0.1,
+                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, 
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
-                action_input=True, rwd_input=True, loc_input=True, task_phase_input=False,
+                action_input=True, rwd_input=True, loc_input=True, 
                 balance_ei=False, plas_rule='add', spatial_attn_agg='avg', **kwargs):
         super().__init__()
 
@@ -868,12 +890,10 @@ class MultiAreaRNN(nn.Module):
         self.action_input = action_input
         self.rwd_input = rwd_input
         self.loc_input = loc_input
-        self.task_phase_input = task_phase_input
         self.e_size = int(e_prop * hidden_size)
         self.aux_input_size = 0 + (2 if self.rwd_input else 0) \
                                 + (output_size if self.action_input else 0) \
-                                + (output_size if self.loc_input else 0) \
-                                + (2 if self.task_phase_input else 0)
+                                + (output_size if self.loc_input else 0)
         self.channel_group_size = torch.LongTensor(channel_group_size)
         self.size_to_modulate = self.channel_group_size.sum() # the length of the feature based inputs
         self.num_channels = len(channel_group_size)
@@ -893,41 +913,39 @@ class MultiAreaRNN(nn.Module):
                                                  input_units=input_size, aux_input_units=self.aux_input_size, 
                                                  e_hidden_units_per_area=self.e_size, i_hidden_units_per_area=hidden_size-self.e_size)
 
+        balance_ei = self.conn_masks['rec_intra']\
+                    +inter_regional_gain[0]*inter_regional_sparsity[0]\
+                        *self.conn_masks['rec_inter_ff']\
+                    +inter_regional_gain[1]*inter_regional_sparsity[1]\
+                        *self.conn_masks['rec_inter_fb']\
+                    -torch.eye(self.hidden_size*self.num_areas)
+        balance_ei = balance_ei[:,:self.e_size*self.num_areas].sum(1, keepdim=True)/balance_ei[:,self.e_size*self.num_areas:].sum(1, keepdim=True)
+
         self.rnn = PlasticLeakyRNNCell(input_size=input_size, hidden_size=hidden_size*self.num_areas, aux_input_size=self.aux_input_size, plastic=plastic, 
                                        activation=activation, dt=dt, tau_x=tau_x, tau_w=tau_w, weight_bound=weight_bound, train_init_state=train_init_state, 
                                        e_prop=e_prop, sigma_rec=sigma_rec, sigma_in=sigma_in, sigma_w=sigma_w, init_spectral=init_spectral,
-                                       balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks)
+                                       balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks, input_plastic=True, num_areas=num_areas)
 
         # sparsify inter-regional connectivity, but not enforeced
-        self.rnn.h2h.weight.data[self.conn_masks['rec_inter'].abs()>0.5] *= (torch.rand((self.conn_masks['rec_inter'].abs().sum().long(),))<inter_regional_sparsity)
+        sparse_mask_ff = (torch.rand((self.conn_masks['rec_inter_ff'].abs().sum().long(),))<inter_regional_sparsity[0])
+        sparse_mask_fb = (torch.rand((self.conn_masks['rec_inter_fb'].abs().sum().long(),))<inter_regional_sparsity[1])
+        self.rnn.h2h.weight.data[self.conn_masks['rec_inter_ff'].abs()>0.5] *= sparse_mask_ff*inter_regional_gain[0]
+        self.rnn.h2h.weight.data[self.conn_masks['rec_inter_ff'].abs()>0.5] += 1e-8
+        self.rnn.h2h.weight.data[self.conn_masks['rec_inter_fb'].abs()>0.5] *= sparse_mask_fb*inter_regional_gain[1]
+        self.rnn.h2h.weight.data[self.conn_masks['rec_inter_fb'].abs()>0.5] += 1e-8
         if init_spectral is not None:
             self.rnn.h2h.weight.data *= init_spectral / torch.linalg.eigvals(self.rnn.h2h.effective_weight()).real.max()
 
         # choice and value output
-        self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=0.5)
-        self.h2v = EILinear(self.e_size, 1, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=0.5)
+        self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=1)
+        # network in charge of outputting attention to location
+        self.h2sa = EILinear(self.e_size, output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=1)
 
         # init state
         if train_init_state:
             self.x0 = nn.Parameter(torch.zeros(1, hidden_size*self.num_areas))
         else:
             self.x0 = torch.zeros(1, hidden_size*self.num_areas)
-
-        self.output_unit_maps = {
-            'value': ((self.num_areas-1)*self.e_size, (self.num_areas)*self.e_size),
-            'choice': ((self.num_areas-1)*self.e_size, (self.num_areas)*self.e_size),
-        }
-        curr_module_end = (self.num_areas-1)
-        if add_fa:
-            self.output_unit_maps['feat_attn'] = ((curr_module_end-1)*self.e_size, (curr_module_end)*self.e_size)
-            # feature attention output
-            self.h2fa = EILinear(self.e_size, self.num_channels, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=0.5)
-            curr_module_end -= 1
-        if add_sa:
-            self.output_unit_maps['spatial_attn'] = ((curr_module_end-1)*self.e_size, (curr_module_end)*self.e_size)
-            # network in charge of outputting attention to location
-            self.h2sa = EILinear(self.e_size, output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=0.5)
-        print(self.output_unit_maps)
 
     def init_hidden(self, x):
         batch_size = x.shape[1]
@@ -957,15 +975,9 @@ class MultiAreaRNN(nn.Module):
         for i in range(steps):
             # modulate input by spatial attention
             curr_x = x[i]
-            if 'spatial_attn' in self.output_unit_maps.keys():
-                sa = self.h2sa(hidden[1][:,self.output_unit_maps['spatial_attn'][0]:self.output_unit_maps['spatial_attn'][1]])
-                loc_attn = F.softmax(input=sa, dim=-1)
-                curr_x = (curr_x*loc_attn.reshape(batch_size, self.output_size, 1)) # batch_size, input_size
-            if 'feat_attn' in self.output_unit_maps.keys():
-                fa = self.h2fa(hidden[1][:,self.output_unit_maps['feat_attn'][0]:self.output_unit_maps['feat_attn'][1]])
-                attr_attn = F.softmax(input=fa, dim=-1)
-                attr_attn = torch.repeat_interleave(attr_attn, self.channel_group_size, dim=-1)
-                curr_x = torch.cat([curr_x[:,:,:self.size_to_modulate]*attr_attn, curr_x[:,:,self.size_to_modulate:]], dim=-1)
+            sa = self.h2sa(hidden[1][:,(self.num_areas-1)*self.e_size:self.num_areas*self.e_size])
+            loc_attn = F.gumbel_softmax(logits=sa, dim=-1, hard=True)
+            curr_x = (curr_x*loc_attn.reshape(batch_size, self.output_size, 1)) # batch_size, input_size
             
             if self.spatial_attn_agg=='avg':
                 curr_x = curr_x.sum(1) # batch_size, input_size    
@@ -973,7 +985,7 @@ class MultiAreaRNN(nn.Module):
                 curr_x = torch.cat(torch.split(curr_x, 1, dim=1), dim=-1).squeeze(1)
             else:
                 raise ValueError
-            # modulate input by feature attention
+
             if self.aux_input_size>0:
                 aux_x = []
                 if self.rwd_input:
@@ -986,9 +998,6 @@ class MultiAreaRNN(nn.Module):
                 if self.loc_input:
                     loc_aux = (x[i]!=0).any()*loc_attn
                     aux_x.append(loc_aux)
-                if self.task_phase_input:
-                    task_aux = torch.cat([(x[i]!=0).any().float().reshape(batch_size, 1), (Rs[i]!=0).float()], dim=-1)
-                    aux_x.append(task_aux)
                 aux_x = torch.cat(aux_x, dim=-1)
             else:
                 aux_x = None
@@ -999,10 +1008,7 @@ class MultiAreaRNN(nn.Module):
                 wxs.append(hidden[2])
                 whs.append(hidden[3])
             if save_attns:
-                if 'spatial_attn' in self.output_unit_maps.keys():
-                    sas.append(sa)
-                if 'feat_attn' in self.output_unit_maps.keys():
-                    fas.append(fa)
+                sas.append(sa)
 
         hs = torch.stack(hs, dim=0)
         saved_states = {}
@@ -1013,19 +1019,14 @@ class MultiAreaRNN(nn.Module):
             saved_states['whs'] = whs
 
         if save_attns:
-            if 'spatial_attn' in self.output_unit_maps.keys():
-                sas = torch.stack(sas, dim=0)
-                saved_states['sas'] = sas
-            if 'feat_attn' in self.output_unit_maps.keys():
-                fas = torch.stack(fas, dim=0)
-                saved_states['fas'] = fas
+            sas = torch.stack(sas, dim=0)
+            saved_states['sas'] = sas
 
-        os = self.h2o(hs[:,:,self.output_unit_maps['choice'][0]:self.output_unit_maps['choice'][1]])
-        vs = self.h2v(hs[:,:,self.output_unit_maps['value'][0]:self.output_unit_maps['value'][1]])
-        return (os, vs), hs, hidden, saved_states
+        os = self.h2o(hs[:,:,(self.num_areas-1)*self.e_size:self.num_areas*self.e_size])
+        return os, hs, hidden, saved_states
 
 class HierarchicalRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, num_areas, 
+    def __init__(self, input_size, hidden_size, output_size, num_areas, num_options,
                 inter_regional_sparsity, inter_regional_gain, input_plastic,
                 channel_group_size=None, plastic=True, activation='retanh', train_init_state=False,
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0,
@@ -1036,6 +1037,7 @@ class HierarchicalRNN(nn.Module):
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size =  output_size
+        self.num_options = num_options
         self.action_input = action_input
         self.rwd_input = rwd_input
         self.num_areas = num_areas
@@ -1048,10 +1050,11 @@ class HierarchicalRNN(nn.Module):
         self.plastic = plastic
         self.weight_bound = weight_bound
         self.plas_rule = plas_rule
-        input_size = input_size*output_size
 
         # specify connectivity
         in_mask = torch.FloatTensor([1, *[0]*(self.num_areas-1)]).unsqueeze(-1)
+        # for _ in range(self.output_size):
+        #     in_mask = torch.cat([in_mask, torch.FloatTensor([[0, 1, *[0]*(self.num_areas-2)]]).T], dim=-1)
         aux_mask = torch.FloatTensor([*[1]*self.num_areas]).unsqueeze(-1)
         rec_mask = torch.eye(self.num_areas) + torch.diag(torch.ones(self.num_areas-1), 1) + torch.diag(torch.ones(self.num_areas-1), -1)
 
@@ -1067,7 +1070,7 @@ class HierarchicalRNN(nn.Module):
                     -torch.eye(self.hidden_size*self.num_areas)
         balance_ei = balance_ei[:,:self.e_size*self.num_areas].sum(1, keepdim=True)/balance_ei[:,self.e_size*self.num_areas:].sum(1, keepdim=True)
 
-        self.rnn = PlasticLeakyRNNCell(input_size=input_size, hidden_size=hidden_size*self.num_areas, aux_input_size=self.aux_input_size, plastic=plastic, 
+        self.rnn = PlasticLeakyRNNCell(input_size=self.input_size, hidden_size=hidden_size*self.num_areas, aux_input_size=self.aux_input_size, plastic=plastic, 
                                        activation=activation, dt=dt, tau_x=tau_x, tau_w=tau_w, weight_bound=weight_bound, train_init_state=train_init_state, 
                                        e_prop=e_prop, sigma_rec=sigma_rec, sigma_in=sigma_in, sigma_w=sigma_w, init_spectral=init_spectral,
                                        balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks, input_plastic=input_plastic, num_areas=num_areas)
@@ -1084,7 +1087,7 @@ class HierarchicalRNN(nn.Module):
             self.rnn.h2h.weight.data *= init_spectral / torch.linalg.eigvals(self.rnn.h2h.effective_weight()).real.max()
 
         # choice and value output
-        self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=True, init_gain=1)
+        self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=False, init_gain=1)
         # self.h2o = nn.Linear(self.e_size, self.output_size)
 
         # init state
@@ -1126,7 +1129,9 @@ class HierarchicalRNN(nn.Module):
         for i in range(steps):
             # modulate input by spatial attention
             curr_x = x[i]
-            curr_x = torch.cat(torch.split(curr_x, 1, dim=1), dim=-1).squeeze(1)
+            # curr_x = torch.cat(torch.split(curr_x, 1, dim=1), dim=-1).squeeze(1)
+            # curr_x = torch.cat([curr_x, x[i].sum(dim=1)], dim=-1)
+            curr_x = x[i].sum(dim=1)
             # modulate input by feature attention
             if self.aux_input_size>0:
                 aux_x = []
@@ -1141,6 +1146,148 @@ class HierarchicalRNN(nn.Module):
             else:
                 aux_x = None
 
+            hidden = self.rnn(curr_x, hidden, Rs[i], Vs[i] if Vs is not None else None, aux_x)
+            hs.append(hidden[1])
+            if save_weights:
+                wxs.append(hidden[2])
+                whs.append(hidden[3])
+
+        hs = torch.stack(hs, dim=0)
+        saved_states = {}
+        if save_weights:
+            wxs = torch.stack(wxs, dim=0)
+            whs = torch.stack(whs, dim=0)
+            saved_states['wxs'] = wxs
+            saved_states['whs'] = whs
+
+        os = self.h2o(hs[:,:,(self.num_areas-1)*self.e_size:self.num_areas*self.e_size])
+        return os, hs, hidden, saved_states
+
+class HierarchicalRemappingRNN(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, num_areas, 
+                inter_regional_sparsity, inter_regional_gain, input_plastic,
+                channel_group_size=None, plastic=True, activation='retanh', train_init_state=False,
+                dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0,
+                e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
+                action_input=True, rwd_input=True, balance_ei=False, plas_rule='add', **kwargs):
+        super().__init__()
+
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size =  output_size
+        self.action_input = action_input
+        self.rwd_input = rwd_input
+        self.num_areas = num_areas
+        self.e_size = int(e_prop * hidden_size)
+        self.aux_input_size = 0 + (2 if self.rwd_input else 0) \
+                                + (output_size if self.action_input else 0)
+        self.channel_group_size = torch.LongTensor(channel_group_size)
+        self.size_to_modulate = self.channel_group_size.sum() # the length of the feature based inputs
+        self.num_channels = len(channel_group_size)
+        self.plastic = plastic
+        self.weight_bound = weight_bound
+        self.plas_rule = plas_rule
+
+        # specify connectivity
+        in_mask = torch.FloatTensor([1, *[0]*(self.num_areas-1)]).unsqueeze(-1)
+        loc_mask = torch.FloatTensor([[0, 1, *[0]*(self.num_areas-2)]]).T
+        for _ in range(self.output_size-1):
+            loc_mask = torch.cat([loc_mask, torch.FloatTensor([[0, 1, *[0]*(self.num_areas-2)]]).T], dim=-1)
+        aux_mask = torch.FloatTensor([*[1]*self.num_areas]).unsqueeze(-1)
+        rec_mask = torch.eye(self.num_areas) + torch.diag(torch.ones(self.num_areas-1), 1) + torch.diag(torch.ones(self.num_areas-1), -1)
+
+        self.conn_masks = _get_connectivity_mask_rec(rec_mask=rec_mask, num_areas=num_areas,
+                                                    e_hidden_units_per_area=self.e_size, i_hidden_units_per_area=hidden_size-self.e_size)
+        self.conn_masks.update(_get_connectivity_mask_in(in_mask=in_mask, input_units=self.input_size, key_name='in',
+                                                    e_hidden_units_per_area=self.e_size, i_hidden_units_per_area=hidden_size-self.e_size))
+        self.conn_masks.update(_get_connectivity_mask_in(in_mask=aux_mask, input_units=self.aux_input_size, key_name='aux',
+                                                    e_hidden_units_per_area=self.e_size, i_hidden_units_per_area=hidden_size-self.e_size))
+        self.conn_masks.update(_get_connectivity_mask_in(in_mask=loc_mask, input_units=self.input_size, key_name='loc',
+                                                    e_hidden_units_per_area=self.e_size, i_hidden_units_per_area=hidden_size-self.e_size))
+
+        self.conn_masks['aux'] = torch.cat([self.conn_masks['loc'], self.conn_masks['aux']], dim=1)
+        self.conn_masks.pop('loc')
+
+        balance_ei = self.conn_masks['rec_intra']\
+                    +inter_regional_gain[0]*inter_regional_sparsity[0]*self.conn_masks['rec_inter_ff']\
+                    +inter_regional_gain[1]*inter_regional_sparsity[1]*self.conn_masks['rec_inter_fb']\
+                    -torch.eye(self.hidden_size*self.num_areas)
+        balance_ei = balance_ei[:,:self.e_size*self.num_areas].sum(1, keepdim=True)/balance_ei[:,self.e_size*self.num_areas:].sum(1, keepdim=True)
+
+        self.rnn = PlasticLeakyRNNCell(input_size=input_size, hidden_size=hidden_size*self.num_areas, 
+                                       aux_input_size=self.aux_input_size+self.input_size*self.output_size, plastic=plastic, 
+                                       activation=activation, dt=dt, tau_x=tau_x, tau_w=tau_w, weight_bound=weight_bound, train_init_state=train_init_state, 
+                                       e_prop=e_prop, sigma_rec=sigma_rec, sigma_in=sigma_in, sigma_w=sigma_w, init_spectral=init_spectral,
+                                       balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks, input_plastic=input_plastic, num_areas=num_areas)
+
+        # sparsify inter-regional connectivity, but not enforeced
+        sparse_mask_ff = (torch.rand((self.conn_masks['rec_inter_ff'].abs().sum().long(),))<inter_regional_sparsity[0])
+        sparse_mask_fb = (torch.rand((self.conn_masks['rec_inter_fb'].abs().sum().long(),))<inter_regional_sparsity[1])
+        # self.rnn.h2h.weight.data[self.conn_masks['rec_intra'].abs()>0.5] *= 1.5
+        self.rnn.h2h.weight.data[self.conn_masks['rec_inter_ff'].abs()>0.5] *= sparse_mask_ff*inter_regional_gain[0]
+        self.rnn.h2h.weight.data[self.conn_masks['rec_inter_ff'].abs()>0.5] += 1e-8
+        self.rnn.h2h.weight.data[self.conn_masks['rec_inter_fb'].abs()>0.5] *= sparse_mask_fb*inter_regional_gain[1]
+        self.rnn.h2h.weight.data[self.conn_masks['rec_inter_fb'].abs()>0.5] += 1e-8
+        if init_spectral is not None:
+            self.rnn.h2h.weight.data *= init_spectral / torch.linalg.eigvals(self.rnn.h2h.effective_weight()).real.max()
+
+        # choice and value output
+        self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=False, init_gain=1)
+        # self.h2o = nn.Linear(self.e_size, self.output_size)
+
+        # init state
+        if train_init_state:
+            self.x0 = nn.Parameter(torch.zeros(1, hidden_size*self.num_areas))
+        else:
+            self.x0 = torch.zeros(1, hidden_size*self.num_areas)
+
+    def init_hidden(self, x):
+        batch_size = x.shape[1]
+        h_init = self.x0.to(x.device) + self.rnn._sigma_rec * torch.randn(batch_size, self.hidden_size*self.num_areas)
+        if self.plastic:
+            return [h_init, h_init.relu(),
+                    self.rnn.x2h.pos_func(self.rnn.x2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), 
+                    self.rnn.h2h.pos_func(self.rnn.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1)]
+        else:
+            return [h_init, h_init.relu()]
+
+    def reinit_act(self, x):
+        batch_size = x.shape[1]
+        h_init = self.x0.to(x.device) + self.rnn._sigma_rec * torch.randn(batch_size, self.hidden_size*self.num_areas)
+        return [h_init, h_init.relu()]
+
+    def forward(self, x, Rs, Vs=None, acts=None, hidden=None, save_weights=False, reinit_hidden=False):
+        steps, batch_size = x.shape[:2]
+        if hidden is None:
+            hidden = self.init_hidden(x)
+        if reinit_hidden:
+            hidden_new = self.reinit_act(x)
+            hidden[0] = hidden_new[0]
+            hidden[1] = hidden_new[1]
+
+        hs = []
+
+        if save_weights:
+            wxs = []
+            whs = []
+        
+        for i in range(steps):
+            # modulate input by spatial attention
+            curr_x = x[i]
+            curr_x = x[i].sum(dim=1)
+            # modulate input by feature attention
+            if self.aux_input_size>0:
+                aux_x = [0*torch.cat(torch.split(x[i], 1, dim=1), dim=-1).squeeze(1)]
+                if self.rwd_input:
+                    r_aux = torch.zeros(batch_size, 2)
+                    r_aux = torch.cat([(Rs[i]!=0)*(Rs[i]+1)/2, (Rs[i]!=0)*(1-Rs[i])/2], dim=-1)
+                    aux_x.append(r_aux)
+                if self.action_input:
+                    a_aux = (Rs[i]!=0)*acts[i]
+                    aux_x.append(a_aux)
+                aux_x = torch.cat(aux_x, dim=-1)
+            else:
+                aux_x = None
             hidden = self.rnn(curr_x, hidden, Rs[i], Vs[i] if Vs is not None else None, aux_x)
             hs.append(hidden[1])
             if save_weights:

@@ -1,19 +1,25 @@
 import math
+from warnings import WarningMessage
 
 import numpy as np
+import tqdm
 import pingouin as pg
 import scipy.cluster.hierarchy as sch
 from joblib import Parallel, delayed
 from joblib.parallel import delayed
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, linear_sum_assignment
 from scipy.spatial.distance import pdist
 from scipy.stats import zscore
 from sklearn.cluster import KMeans
+from sklearn.mixture import BayesianGaussianMixture
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
 from sklearn.model_selection import cross_val_score
+from sklearn.linear_model import LinearRegression, Ridge, RidgeCV
 from sklearn.svm import LinearSVC
-from tensorly.decomposition import parafac, CP
+from tensorly.decomposition import parafac, non_negative_parafac
+import tensorly as tl
+from tensorly.tenalg import mode_dot
 from dPCA import dPCA
 
 def run_pca(hs, rank=3):
@@ -22,28 +28,84 @@ def run_pca(hs, rank=3):
     low_x = pca.fit_transform(hs.reshape(trials*timesteps*batch_size, hidden_dim)).reshape(trials, timesteps, batch_size, 3)
     return low_x.reshape(trials, timesteps, batch_size, 3)
 
-def run_tca(ws, ranks=9, num_reps=5, rank_err_tol):
-    trials, timesteps, batch_size, post_dim, pre_dim = ws.shape
+def kronecker_mat_ten(matrices, X):
+    for k in range(len(matrices)):
+        M = matrices[k]
+        Y = mode_dot(X, M, k)
+        X = Y
+        X = tl.moveaxis(X, [0, 1, 2], [2, 1, 0])
+    return Y
+
+def corcondia(X, k):
+    # https://gist.github.com/willshiao/2c0d7cc1133d8fa31587e541fef480fb
+
+    rank_X = len(X)
+    Us = [];
+    Ss = [];
+    Vs = [];
+
+    for F in X:
+        U, S, V = np.linalg.svd(F, )
+        Us.append(U.T)
+        Ss.append(S)
+        Vs.append(V.T)
+
+    for i, S in enumerate(Ss):
+        Ss[i] = np.diag(1/S)
+
+    part1 = kronecker_mat_ten(Us, X)
+    part2 = kronecker_mat_ten(Ss, part1)
+    G = kronecker_mat_ten(Vs, part2)
+
+    T = np.zeros(tuple([k]*rank_X))
+    T[np.diag_indices(k, rank_X)]=1
+
+    return (1 - ((G-T)**2).sum() / float(k))
+
+def run_tca(xs, ranks=[1, 27], num_reps=5):
     results = {}
-    for r in ranks:
+    for r in range(ranks[0], ranks[1]+1):
+        print(f'fitting model of rank {r}')
         results[r] = []
-        for n in num_reps:
-            cp = CP(rank=r)
-            cp.fit_transform(ws.reshape(trials*timesteps*batch_size, post_dim, pre_dim), return_errors=True)
-            results[r].append(cp)
+        for n in range(num_reps):
+            cp, errs = non_negative_parafac(xs, rank=r, return_errors=True)
+            results[r].append({'cp_tensor': cp, 'errors': errs})
     
-    for r in ranks:
-        idx = np.argsort([rr.errors_[-1] for rr in results[r]])
-        
+    print('sorting errors')
+    for r in range(ranks[0], ranks[1]+1):
+        idx = np.argsort([rr['errors'][-1] for rr in results[r]])
+        results[r] = [results[r][i] for i in idx]
 
+    print('adding corcondia')
+    # For each rank, align everything to the best model
+    for r in range(ranks[0], ranks[1]+1):
+        # align lesser fit models to best models
+        for i, res in enumerate(results[r]):
+            results[r][i]['corcondia'] = corcondia(res['cp_tensor'].factors, k=r)
+    
+    return results
 
-    low_w = factors[0]
-    post_factor = factors[1]
-    pre_factor = factors[1]
-    return low_w.reshape(trials, timesteps, batch_size, rank), post_factor, pre_factor
+def run_svd_time_varying_w(ws):
+    trials, batch_size, post_dim, pre_dim = ws.shape
+    us, ss, vhs = np.linalg.svd(ws)
+    return us, ss, vhs
+
+def participation_ratio(ss, dim=-1):
+    return np.sum(ss, axis=-1)**2/np.sum(ss**2, axis=-1)
+
+def cross_alignment_ratio(ss, us, vhs):
+    '''
+    ss: singular values of template matrix (..., N)
+    us: upstream patterns (..., N, N)
+    vhs: templates of the current matrix (..., N, N)
+    
+    output = ||SS\otimes V^H U_{\cdot,i}||_2/||SS||_2 \in [0, 1]^{..., N} for each column of U
+
+    '''
+    return np.sum((np.diag(ss)@vhs@us)**2, axis=-1)/np.sum(ss**2, axis=-1)
 
 def linear_regression(X, y):
-    res = pg.linear_regression(X, y)
+    res = LinearRegression().fit(X, y)
     return res
 
 def anova(X, dv):
@@ -107,31 +169,68 @@ def cluster(x, max_clusters=20):
     kmeans = KMeans(n_clusters=argmax_k+1).fit(x)
     return kmeans.labels_
 
-def targeted_dimensionality_reduction(hs, xs, ortho=False):
-    n_time_steps, n_trials, n_hidden = hs.shape
-    assert(xs.shape[0]==n_trials)
+def gmm(x, n_components):
+    bgm = BayesianGaussianMixture(n_components=n_components).fit(x)
+    return bgm
+
+def targeted_dimensionality_reduction(hs, xs, do_zscore=False, denoise=False, ortho=False, n_jobs=1):
+    n_trials, n_time_steps, n_batch, n_hidden = hs.shape
+    assert(xs.shape[:2]==(n_trials, n_batch))
     n_vars = xs.shape[-1]
 
     # z-score the hidden activity
-    hs = zscore(hs.reshape(n_time_steps*n_trials, n_hidden), axis=0).reshape(n_time_steps, n_trials, n_hidden)
+    if do_zscore:
+        hs = zscore(hs.reshape(n_time_steps*n_trials, n_hidden), axis=0).reshape(n_time_steps, n_trials, n_hidden)
 
     # denoise with PCA
-    # U, S, Vh = np.linalg.svd(hs) # n_time_steps*n_trials x n_hidden, n_hidden X n_hidden, n_hidden X n_hidden
-    # npca = 0
-    # while np.cumsum(S[:npca]**2)/np.sum(S**2) < 0.9:
-    #     npca += 1
-    
-    # D = Vh[:npca].T@Vh[:npca]
+    if denoise:
+        U, S, Vh = np.linalg.svd(hs) # n_time_steps*n_trials x n_hidden, n_hidden X n_hidden, n_hidden X n_hidden
+        npca = 0
+        while np.cumsum(S[:npca]**2)/np.sum(S**2) < 0.95:
+            npca += 1
+        D = Vh[:npca].T@Vh[:npca]
 
-    hat = xs@np.linalg.inv((xs@xs.T)) # n_trials X n_feats
-    betas = (hs.transpose(0,2,1)@hat.reshape(1, n_trials, n_vars)) # n_time_steps X n_hidden X n_feats
+    lrs = []
+    betas = []
+    for i in tqdm.tqdm(range(n_trials)):
+        lrs.append([])
+        betas.append([])
+        for j in range(n_time_steps):
+            lrs[-1].append(Ridge(fit_intercept=not do_zscore).fit(xs[i], hs[i,j]))
+            betas[-1].append(lrs[-1][-1].coef_)
+        betas[-1] = np.stack(betas[-1])
+            
+    betas = np.stack(betas)
     
-    coeff_norms = np.linalg.norm(betas, axis=1) # n_time_steps X n_feats
-    coeff_max = betas[np.argmax(coeff_norms, axis=0), :, np.arange(n_vars)] # argmax has size n_feats
-    assert coeff_max.shape==(n_hidden, n_vars)
-
     if ortho:
+        raise NotImplementedError('Not using orthogonal functionality')
+        coeff_norms = np.linalg.norm(betas, axis=1) # n_time_steps X n_feats
+        coeff_max = betas[np.argmax(coeff_norms, axis=0), :, np.arange(n_vars)] # argmax has size n_feats
+        assert coeff_max.shape==(n_hidden, n_vars)
         Q, R = np.linalg.qr(coeff_max)
         coeff_max = Q
+    
+    return lrs, betas
 
-    return betas, coeff_max
+def get_CPD(hs, xs, full_model, channel_groups):
+    n_trials, n_time_steps, n_batch, n_hidden = hs.shape
+    assert(xs.shape[:2]==(n_trials, n_batch))
+    n_vars = xs.shape[-1]
+        
+    assert(np.sum(channel_groups)==n_vars)
+    channel_groups = np.cumsum(channel_groups)
+    channel_groups = np.insert(channel_groups, 0, 0)
+    # manually calculate SSE for categorical IVs
+
+    cpd = np.empty((n_trials, n_time_steps, len(channel_groups)-1, n_hidden))
+
+    for i in tqdm.tqdm(range(n_trials)):
+        for j in range(n_time_steps):
+            sse = np.sum((full_model[i][j].predict(xs[i]) - hs[i,j])**2, axis=0)
+            for k in range(1, len(channel_groups)):
+                X_k = xs[i].copy()
+                X_k[:,channel_groups[k-1]:channel_groups[k]] = 0 # remove one factor
+                sse_X_k = np.sum((full_model[i][j].predict(X_k) - hs[i,j])**2, axis=0)
+                cpd[i,j,k-1,:]=(sse_X_k-sse)/(sse_X_k+1e-6)
+
+    return cpd
