@@ -170,11 +170,6 @@ class PlasticLeakyRNNCell(nn.Module):
         self.plas_rule = plas_rule
         self.input_plastic = input_plastic
 
-        eff_input_size = conn_mask['in'].sum(1, keepdim=True)
-        eff_output_size = conn_mask['in'].sum(0, keepdim=True)
-        eff_aux_input_size = conn_mask['aux'].sum(1, keepdim=True)
-        eff_aux_output_size = conn_mask['aux'].sum(0, keepdim=True)
-
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='abs',
                             e_prop=1, zero_cols_prop=0, bias=False, 
                             init_gain=math.sqrt(self.input_size/(input_size+aux_input_size)/hidden_size*num_areas),
@@ -285,7 +280,7 @@ class PlasticLeakyRNNCell(nn.Module):
 class HierarchicalRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, num_areas, num_options,
                 inter_regional_sparsity, inter_regional_gain, input_plastic,
-                channel_group_size=None, plastic=True, activation='retanh', train_init_state=False,
+                plastic=True, activation='retanh', train_init_state=False,
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 action_input=True, rwd_input=True, balance_ei=False, plas_rule='add', **kwargs):
@@ -301,9 +296,6 @@ class HierarchicalRNN(nn.Module):
         self.e_size = int(e_prop * hidden_size)
         self.aux_input_size = 0 + (2 if self.rwd_input else 0) \
                                 + (output_size if self.action_input else 0)
-        self.channel_group_size = torch.LongTensor(channel_group_size)
-        self.size_to_modulate = self.channel_group_size.sum() # the length of the feature based inputs
-        self.num_channels = len(channel_group_size)
         self.plastic = plastic
         self.weight_bound = weight_bound
         self.plas_rule = plas_rule

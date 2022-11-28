@@ -47,22 +47,13 @@ if __name__ == "__main__":
     parser.add_argument('--l2w', type=float, default=0.0, help='Weight for L2 reg on weight')
     parser.add_argument('--l1r', type=float, default=0.0, help='Weight for L1 reg on firing rate')
     parser.add_argument('--l1w', type=float, default=0.0, help='Weight for L1 reg on weight')
-    parser.add_argument('--attn_ent_reg', type=float, default=0.0, help='Entropy regularization for attention')
-    parser.add_argument('--beta_v', type=float, default=0.5, help='Weight for value estimation loss')
-    parser.add_argument('--beta_entropy', type=float, default=0.01, help='Weight for entropy regularization')
-    parser.add_argument('--beta_attn_chosen', type=float, default=0.0, help='Weight for forcing attention on chosen stimuli')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
     parser.add_argument('--plas_rule', type=str, choices=['add', 'mult'], default='add', help='Plasticity rule')
     parser.add_argument('--input_plas_off', action='store_true', help='Disable input plasticity')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
-    parser.add_argument('--attn_type', type=str, choices=['none', 'bias', 'weight', 'sample'], 
-                        default='weight', help='Type of attn. None, additive feedback, multiplicative weighing, gumbel-max sample')
     parser.add_argument('--decision_space', type=str, choices=['good', 'good_feat', 'good_feat_conj_obj', 'action'], help='Supervise with good-based or action-based decision making')
-    parser.add_argument('--spatial_attn', action='store_true', help='Whether to add trainable spatial attenion')
-    parser.add_argument('--feature_attn', action='store_true', help='Whether to add trainable feature attenion')
     parser.add_argument('--spatial_attn_agg', type=str, choices=['concat', 'avg'], default='avg', help='How to aggregate input objects after spatial attn.')
     parser.add_argument('--sep_lr', action='store_true', help='Use different lr between diff type of units')
-    parser.add_argument('--plastic_feedback', action='store_true', help='Plastic feedback weights')
     parser.add_argument('--task_type', type=str, choices=['value', 'off_policy_single', 'on_policy_double'],
                         help='Learn reward prob or RL. On policy if decision determines. On policy if decision determines rwd. Off policy if rwd sampled from random policy.')
     parser.add_argument('--rwd_input', action='store_true', help='Whether to use reward as input')
@@ -126,22 +117,6 @@ if __name__ == "__main__":
         'feat+conj+obj': args.stim_dim*args.stim_val+args.stim_dim*args.stim_val*args.stim_val+args.stim_val**args.stim_dim,
     }[args.input_type]
 
-    input_unit_group = {
-        'feat': [args.stim_dim*args.stim_val], 
-        'feat+obj': [args.stim_dim*args.stim_val, args.stim_val**args.stim_dim], 
-        'feat+conj+obj': [args.stim_dim*args.stim_val, args.stim_dim*args.stim_val*args.stim_val, args.stim_val**args.stim_dim]
-    }[args.input_type]
-
-    if args.attn_type!='none':
-        if args.input_type=='feat':
-            channel_group_size = [args.stim_val]*args.stim_dim
-        elif args.input_type=='feat+obj':
-            channel_group_size = [args.stim_val]*args.stim_dim
-        elif args.input_type=='feat+conj+obj':
-            channel_group_size = [args.stim_val]*args.stim_dim + [args.stim_val*args.stim_val]*args.stim_dim + [args.stim_val**args.stim_dim]
-    else:
-        channel_group_size = [input_size]
-
     num_options = 1 if args.task_type=='value' else 2
     if args.decision_space=='action':
         output_size = num_options
@@ -151,30 +126,17 @@ if __name__ == "__main__":
         raise ValueError('Invalid decision space')
 
     model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': output_size, 'num_options': num_options,
-                   'plastic': args.plas_type=='all', 'attention_type': args.attn_type, 'activation': args.activ_func,
-                   'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 'channel_group_size': channel_group_size,
+                   'plastic': args.plas_type=='all', 'activation': args.activ_func,
+                   'dt': args.dt, 'tau_x': args.tau_x, 'tau_w': args.tau_w, 
                    'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
                    'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 
                    'rwd_input': args.rwd_input, 'action_input': args.action_input, 'plas_rule': args.plas_rule,
-                   'input_unit_group': input_unit_group, 'sep_lr': args.sep_lr, 'plastic_feedback': args.plastic_feedback,
-                   'value_est': 'policy' in args.task_type, 'num_choices': 2 if 'double' in args.task_type else 1,
-                   'structured_conn': args.structured_conn, 'spatial_attn_agg': args.spatial_attn_agg}
+                   'sep_lr': args.sep_lr, 'num_choices': 2 if 'double' in args.task_type else 1,
+                   'structured_conn': args.structured_conn, 'spatial_attn_agg': args.spatial_attn_agg,
+                   'num_areas': args.num_areas, 'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (0.5, 0.5),
+                   'input_plastic': not args.input_plas_off}
     
-    # if args.num_areas>1:
-    #     model_specs['num_areas'] = args.num_areas
-    #     model_specs['loc_input'] = args.spatial_attn
-    #     model_specs['inter_regional_sparsity'] = 0.1
-    #     model_specs['add_sa'] = args.spatial_attn
-    #     model_specs['add_fa'] = args.feature_attn
-    #     model = MultiAreaRNN(**model_specs)
-        # model = MultiChoiceRNN(**model_specs)
-    model_specs['num_areas'] = args.num_areas
-    model_specs['inter_regional_sparsity'] = (1, 1) # (1/math.sqrt(args.hidden_size), 1/math.sqrt(args.hidden_size))
-    model_specs['inter_regional_gain'] = (0.5, 0.5) # (1/math.sqrt(args.hidden_size), 1/math.sqrt(args.hidden_size))
-    model_specs['input_plastic'] = not args.input_plas_off
     model = HierarchicalRNN(**model_specs)
-    # else:
-    #     model = SimpleRNN(**model_specs)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     print(model)
     for n, p in model.named_parameters():
@@ -217,23 +179,7 @@ if __name__ == "__main__":
                 v = torch.linalg.eigvals(model.rnn.h2h.effective_weight()).detach()
                 plt.scatter(v.real,v.imag)
                 plt.show()
-            # plt.imshow(model.rnn.kappa_in.abs().detach().squeeze())
-            # plt.colorbar()
-            # plt.show()                
-            plt.imshow(model.rnn.kappa_rec.abs().detach().squeeze())
-            plt.colorbar()
-            plt.show()
-            # print(model.rnn.h2h.effective_weight()[:,:192].sum(1)+model.rnn.h2h.effective_weight()[:,192:].sum(1))
-            # print(model.rnn.h2h.effective_weight().max(), model.rnn.h2h.effective_weight().min())
-            # plt.imshow(model.h2o.effective_weight().detach())
-            # plt.colorbar()
-            # plt.show() 
-            # plt.imshow(model.h2sa.effective_weight().detach())
-            # plt.colorbar()
-            # plt.show()   
-            # plt.imshow(model.h2fa.effective_weight().detach())
-            # plt.colorbar()
-            # plt.show()  
+            
             for i in range(len(pop_s['pre_choice'])):
                 if (i+1)%args.reversal_every==0:
                     probs = task_mdprl.reversal(probs)
@@ -278,28 +224,15 @@ if __name__ == "__main__":
                     # plt.colorbar()
                     # plt.show()
                     hs_pre = hs;
-                # plt.ylabel('choice prob')
-                # print(hs.shape)
-                # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
+                    # plt.ylabel('choice prob')
+                    # print(hs.shape)
+                    # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
 
                 reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
-                if args.plastic_feedback:
-                    reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()\
-                                    +ss['whs'].pow(2).sum(dim=(-2,-1)).mean()\
-                                    +ss['wfbs'].pow(2).sum(dim=(-2,-1)).mean())
-                else:
-                    reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()\
-                                    +ss['whs'].pow(2).sum(dim=(-2,-1)).mean())
+                reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()\
+                                +ss['whs'].pow(2).sum(dim=(-2,-1)).mean())
                 if args.num_areas>1:
                     reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
-                # if args.attn_type=='weight':
-                #     if args.num_areas>1:
-                #         if args.spatial_attn:
-                #             sas = F.softmax(ss['sas'], -1).mean([0,1])
-                #             reg += args.attn_ent_reg*(sas*torch.log(sas)).sum()
-                #         if args.feature_attn:
-                #             fas = F.softmax(ss['fas'], -1).mean([0,1])
-                #             reg += args.attn_ent_reg*(fas*torch.log(fas)).sum()
 
                 loss += reg*len(pop_s['pre_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
                 
@@ -335,27 +268,10 @@ if __name__ == "__main__":
                 # plt.show()
 
                 reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
-                if args.plastic_feedback:
-                    reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()\
-                                    +ss['whs'].pow(2).sum(dim=(-2, -1)).mean()\
-                                    +ss['wfbs'].pow(2).sum(dim=(-2, -1)).mean())
-                else:
-                    reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()\
-                                    +ss['whs'].pow(2).sum(dim=(-2, -1)).mean())
+                reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()\
+                                +ss['whs'].pow(2).sum(dim=(-2, -1)).mean())
                 if args.num_areas>1:
                     reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
-                # if args.attn_type=='weight':
-                #     if args.num_areas>1:
-                #         if args.spatial_attn:
-                #             sas = F.softmax(ss['sas'], -1).mean([0,1])
-                #             reg += args.attn_ent_reg*(sas*torch.log(sas)).sum()
-                #             reshaped_action = action.reshape(1, args.batch_size).repeat(ss['sas'].shape[0], 1).flatten()
-                #             reshaped_gaze = ss['sas'][(DA_s['post_choice']>0.5).squeeze()]
-                #             reshaped_action = action.reshape(1, args.batch_size).repeat(reshaped_gaze.shape[0], 1).flatten()
-                #             reg += args.beta_attn_chosen*F.cross_entropy(input=(reshaped_gaze).flatten(-2), target=reshaped_action)
-                #         if args.feature_attn:
-                #             fas = F.softmax(ss['fas'], -1).mean([0,1])
-                #             reg += args.attn_ent_reg*(fas*torch.log(fas)).sum()
 
                 loss += reg*len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
             

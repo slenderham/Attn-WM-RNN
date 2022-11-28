@@ -14,7 +14,7 @@ from torch.nn.functional import interpolate
 from torch.serialization import save
 import tqdm
 from analysis import *
-from models import MultiChoiceRNN, SimpleRNN, HierarchicalRNN
+from models import HierarchicalRNN
 from analysis import targeted_dimensionality_reduction
 from analysis import participation_ratio, run_svd_time_varying_w
 from task import MDPRL
