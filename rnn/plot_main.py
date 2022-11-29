@@ -58,23 +58,23 @@ def get_input_encodings(wxs, stim_enc_mat):
     # stim_enc_mat: stim_nums X input_size
     # hypothesis: input pattern for each input ~ avg + feature + conj + obj
     hidden_size, input_size = wxs.shape
-    assert(stim_enc_mat.shape==(63, input_size))
-    stims = wxs@stim_enc_mat.t() # hidden_size X stim_nums
+    assert(stim_enc_mat.shape==(27, input_size))
+    stims = wxs@stim_enc_mat.T # hidden_size X stim_nums
     global_avg = stims.mean(1)
-    stims = stims-global_avg
-    ft_avg = np.empty(9, hidden_size)
+    stims = stims-global_avg[:,None]
+    ft_avg = np.empty((9, hidden_size))
     for i in range(9):
         ft_avg[i,:] = stims@stim_enc_mat[:,i].squeeze()/sum(stim_enc_mat[:,i].squeeze()) # hidden_size X stim_nums @ stim_nums
     
-    conj_avg = np.empty(27, hidden_size)
+    stims = stims-ft_avg.T@stim_enc_mat[:,:9].T
+    conj_avg = np.empty((27, hidden_size))
     for i in range(27):
-        conj_avg[i,:] = stims@stim_enc_mat[:,9+i].squeeze()/sum(stim_enc_mat[:,i].squeeze()) # hidden_size X stim_nums @ stim_nums
+        conj_avg[i,:] = stims@stim_enc_mat[:,9+i].squeeze()/sum(stim_enc_mat[:,9+i].squeeze()) # hidden_size X stim_nums @ stim_nums
 
-    obj_avg = np.empty(27, hidden_size)
-    for i in range(27):
-        obj_avg[i,:] = stims-ft_avg@stim_enc_mat[i,0:9]-conj_avg@stim_enc_mat[i,9:36]-global_avg
+    stims = stims-conj_avg.T@stim_enc_mat[:,9:36].T
+    obj_avg = stims.T
 
-    return global_avg, ft_avg, conj_avg, obj_avg
+    return wxs@stim_enc_mat.T, global_avg, ft_avg, conj_avg, obj_avg
 
 def plot_mean_and_std(ax, m, sd, label, alpha=1):
     if label is not None:
