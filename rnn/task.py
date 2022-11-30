@@ -212,7 +212,7 @@ class MDPRL():
         if stim_order is not None:
             len_seq = len(stim_order)
         else:
-            len_seq = N_s*subsample_stims
+            len_seq = N_s
 
         if stim_order is None:
             # index_s = np.repeat(np.random.permutation(27)[:subsample_stims], N_s)

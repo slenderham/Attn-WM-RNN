@@ -124,10 +124,10 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
-            # nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
+            nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
             # nn.init.kaiming_uniform_(self.weight, a=1)
-            self.weight.data = torch.from_numpy(
-                np.random.gamma(np.ones_like(self.mask.numpy()), np.sqrt(1/(self.mask.sum(dim=1, keepdim=True).numpy()+1e-8)), size=self.weight.data.shape)).float()
+            # self.weight.data = torch.from_numpy(
+            #     np.random.gamma(np.ones_like(self.mask.numpy()), np.sqrt(1/(self.mask.sum(dim=1, keepdim=True).numpy()+1e-8)), size=self.weight.data.shape)).float()
             # Scale E weight by E-I ratio
             if balance_ei is not None and self.i_size!=0:
                 # self.weight.data[:, :self.e_size] /= self.e_size/self.i_size

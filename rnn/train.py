@@ -26,9 +26,9 @@ if __name__ == "__main__":
     parser.add_argument('--num_areas', type=int, default=6, help='Number of recurrent areas')
     parser.add_argument('--stim_dim', type=int, default=3, choices=[2, 3], help='Number of features')
     parser.add_argument('--stim_val', type=int, default=3, help='Possible values of features')
-    parser.add_argument('--N_s', type=int, default=6, help='Number of times to repeat the entire stim set')
+    parser.add_argument('--N_s', type=int, default=135, help='Number of times to repeat the entire stim set')
     parser.add_argument('--N_stim_train', type=int, default=27, help='Number of stimuli to train the network on each episode')
-    parser.add_argument('--test_N_s', type=int, default=10, help='Number of times to repeat the entire stim set during eval')
+    parser.add_argument('--test_N_s', type=int, default=432, help='Number of times to repeat the entire stim set during eval')
     parser.add_argument('--e_prop', type=float, default=4/5, help='Proportion of E neurons')
     parser.add_argument('--batch_size', type=int, help='Batch size')
     parser.add_argument('--grad_accumulation_steps', type=int, default=1, help='Steps of gradient accumulation.')
@@ -52,7 +52,6 @@ if __name__ == "__main__":
     parser.add_argument('--input_plas_off', action='store_true', help='Disable input plasticity')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
     parser.add_argument('--decision_space', type=str, choices=['good', 'good_feat', 'good_feat_conj_obj', 'action'], help='Supervise with good-based or action-based decision making')
-    parser.add_argument('--spatial_attn_agg', type=str, choices=['concat', 'avg'], default='avg', help='How to aggregate input objects after spatial attn.')
     parser.add_argument('--sep_lr', action='store_true', help='Use different lr between diff type of units')
     parser.add_argument('--task_type', type=str, choices=['value', 'off_policy_single', 'on_policy_double'],
                         help='Learn reward prob or RL. On policy if decision determines. On policy if decision determines rwd. Off policy if rwd sampled from random policy.')
@@ -132,8 +131,8 @@ if __name__ == "__main__":
                    'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 
                    'rwd_input': args.rwd_input, 'action_input': args.action_input, 'plas_rule': args.plas_rule,
                    'sep_lr': args.sep_lr, 'num_choices': 2 if 'double' in args.task_type else 1,
-                   'structured_conn': args.structured_conn, 'spatial_attn_agg': args.spatial_attn_agg,
-                   'num_areas': args.num_areas, 'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (0.5, 0.5),
+                   'structured_conn': args.structured_conn, 'num_areas': args.num_areas, 
+                   'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (1, 1),
                    'input_plastic': not args.input_plas_off}
     
     model = HierarchicalRNN(**model_specs)
@@ -240,7 +239,6 @@ if __name__ == "__main__":
                     # use the action (optional) and reward as feedback
                     pop_post = pop_s['post_choice'][i]
                     action_enc = torch.eye(output_size)[action]
-                    # if args.num_areas==1 or not args.spatial_attn or args.input_plas_off:
                     if args.decision_space=='good':
                         action_valid_enc = torch.eye(num_options)[action_valid]
                         pop_post = pop_post*action_valid_enc.reshape(1,1,num_options,1)
@@ -276,9 +274,10 @@ if __name__ == "__main__":
                 loss += reg*len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
             
             # add weight decay for static weights
+            loss /= len(pop_s['pre_choice'])
             loss += args.l2w*(model.rnn.aux2h.effective_weight().pow(2).sum()+model.h2o.effective_weight().pow(2).sum())
 
-            (loss/args.grad_accumulation_steps/len(pop_s['pre_choice'])).backward()
+            (loss/args.grad_accumulation_steps).backward()
             if (batch_idx+1) % args.grad_accumulation_steps == 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
                 # for n, p in model.named_parameters():
@@ -340,7 +339,6 @@ if __name__ == "__main__":
                             # use the action (optional) and reward as feedback
                             pop_post = pop_s['post_choice'][i]
                             action_enc = torch.eye(output_size)[action]
-                            # if args.num_areas==1 or not args.spatial_attn or args.input_plas_off:
                             if args.decision_space=='good':
                                 action_valid_enc = torch.eye(num_options)[action_valid]
                                 pop_post = pop_post*action_valid_enc.reshape(1,1,num_options,1)
