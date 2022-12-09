@@ -124,10 +124,12 @@ class EILinear(nn.Module):
 
     def reset_parameters(self, init_spectral, init_gain, balance_ei):
         with torch.no_grad():
-            nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
+            # nn.init.uniform_(self.weight, a=0, b=math.sqrt(1/(self.input_size-self.zero_cols)))
             # nn.init.kaiming_uniform_(self.weight, a=1)
-            # self.weight.data = torch.from_numpy(
-            #     np.random.gamma(np.ones_like(self.mask.numpy()), np.sqrt(1/(self.mask.sum(dim=1, keepdim=True).numpy()+1e-8)), size=self.weight.data.shape)).float()
+            self.weight.data = torch.from_numpy(
+                np.random.gamma(np.ones_like(self.mask.numpy()), 
+                                np.sqrt(1/(self.mask.sum(dim=1, keepdim=True).numpy()+1e-8)), 
+                                size=self.weight.data.shape)).float()
             # Scale E weight by E-I ratio
             if balance_ei is not None and self.i_size!=0:
                 # self.weight.data[:, :self.e_size] /= self.e_size/self.i_size
@@ -239,7 +241,7 @@ class PlasticLeakyRNNCell(nn.Module):
         new_w = torch.clamp(new_w, lb, ub)
         return new_w
 
-    def forward(self, x, h, R, v, aux_x):
+    def forward(self, x, h, da, aux_x):
         batch_size = x.shape[0]
         
         if self.plastic:
@@ -262,16 +264,11 @@ class PlasticLeakyRNNCell(nn.Module):
         new_output = self.activation(new_state)
 
         if self.plastic:
-            if v is None:
-                R = R.unsqueeze(-1)
-                v = 0
-            else:
-                R = (R!=0)*(R.unsqueeze(-1)+1)/2
-                v = v.unsqueeze(-1)
+            da = da.unsqueeze(-1)
             if self.input_plastic:
-                wx = self.plasticity_func(wx, self.x2h.pos_func(self.x2h.weight).unsqueeze(0), R-v, x, new_output, 
+                wx = self.plasticity_func(wx, self.x2h.pos_func(self.x2h.weight).unsqueeze(0), da, x, new_output, 
                                         self.kappa_in.abs(), 0, self.weight_bound)
-            wh = self.plasticity_func(wh, self.h2h.pos_func(self.h2h.weight).unsqueeze(0), R-v, output, new_output,
+            wh = self.plasticity_func(wh, self.h2h.pos_func(self.h2h.weight).unsqueeze(0), da, new_output, new_output,
                                         self.kappa_rec.abs(), 0, self.weight_bound)
             return [new_state, new_output, wx, wh]
         else:
@@ -360,7 +357,7 @@ class HierarchicalRNN(nn.Module):
         h_init = self.x0.to(x.device) + self.rnn._sigma_rec * torch.randn(batch_size, self.hidden_size*self.num_areas)
         return [h_init, h_init.relu()]
 
-    def forward(self, x, Rs, Vs=None, acts=None, hidden=None, save_weights=False, reinit_hidden=False):
+    def forward(self, x, DAs=None, Rs=None, acts=None, hidden=None, save_weights=False, reinit_hidden=False):
         steps, batch_size = x.shape[:2]
         if hidden is None:
             hidden = self.init_hidden(x)
@@ -385,17 +382,15 @@ class HierarchicalRNN(nn.Module):
             if self.aux_input_size>0:
                 aux_x = []
                 if self.rwd_input:
-                    r_aux = torch.zeros(batch_size, 2)
-                    r_aux = torch.cat([(Rs[i]!=0)*(Rs[i]+1)/2, (Rs[i]!=0)*(1-Rs[i])/2], dim=-1)
-                    aux_x.append(r_aux)
+                    # r_aux = torch.zeros(batch_size, 2)
+                    # r_aux = torch.cat([(Rs[i]!=0)*(Rs[i]+1)/2, (Rs[i]!=0)*(1-Rs[i])/2], dim=-1)
+                    aux_x.append(Rs[i])
                 if self.action_input:
-                    a_aux = (Rs[i]!=0)*acts[i]
-                    aux_x.append(a_aux)
+                    aux_x.append(acts[i])
                 aux_x = torch.cat(aux_x, dim=-1)
             else:
                 aux_x = None
-
-            hidden = self.rnn(curr_x, hidden, Rs[i], Vs[i] if Vs is not None else None, aux_x)
+            hidden = self.rnn(curr_x, hidden, DAs[i], aux_x)
             hs.append(hidden[1])
             if save_weights:
                 wxs.append(hidden[2])

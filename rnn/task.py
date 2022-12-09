@@ -26,12 +26,13 @@ class MDPRL():
         s = 1
         T = np.linspace(times['start_time']*s, times['end_time']*s, 1+int(times['total_time']*s/times['dt']))
         # when stimuli is present on the screen
-        self.T_s = (T > times['stim_onset']*s) & (T <= times['stim_end']*s)
-        # when dopamine is released
-        self.T_da = (T > times['rwd_onset']*s) & (T <= times['rwd_end']*s)
+        self.T_stim = (T > times['stim_onset']*s) & (T <= times['stim_end']*s)
         # when choice is read (only used for making the target)
         self.T_ch = (T > times['choice_onset']*s) & (T <= times['choice_end']*s)
+        # when dopamine is released
+        self.T_rwd = (T > times['rwd_onset']*s) & (T <= times['rwd_end']*s)
         # when choice is read (used for training the network)
+        self.T_mask = (T > times['mask_onset']*s) & (T <= times['mask_end']*s)
 
         self.T = T
         self.s = s
@@ -62,9 +63,10 @@ class MDPRL():
         index_pttrnclr = np.zeros((3, 3, 3))
         index_shpclr = np.zeros((3, 3, 3))
 
-        self.filter_s = self.T_s.astype(int)
-        self.filter_da = self.T_da.astype(int).reshape((1, -1))
+        self.filter_stim = self.T_stim.astype(int)
+        self.filter_rwd = self.T_rwd.astype(int).reshape((1, -1))
         self.filter_ch = self.T_ch.astype(int).reshape((1, -1))
+        self.filter_mask = self.T_mask.astype(int).reshape((1, -1))
 
         # -----------------------------------------------------------------------------------------
         # indexing features
@@ -88,20 +90,20 @@ class MDPRL():
         # -----------------------------------------------------------------------------------------
         # generate input population activity
         # -----------------------------------------------------------------------------------------
-        index_s = np.arange(0, 27, 1)
-        pop_s = np.zeros((len(index_s), len(self.T), 63))
+        index_s = np.arange(0, 27, 1) # 27 objects
+        pop_stim = np.zeros((len(index_s), len(self.T), 63))
         for n in range(len(index_s)):
-            pop_s[n, :, self.index_shp[index_s[n]]] = self.filter_s*1
-            pop_s[n, :, 3+self.index_pttrn[index_s[n]]] = self.filter_s*1
-            pop_s[n, :, 6+self.index_clr[index_s[n]]] = self.filter_s*1
+            pop_stim[n, :, self.index_shp[index_s[n]]] = self.filter_stim*1
+            pop_stim[n, :, 3+self.index_pttrn[index_s[n]]] = self.filter_stim*1
+            pop_stim[n, :, 6+self.index_clr[index_s[n]]] = self.filter_stim*1
 
-            pop_s[n, :, 9+self.index_shppttrn[index_s[n]]] = self.filter_s*1
-            pop_s[n, :, 18+self.index_pttrnclr[index_s[n]]] = self.filter_s*1
-            pop_s[n, :, 27+self.index_shpclr[index_s[n]]] = self.filter_s*1
+            pop_stim[n, :, 9+self.index_shppttrn[index_s[n]]] = self.filter_stim*1
+            pop_stim[n, :, 18+self.index_pttrnclr[index_s[n]]] = self.filter_stim*1
+            pop_stim[n, :, 27+self.index_shpclr[index_s[n]]] = self.filter_stim*1
 
-            pop_s[n, :, 36+index_s[n]] = self.filter_s*1
+            pop_stim[n, :, 36+index_s[n]] = self.filter_stim*1
 
-        self.pop_s = pop_s
+        self.pop_stim = pop_stim # objects, timestep, input_size
 
         # -----------------------------------------------------------------------------------------
         # generate feasible pairs
@@ -194,80 +196,95 @@ class MDPRL():
         probs = probs.reshape(1, 3, 3, 3)
         return probs
 
-    def generateinput(self, batch_size, N_s, num_choices, subsample_stims=27, gen_level='obj', prob_index=None, stim_order=None):
+    def generateinput(self, batch_size, N_s, num_choices, subsample_stims=27, gen_level='obj', rwd_schedule=None, stim_order=None):
+        if batch_size>1:
+            raise NotImplementedError
         '''
-        Generate random stimuli AND choice for learning
+        sample reward schedule for the current session
         '''
-        if prob_index is not None:
-            assert(len(prob_index.shape)==4 and prob_index.shape[1:] == (3, 3, 3))
+        if rwd_schedule is not None:
+            assert(len(rwd_schedule.shape)==4 and rwd_schedule.shape[1:] == (3, 3, 3))
         else:
-            if gen_level is not None:
-                prob_index = self._generate_generalizable_prob(gen_level)
-            else:
-                prob_index = np.random.rand(batch_size,3,3,3)
-
-        batch_size = prob_index.shape[0]
-
-        prob_index = np.reshape(prob_index, (batch_size, 27))
+            if gen_level is None:
+                gen_level = np.random.choice(self.gen_levels) # sample generalization level
+            rwd_schedule = self._generate_generalizable_prob(gen_level)
+        batch_size = rwd_schedule.shape[0]
+        rwd_schedule = np.reshape(rwd_schedule, (batch_size, 27))
+        
+        '''
+        sample order of presentation
+        '''
         if stim_order is not None:
             len_seq = len(stim_order)
         else:
             len_seq = N_s
 
         if stim_order is None:
-            # index_s = np.repeat(np.random.permutation(27)[:subsample_stims], N_s)
-            # index_s_i = [np.random.permutation(index_s) for _ in range(num_choices)]
-            # index_s_i = np.stack(index_s_i, axis=1)
             if num_choices==2:
-                index_s_i = self.pairs[np.random.choice(np.arange(len(self.pairs)), size=len_seq)]
+                index_s_i = self.pairs[np.random.choice(np.arange(len(self.pairs)), size=len_seq)] 
             elif num_choices==1:
                 index_s = np.repeat(np.random.permutation(27)[:subsample_stims], N_s)
                 index_s_i = np.random.permutation(index_s).reshape(len_seq,1)
             else:
                 raise ValueError
-            # while np.any([len(np.unique(index_s_i[:,j])) != len(index_s_i[:,j]) for j in range(len(index_s))]):
-            #     print(np.sum([len(np.unique(index_s_i[:,j])) != len(index_s_i[:,j]) for j in range(len(index_s))]))
-            #     index_s_i = [np.random.permutation(index_s) for _ in range(num_choices)]
-            #     index_s_i = np.stack(index_s_i, axis=0)
         else:
-            index_s_i= stim_order
+            index_s_i = stim_order
+        # index_s_i shape is (len_seq X num_choices)
+        prob_s = np.stack([rwd_schedule[:, index_s_i[:,i]] for i in range(num_choices)], axis=-1)
+        assert(index_s_i.shape==(len_seq, num_choices)), f"{index_s_i.shape}"
+        assert(prob_s.shape==(batch_size, len_seq, num_choices)), f"{prob_s.shape}"
+        prob_s += 1e-8*np.random.rand(*prob_s.shape)
 
-        pop_s = np.zeros((len_seq, len(self.T), batch_size, num_choices, 63))
-        ch_s = np.zeros((len_seq, len(self.T), batch_size, num_choices))
-        prob_s = np.stack([prob_index[:, index_s_i[:,i]] for i in range(num_choices)], axis=-1)
-        prob_s += 1e-8*np.random.rand(*prob_s.shape) # for random stickbreaking
+        '''
+        make the input to the network and target
+        '''
+        pop_s = np.zeros((len_seq, len(self.T), batch_size, num_choices, 63)) # input population activity
+        target = np.zeros((len_seq, len(self.T), batch_size))*np.nan # initialize target array
 
         for i in range(batch_size):
             for j in range(num_choices):
-                pop_s[:,:,i,j,:] = self.pop_s[index_s_i[:,j],:,:]
-                ch_s[:,:,i,j] = self.filter_ch*prob_index[i, index_s_i[:,j]].reshape((len_seq,1))
+                pop_s[:,:,i,j,:] = self.pop_stim[index_s_i[:,j],:,:] # size is num_trials X timesteps X input size
+            if num_choices==1:
+                target[:,:,i] = prob_s[i,:,:].squeeze(-1) # if only one choice, the target is the reward prob
+            else:
+                target[:,:,i] = np.argmax(prob_s[i,:,:], -1)[:,None] # if more than one choice, find position of more rewarding target
 
-        DA_s = self.filter_da.reshape((len(self.T),1,1))
-
+        # mask for which signals to supervise
         output_mask = {'fixation': torch.from_numpy((self.T<0.0*self.s)).reshape(1, len(self.T), 1), \
-                        'target': torch.from_numpy(self.T_ch).reshape(len(self.T))[self.T <= self.times['choice_end']*self.s]}
-
+                        'target': torch.from_numpy(self.T_mask).reshape(len(self.T))[self.T <= self.times['mask_end']*self.s]}
+        
+        # select input encoding dimensions (to include conj/obj input or not)
         pop_s = pop_s[:,:,:,:,self.input_indexes]
         pop_s = {
-            'pre_choice': torch.from_numpy(pop_s[:, self.T <= self.times['choice_end']*self.s]).float(),
-            'post_choice': torch.from_numpy(pop_s[:, self.T > self.times['choice_end']*self.s]).float()
+            'pre_choice': torch.from_numpy(pop_s[:, self.T <= self.times['choice_onset']*self.s]).float(),
+            'post_choice': torch.from_numpy(pop_s[:, self.T > self.times['choice_onset']*self.s]).float()
         }
 
-        DA_s = {
-            'pre_choice': torch.from_numpy(DA_s[self.T <= self.times['choice_end']*self.s]).float(),
-            'post_choice': torch.from_numpy(DA_s[self.T > self.times['choice_end']*self.s]).float()
+        # mask for reward outcome presentation
+        rwd_mask = self.filter_rwd.reshape((len(self.T),1,1)) 
+        rwd_mask = {
+            'pre_choice': torch.from_numpy(rwd_mask[self.T <= self.times['choice_onset']*self.s]).float(),
+            'post_choice': torch.from_numpy(rwd_mask[self.T > self.times['choice_onset']*self.s]).float()
         }
 
-        ch_s = {
-            'pre_choice': torch.from_numpy(ch_s[:, self.T <= self.times['choice_end']*self.s]).float(),
-            'post_choice': torch.from_numpy(ch_s[:, self.T > self.times['choice_end']*self.s]).float()
+        # mask for choice presentation
+        ch_mask = self.filter_ch.reshape((len(self.T),1,1)) 
+        ch_mask = {
+            'pre_choice': torch.from_numpy(ch_mask[self.T <= self.times['choice_onset']*self.s]).float(),
+            'post_choice': torch.from_numpy(ch_mask[self.T > self.times['choice_onset']*self.s]).float()
         }
 
-        return DA_s, ch_s, pop_s, torch.from_numpy(index_s_i).long(), \
-               torch.from_numpy(prob_s).transpose(0, 1), output_mask
+        target = {
+            'pre_choice': torch.from_numpy(target[:, self.T <= self.times['choice_onset']*self.s]),
+            'post_choice': torch.from_numpy(target[:, self.T > self.times['choice_onset']*self.s])
+        }
+
+        return pop_s, target, output_mask, rwd_mask, ch_mask, \
+               torch.from_numpy(index_s_i).long(), \
+               torch.from_numpy(prob_s).transpose(0, 1)
 
     def generateinputfromexp(self, batch_size, test_N_s, num_choices, participant_num):
-        return self.generateinput(batch_size, test_N_s, prob_index=self.prob_mdprl, num_choices=num_choices, stim_order=self.test_stim_order[:,participant_num])
+        return self.generateinput(batch_size, test_N_s, rwd_schedule=self.prob_mdprl, num_choices=num_choices, stim_order=self.test_stim_order[:,participant_num])
 
     def value_est(self, probdata=None):
         if probdata is None:
@@ -309,8 +326,8 @@ class MDPRL():
         if encoding_type=='feature_idx':
             return {'C': self.index_clr, 'P': self.index_pttrn, 'S': self.index_shp}
         elif encoding_type=='all_onehot':
-            stim_onset_time = np.argmax(self.filter_s)
-            encmat = self.pop_s[:, stim_onset_time, :]
+            stim_onset_time = np.argmax(self.filter_stim)
+            encmat = self.pop_stim[:, stim_onset_time, :]
             assert(encmat.shape==(27,63))
             assert(encmat.sum()>0)
             return encmat

@@ -112,7 +112,7 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     LEFT = (1-(input_size+aux_size+hidden_size+MARGIN*3+PLOT_W))/2
     BOTTOM = 0.1
     
-    vbound = np.percentile(x2hw.abs(), 99)
+    vbound = np.percentile(x2hw.abs(), 95)
     ax01 = fig.add_axes((LEFT, BOTTOM+output_size+MARGIN, input_size, hidden_size))
     ims.append(ax01.imshow(x2hw[sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax01.set_xticks([])
@@ -127,7 +127,7 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     # ax02.axis('off')
     # ax02.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    vbound = np.percentile(aux2h.abs(), 99)
+    vbound = np.percentile(aux2h.abs(), 95)
     axaux = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+output_size+MARGIN, aux_size, hidden_size))
     ims.append(axaux.imshow(aux2h[sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     axaux.set_xticks([])
@@ -135,7 +135,7 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     axaux.axis('off')
     axaux.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    vbound = np.percentile(h2hw.abs(), 99)
+    vbound = np.percentile(h2hw.abs(), 95)
     ax1w = fig.add_axes((LEFT+input_size+aux_size+MARGIN*2, BOTTOM+output_size+MARGIN, hidden_size, hidden_size))
     ims.append(ax1w.imshow(h2hw[sort_inds][:,sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax1w.set_xticks([])
@@ -144,7 +144,7 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     ax1w.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     ax1w.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    vbound = np.percentile(hb.abs(), 99)
+    vbound = np.percentile(hb.abs(), 95)
     ax1b = fig.add_axes((LEFT+input_size+aux_size+hidden_size+MARGIN*3, BOTTOM+output_size+MARGIN, PLOT_W, hidden_size))
     ims.append(ax1b.imshow(hb[sort_inds].unsqueeze(1), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax1b.set_xticks([])
@@ -165,7 +165,7 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     # axattnb.set_yticks([])
     # axattnb.axis('off')
     
-    vbound = np.percentile(h2ow.abs(), 99)
+    vbound = np.percentile(h2ow.abs(), 95)
     axoutputw = fig.add_axes((LEFT+input_size+aux_size+MARGIN*2, BOTTOM, hidden_size, output_size))
     ims.append(axoutputw.imshow(h2ow[:,sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     axoutputw.set_xticks([])
@@ -221,7 +221,7 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     # ax02.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
     LEFT = (1-hidden_size)/2
-    vbound = np.percentile(kappa_rec.abs(), 99)
+    vbound = np.percentile(kappa_rec.abs(), 95)
     ax1w = fig.add_axes((LEFT, BOTTOM+output_size+MARGIN, hidden_size, hidden_size))
     ims.append(ax1w.imshow(kappa_rec[sort_inds][:,sort_inds].squeeze(), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax1w.set_xticks([])
