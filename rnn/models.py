@@ -73,19 +73,29 @@ def _get_connectivity_mask_in(in_mask, input_units, e_hidden_units_per_area, i_h
     conn_mask[key_name] = torch.cat([in_mask_e, in_mask_i], dim=0)
     return conn_mask
 
+def _get_connectivity_mask_aux(aux_mask, aux_units, e_hidden_units_per_area, i_hidden_units_per_area, key_name):
+    conn_mask = {}
+    rwd_mask, act_mask = aux_mask
+    rwd_units, act_units = aux_units
+    in_mask_e = torch.cat([torch.kron(rwd_mask, torch.ones(e_hidden_units_per_area, rwd_units)), \
+                           torch.kron(act_mask, torch.ones(e_hidden_units_per_area, act_units))],dim=-1)
+    in_mask_i = torch.cat([torch.kron(rwd_mask, torch.ones(i_hidden_units_per_area, rwd_units)), \
+                           torch.kron(act_mask, torch.ones(i_hidden_units_per_area, act_units))],dim=-1)
+    conn_mask[key_name] = torch.cat([in_mask_e, in_mask_i], dim=0)
+    return conn_mask
 
 def _get_connectivity_mask(in_mask, aux_mask, rec_mask, input_units, aux_input_units, e_hidden_units_per_area, i_hidden_units_per_area):
     conn_mask = {}
 
     num_areas = in_mask.shape[0]
     num_objs = in_mask.shape[1]
-    assert(aux_mask.shape==(num_areas,1))
+    assert(aux_mask[0].shape==(num_areas,1) and aux_mask[1].shape==(num_areas,1))
     assert(in_mask.shape==(num_areas,num_objs))
     assert(rec_mask.shape==(num_areas,num_areas))
 
     conn_mask.update(_get_connectivity_mask_rec(rec_mask, num_areas, e_hidden_units_per_area, i_hidden_units_per_area))
     conn_mask.update(_get_connectivity_mask_in(in_mask, input_units, e_hidden_units_per_area, i_hidden_units_per_area, key_name='in'))
-    conn_mask.update(_get_connectivity_mask_in(aux_mask, aux_input_units, e_hidden_units_per_area, i_hidden_units_per_area, key_name='aux'))
+    conn_mask.update(_get_connectivity_mask_aux(aux_mask, aux_input_units, e_hidden_units_per_area, i_hidden_units_per_area, key_name='aux'))
     return conn_mask
 
 class EILinear(nn.Module):
@@ -291,8 +301,11 @@ class HierarchicalRNN(nn.Module):
         self.rwd_input = rwd_input
         self.num_areas = num_areas
         self.e_size = int(e_prop * hidden_size)
-        self.aux_input_size = 0 + (2 if self.rwd_input else 0) \
-                                + (output_size if self.action_input else 0)
+        # aux input are reward and choice input
+        # reward input is 2 units for + - reward
+        # action input uses the same encoding scheme as the perceptual input
+        self.aux_input_size = [2 if self.rwd_input else 0] + [output_size if self.action_input else 0]
+        
         self.plastic = plastic
         self.weight_bound = weight_bound
         self.plas_rule = plas_rule
@@ -301,7 +314,9 @@ class HierarchicalRNN(nn.Module):
         in_mask = torch.FloatTensor([1, *[0]*(self.num_areas-1)]).unsqueeze(-1)
         # for _ in range(self.output_size):
         #     in_mask = torch.cat([in_mask, torch.FloatTensor([[0, 1, *[0]*(self.num_areas-2)]]).T], dim=-1)
-        aux_mask = torch.FloatTensor([*[1]*self.num_areas]).unsqueeze(-1)
+        # rwd input goes to all areas, action only goes to first area (choice presentation), and last area (motor efference copy)
+        aux_mask = [torch.FloatTensor([1, *[1]*(self.num_areas-2), 1]).unsqueeze(-1), \
+                    torch.FloatTensor([1, *[0]*(self.num_areas-2), 1]).unsqueeze(-1)]
         rec_mask = torch.eye(self.num_areas) + torch.diag(torch.ones(self.num_areas-1), 1) + torch.diag(torch.ones(self.num_areas-1), -1)
 
         self.conn_masks = _get_connectivity_mask(in_mask=in_mask, aux_mask=aux_mask, rec_mask=rec_mask,
@@ -316,7 +331,7 @@ class HierarchicalRNN(nn.Module):
                     -torch.eye(self.hidden_size*self.num_areas)
         balance_ei = balance_ei[:,:self.e_size*self.num_areas].sum(1, keepdim=True)/balance_ei[:,self.e_size*self.num_areas:].sum(1, keepdim=True)
 
-        self.rnn = PlasticLeakyRNNCell(input_size=self.input_size, hidden_size=hidden_size*self.num_areas, aux_input_size=self.aux_input_size, plastic=plastic, 
+        self.rnn = PlasticLeakyRNNCell(input_size=self.input_size, hidden_size=hidden_size*self.num_areas, aux_input_size=sum(self.aux_input_size), plastic=plastic, 
                                        activation=activation, dt=dt, tau_x=tau_x, tau_w=tau_w, weight_bound=weight_bound, train_init_state=train_init_state, 
                                        e_prop=e_prop, sigma_rec=sigma_rec, sigma_in=sigma_in, sigma_w=sigma_w, init_spectral=init_spectral,
                                        balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks, input_plastic=input_plastic, num_areas=num_areas)
@@ -379,7 +394,7 @@ class HierarchicalRNN(nn.Module):
             # curr_x = torch.cat([curr_x, x[i].sum(dim=1)], dim=-1)
             curr_x = x[i].sum(dim=1)
             # modulate input by feature attention
-            if self.aux_input_size>0:
+            if sum(self.aux_input_size)>0:
                 aux_x = []
                 if self.rwd_input:
                     # r_aux = torch.zeros(batch_size, 2)

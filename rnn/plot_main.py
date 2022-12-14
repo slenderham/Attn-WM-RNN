@@ -7,6 +7,7 @@ import numpy as np
 import scipy.cluster.hierarchy as sch
 import torch
 from matplotlib import pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 from sklearn import cluster
 from statsmodels.formula.api import ols
 from statsmodels.stats.anova import anova_lm
@@ -203,6 +204,10 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     # plt.tight_layout()
     plt.show()
     # plt.savefig(f'plots/{args["exp_dir"]}/connectivity.jpg')
+    with PdfPages(f'plots/{args["exp_dir"]}/connectivity.pdf') as pdf:
+        pdf.savefig(fig)
+        print(f'Figure saved at plots/{args["exp_dir"]}/connectivity.pdf')
+
 
     fig = plt.figure('learning_rates', (10, 10))
     ims = []
@@ -243,6 +248,9 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     plt.suptitle('Model Learning Rates', y=0.85)
     # plt.tight_layout()
     plt.show()
+    with PdfPages(f'plots/{args["exp_dir"]}/learning_rates.pdf') as pdf:
+        pdf.savefig(fig)
+        print(f'Figure saved at plots/{args["exp_dir"]}/learning_rates.pdf')
     
 def plot_weight_summary(args, ws):
     trials, timesteps, batch_size, post_dim, pre_dim = ws.shape

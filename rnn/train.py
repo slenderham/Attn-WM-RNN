@@ -22,21 +22,22 @@ if __name__ == "__main__":
     parser.add_argument('--exp_dir', type=str, help='Output directory')
     parser.add_argument('--iters', type=int, help='Training iterations')
     parser.add_argument('--epochs', type=int, default=1, help='Training epochs')
-    parser.add_argument('--hidden_size', type=int, default=150, help='Size of recurrent layer')
+    parser.add_argument('--hidden_size', type=int, default=80, help='Size of recurrent layer')
     parser.add_argument('--num_areas', type=int, default=6, help='Number of recurrent areas')
     parser.add_argument('--stim_dim', type=int, default=3, choices=[2, 3], help='Number of features')
     parser.add_argument('--stim_val', type=int, default=3, help='Possible values of features')
-    parser.add_argument('--N_s', type=int, default=135, help='Number of times to repeat the entire stim set')
+    parser.add_argument('--N_s_min', type=int, default=135, help='Number of times to repeat the entire stim set')
+    parser.add_argument('--N_s_max', type=int, default=135, help='Number of times to repeat the entire stim set')
     parser.add_argument('--N_stim_train', type=int, default=27, help='Number of stimuli to train the network on each episode')
     parser.add_argument('--test_N_s', type=int, default=432, help='Number of times to repeat the entire stim set during eval')
     parser.add_argument('--e_prop', type=float, default=4/5, help='Proportion of E neurons')
-    parser.add_argument('--batch_size', type=int, help='Batch size')
+    parser.add_argument('--batch_size', type=int, default=1, help='Batch size')
     parser.add_argument('--grad_accumulation_steps', type=int, default=1, help='Steps of gradient accumulation.')
     parser.add_argument('--eval_samples', type=int, default=21, help='Number of samples to use for evaluation.')
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
-    parser.add_argument('--sigma_rec', type=float, default=0.01, help='Std for recurrent noise')
+    parser.add_argument('--sigma_rec', type=float, default=0.1, help='Std for recurrent noise')
     parser.add_argument('--sigma_w', type=float, default=0.0, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=None, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
@@ -50,14 +51,13 @@ if __name__ == "__main__":
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
     parser.add_argument('--plas_rule', type=str, choices=['add', 'mult'], default='add', help='Plasticity rule')
     parser.add_argument('--input_plas_off', action='store_true', help='Disable input plasticity')
-    parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat', help='Input coding')
+    parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat+conj+obj', help='Input coding')
     parser.add_argument('--decision_space', type=str, choices=['good', 'good_feat', 'good_feat_conj_obj', 'action'], help='Supervise with good-based or action-based decision making')
     parser.add_argument('--sep_lr', action='store_true', help='Use different lr between diff type of units')
     parser.add_argument('--task_type', type=str, choices=['value', 'off_policy_single', 'on_policy_double'],
                         help='Learn reward prob or RL. On policy if decision determines. On policy if decision determines rwd. Off policy if rwd sampled from random policy.')
     parser.add_argument('--rwd_input', action='store_true', help='Whether to use reward as input')
     parser.add_argument('--action_input', action='store_true', help='Whether to use action as input')
-    parser.add_argument('--rpe', action='store_true', help='Whether to use reward prediction error as modulation')
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'softplus2', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
     parser.add_argument('--structured_conn', action='store_true', help='Whether to use restricted connectivity')
@@ -87,7 +87,7 @@ if __name__ == "__main__":
     mask_onset = 0.4
     # experiment timeline [0.75 fixation, 2.5 stimulus, 0.5 action presentation, 1.0 reward presentation]
     # 2021 paper          [0.5          , 0.7         , 0.3                    , 0.2                   ]
-    # here                [0.2          , 0.6         , 0.15                   , 0.15                  ]
+    # here                [0.25         , 0.6         , 0.15                   , 0.15                  ]
     
     exp_times = {
         'start_time': -ITI,
@@ -157,9 +157,10 @@ if __name__ == "__main__":
         pbar = tqdm(total=iters)
         optimizer.zero_grad()
         total_acc = 0
+        total_loss = 0
         for batch_idx in range(iters):
             pop_s, target_valid, output_mask, rwd_mask, ch_mask, index_s, prob_s = task_mdprl.generateinput(
-                batch_size=args.batch_size, N_s=args.N_s, num_choices=num_options, subsample_stims=args.N_stim_train)    
+                batch_size=args.batch_size, N_s=np.random.randint(args.N_s_min, args.N_s_max+1), num_choices=num_options, subsample_stims=args.N_stim_train)    
             loss = 0
             hidden = None
             if args.debug:
@@ -217,7 +218,8 @@ if __name__ == "__main__":
                     output = output[output_mask['target'].squeeze()>0.5,:,:].flatten(1)
                     target = target[output_mask['target'].squeeze()>0.5,:].flatten()
                     loss += F.cross_entropy(output, target)
-                    total_acc += F.cross_entropy(output, target).detach().item()
+                    total_loss += F.cross_entropy(output, target).detach().item()/len(pop_s['pre_choice'])
+                    total_acc += (action_valid==target_valid['pre_choice'][i,-1]).float().item()/len(pop_s['pre_choice'])
                 elif args.task_type == 'value':
                     rwd = (torch.rand(args.batch_size)<prob_s[i]).float()
                     output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)
@@ -304,13 +306,14 @@ if __name__ == "__main__":
             if (batch_idx+1) % log_interval == 0:
                 if torch.isnan(loss):
                     quit()
-                pbar.set_description('Iteration {} Loss: {:.4f}'.format(batch_idx+1, total_acc/len(pop_s['pre_choice'])/(batch_idx+1)))
+                pbar.set_description('Iteration {} Loss: {:.4f}'.format(batch_idx+1, total_loss/(batch_idx+1)))
                 pbar.refresh()
                 
             pbar.update()
         pbar.close()
-        total_acc = total_acc/len(pop_s['pre_choice'])/iters
-        print(f'Training Acc: {total_acc}')
+        total_acc = total_acc/iters
+        total_loss = total_loss/iters
+        print(f'Training Loss: {total_loss:.4f}, Training Acc: {total_acc:.4f}')
         return loss.item()
 
     def eval(epoch):
@@ -327,11 +330,11 @@ if __name__ == "__main__":
                     hidden = None
                     for i in range(len(pop_s['pre_choice'])):
                         # first phase, give stimuli and no feedback
-                        output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
-                                                        DAs=0*rwd_mask['pre_choice'],
-                                                        Rs=torch.zeros(args.batch_size, 2)*rwd_mask['pre_choice'],
-                                                        acts=torch.zeros(args.batch_size, output_size)*ch_mask['pre_choice'],
-                                                        save_weights=True)
+                        output, _, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, 
+                                                        DAs=torch.zeros(1, args.batch_size, 1)*rwd_mask['pre_choice'],
+                                                        Rs=torch.zeros(1, args.batch_size, 2)*rwd_mask['pre_choice'],
+                                                        acts=torch.zeros(1, args.batch_size, output_size)*ch_mask['pre_choice'],
+                                                        save_weights=False)
 
                         if args.task_type=='on_policy_double':
                             # use output to calculate action, reward, and record loss function
@@ -341,7 +344,7 @@ if __name__ == "__main__":
                                 loss.append((action==torch.argmax(prob_s[i], -1)).float())
                             elif args.decision_space=='good':
                                 action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # the object that can be chosen (0~1)
-                                action = index_s[i][action_valid] # the object chosen (0~26), but only the valid one
+                                action = index_s[i, action_valid] # the object chosen (0~26), but only the valid one
                                 rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action_valid]).long() #(batch_size)
                                 loss.append((action_valid==target_valid['pre_choice'][i,-1]).float())
                         elif args.task_type == 'value':
@@ -361,13 +364,13 @@ if __name__ == "__main__":
                             #     pop_post = pop_post*action_enc.reshape(1,1,output_size,1)
                             action_enc = action_enc*ch_mask['post_choice']
                             rwd_enc = rwd_enc*rwd_mask['post_choice']
-                            DAs = (2*rwd-1)*rwd_mask['post_choice']
-                            _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=action_enc, DAs=DAs, save_weights=True)
+                            DAs = (2*rwd.float()-1)*rwd_mask['post_choice']
+                            _, _, hidden, _ = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=action_enc, DAs=DAs, save_weights=False)
                         elif args.task_type == 'value':
                             pop_post = pop_s['post_choice'][i]
                             rwd_enc = torch.eye(2)[rwd]
-                            DAs = (2*rwd-1)*rwd_mask['post_choice']
-                            _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=None, DAs=DAs, save_weights=True)
+                            DAs = (2*rwd.float()-1)*rwd_mask['post_choice']
+                            _, _, hidden, _ = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=None, DAs=DAs, save_weights=False)
                     loss = torch.stack(loss, dim=0)
                     losses.append(loss)
                 losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial

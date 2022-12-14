@@ -284,7 +284,10 @@ class MDPRL():
                torch.from_numpy(prob_s).transpose(0, 1)
 
     def generateinputfromexp(self, batch_size, test_N_s, num_choices, participant_num):
-        return self.generateinput(batch_size, test_N_s, rwd_schedule=self.prob_mdprl, num_choices=num_choices, stim_order=self.test_stim_order[:,participant_num])
+        return self.generateinput(batch_size, test_N_s, 
+                                 rwd_schedule=self.prob_mdprl.transpose(np.concatenate([np.zeros(1), np.random.permutation(3)+1])), 
+                                 num_choices=num_choices, 
+                                 stim_order=self.test_stim_order[:,participant_num])
 
     def value_est(self, probdata=None):
         if probdata is None:
