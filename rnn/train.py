@@ -231,7 +231,7 @@ if __name__ == "__main__":
                     # plt.imshow(hs.squeeze().detach().t(), aspect='auto', cmap='hot', interpolation='nearest')
                     # plt.colorbar()
                     # plt.show()
-                    hs_pre = hs;
+                    hs_pre = hs
                     # plt.ylabel('choice prob')
                     # print(hs.shape)
                     # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
@@ -248,6 +248,7 @@ if __name__ == "__main__":
                     # use the action (optional) and reward as feedback
                     pop_post = pop_s['post_choice'][i]
                     action_enc = torch.eye(output_size)[action]
+                    # action_enc = torch.from_numpy(task_mdprl.stim_encoding('all_onehot'))[action,:].float()
                     rwd_enc = torch.eye(2)[rwd]
                     # if args.decision_space=='good':
                     #     action_valid_enc = torch.eye(num_options)[action_valid]
@@ -356,6 +357,7 @@ if __name__ == "__main__":
                             # use the action (optional) and reward as feedback
                             pop_post = pop_s['post_choice'][i]
                             action_enc = torch.eye(output_size)[action]
+                            # action_enc = torch.from_numpy(task_mdprl.stim_encoding('all_onehot'))[action,:].float()
                             rwd_enc = torch.eye(2)[rwd]
                             # if args.decision_space=='good':
                             #     action_valid_enc = torch.eye(num_options)[action_valid]

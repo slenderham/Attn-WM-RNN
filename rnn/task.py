@@ -20,9 +20,6 @@ class MDPRL():
         prob_gen[:, :, 1] = 0.5
         prob_gen[:, :, 2] = 0.1
 
-        # 0.5 probability matrix
-        prob_noinf = 0.5*np.ones((3, 3, 3))
-
         s = 1
         T = np.linspace(times['start_time']*s, times['end_time']*s, 1+int(times['total_time']*s/times['dt']))
         # when stimuli is present on the screen
@@ -143,13 +140,16 @@ class MDPRL():
         subjects += [f'inputs2/input_{s}' for s in subjects2]
         base_dir = '../MdPRL/Behavioral task/PRLexp/inputs_all'
         self.test_stim_order = []
+        self.test_stim_dim_order = []
         # self.test_rwd = []
         for s in subjects:
             exp_inputs = sio.loadmat(os.path.join(base_dir, f'{s}.mat'))
             self.choiceMap = exp_inputs['expr']['choiceMap'][0,0]
             self.test_stim_order.append(exp_inputs['input']['inputTarget'][0,0])
+            self.test_stim_dim_order.append(np.random.permutation(3))
             # self.test_rwd.append(exp_inputs['input']['inputReward'][0,0])
         self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1)-1
+        self.test_stim_dim_order = np.stack(self.test_stim_order, axis=0)
         # self.test_rwd = torch.from_numpy(np.stack(self.test_rwd, axis=0).transpose(2,0,1))
 
     def _generate_generalizable_prob(self, gen_level, jitter=0.0):
@@ -196,7 +196,7 @@ class MDPRL():
         probs = probs.reshape(1, 3, 3, 3)
         return probs
 
-    def generateinput(self, batch_size, N_s, num_choices, subsample_stims=27, gen_level='obj', rwd_schedule=None, stim_order=None):
+    def generateinput(self, batch_size, N_s, num_choices, subsample_stims=27, gen_level=None, rwd_schedule=None, stim_order=None):
         if batch_size>1:
             raise NotImplementedError
         '''
@@ -284,8 +284,9 @@ class MDPRL():
                torch.from_numpy(prob_s).transpose(0, 1)
 
     def generateinputfromexp(self, batch_size, test_N_s, num_choices, participant_num):
+        # dim_order = np.random.permutation(3)
         return self.generateinput(batch_size, test_N_s, 
-                                 rwd_schedule=self.prob_mdprl.transpose(np.concatenate([np.zeros(1), np.random.permutation(3)+1])), 
+                                 rwd_schedule=self.prob_mdprl, 
                                  num_choices=num_choices, 
                                  stim_order=self.test_stim_order[:,participant_num])
 

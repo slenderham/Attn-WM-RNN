@@ -316,7 +316,7 @@ class HierarchicalRNN(nn.Module):
         #     in_mask = torch.cat([in_mask, torch.FloatTensor([[0, 1, *[0]*(self.num_areas-2)]]).T], dim=-1)
         # rwd input goes to all areas, action only goes to first area (choice presentation), and last area (motor efference copy)
         aux_mask = [torch.FloatTensor([1, *[1]*(self.num_areas-2), 1]).unsqueeze(-1), \
-                    torch.FloatTensor([1, *[0]*(self.num_areas-2), 1]).unsqueeze(-1)]
+                    torch.FloatTensor([1, *[1]*(self.num_areas-2), 1]).unsqueeze(-1)]
         rec_mask = torch.eye(self.num_areas) + torch.diag(torch.ones(self.num_areas-1), 1) + torch.diag(torch.ones(self.num_areas-1), -1)
 
         self.conn_masks = _get_connectivity_mask(in_mask=in_mask, aux_mask=aux_mask, rec_mask=rec_mask,

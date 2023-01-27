@@ -261,32 +261,32 @@ def plot_weight_summary(args, ws):
     fig = plt.figure()
     ax = fig.add_subplot()
     diff_ws = ((ws[1:]-ws[:-1])**2).sum([-1, -2])
-    plot_mean_and_std(ax, diff_ws.mean(1), diff_ws.std(1))
+    plot_mean_and_std(ax, diff_ws.mean(1), diff_ws.std(1)/np.sqrt(batch_size), None)
     ax.set_xlabel('Trial')
     ax.set_ylabel(r'$|\Delta W|_2$')
     fig.show()
+    print('Finished calculating norm of update')
 
     # norm of weights
     fig = plt.figure()
     ax = fig.add_subplot()
-    _, ss, _ = np.linalg.svd(ws)
-    norm_ws = ss[:,:,0] # largest singular value
-    plot_mean_and_std(ax, norm_ws.mean(1), norm_ws.std(1))
+    norm_ws = (ws**2).sum([-1, -2]) # frobenius norm
+    plot_mean_and_std(ax, norm_ws.mean(1), norm_ws.std(1)/np.sqrt(batch_size), None)
     ax.set_xlabel('Trial')
-    ax.set_ylabel(r'$\sigma_{max}(W)$')
+    ax.set_ylabel(r'$|W|_2$')
     fig.show()
+    print('Finished calculating weight norms')
     
-
     # variance of entries across trials
     fig = plt.figure()
     ax = fig.add_subplot()
     mean_ws = ws.mean(1, keepdims=True)
     std_ws = ((ws-mean_ws)**2).sum([-1, -2])
-    plot_mean_and_std(ax, )
-    plot_mean_and_std(ax, std_ws.mean(1), std_ws.std(1))
+    plot_mean_and_std(ax, std_ws.mean(1), std_ws.std(1)/np.sqrt(batch_size), None)
     ax.set_xlabel('Trial')
-    ax.set_ylabel('Cross session consistency')
+    ax.set_ylabel('Cross session variability')
     fig.show()
+    print('Finished calculating variability')
 
 def plot_output_analysis(output, stim_order, stim_probs, splits=8):
     n_trials, n_timesteps, n_batch, n_output = output.shape
@@ -315,15 +315,14 @@ def plot_output_analysis(output, stim_order, stim_probs, splits=8):
     plt.show()    
 
 def plot_learning_curve(args, all_l, lm, lsd):
-    fig_all = plt.figure('perf_all')
-    ax = fig_all.add_subplot()
-    ax.imshow(all_l[0].squeeze(-1).t(), interpolation='nearest')
-    ax.set_xlabel('Trials')
-    ax.set_ylabel('Episodes')
-    plt.tight_layout()
-    # plt.savefig(f'plots/{plot_args.exp_dir}/performance_all')
-    plt.show()
-
+    # fig_all = plt.figure('perf_all')
+    # ax = fig_all.add_subplot()
+    # ax.imshow(all_l[0].squeeze(-1).t(), interpolation='nearest')
+    # ax.set_xlabel('Trials')
+    # ax.set_ylabel('Episodes')
+    # plt.tight_layout()
+    # # plt.savefig(f'plots/{plot_args.exp_dir}/performance_all')
+    # plt.show()
     fig_summ = plt.figure('perf_summary')
     ax = fig_summ.add_subplot()
     window_size = 20
@@ -542,10 +541,6 @@ def plot_subspace(ws, num_areas, e_hidden_size, i_hidden_size):
         mff_cov.append((all_ss[ff_name]*all_vhs[ff_name])@all_us[w_name])
         mfb_cov.append(all_vhs[w_name]@all_us[w_name])
         
-def plot_weight_matrix_clustered(wx, wh, wff, wfb):
-    
-    return
-
 def unit_selectivity(hs, target, e_size):
     n_trials, n_timesteps, n_batch, n_hidden = hs.shape
     hs = hs.mean(1) # n_trials, n_batch, n_hidden
@@ -638,7 +633,7 @@ def run_model(args, model, task_mdprl, n_samples=None):
         n_samples = task_mdprl.test_stim_order.shape[1]
     with torch.no_grad():
         for batch_idx in tqdm.tqdm(range(n_samples)):
-            DA_s, ch_s, pop_s, index_s, prob_s, output_mask = task_mdprl.generateinputfromexp(
+            pop_s, target_valid, output_mask, rwd_mask, ch_mask, index_s, prob_s = task_mdprl.generateinputfromexp(
                 batch_size=1, test_N_s=args['test_N_s'], num_choices=args['num_options'], participant_num=batch_idx)
             acc = []
             curr_rwd = []
@@ -647,10 +642,10 @@ def run_model(args, model, task_mdprl, n_samples=None):
             for i in range(len(pop_s['pre_choice'])):
                 # first phase, give stimuli and no feedback
                 output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
-                                                Rs=0*DA_s['pre_choice'], Vs=None,
-                                                acts=torch.zeros(1, output_size)*DA_s['pre_choice'],
-                                                save_weights=False, reinit_hidden=False)
-
+                                                DAs=torch.zeros(1, args['batch_size'], 1)*rwd_mask['pre_choice'],
+                                                Rs=torch.zeros(1, args['batch_size'], 2)*rwd_mask['pre_choice'],
+                                                acts=torch.zeros(1, args['batch_size'], output_size)*ch_mask['pre_choice'],
+                                                save_weights=True)
                 # add empty list for the current episode
                 if i==0:
                     for k in ss.keys():
@@ -673,31 +668,34 @@ def run_model(args, model, task_mdprl, n_samples=None):
                     elif args['decision_space']=='good':
                         action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # the object that can be chosen (0~1), (batch size, )
                         action = index_s[i, action_valid] # (batch size, )
-                        rwd = (torch.rand(args['batch_size'])<prob_s[i][range(args['batch_size']), action_valid]).float()
+                        rwd = (torch.rand(args['batch_size'])<prob_s[i][range(args['batch_size']), action_valid]).long()
                         acc.append((action_valid==torch.argmax(prob_s[i], -1)).float())    
-                    curr_rwd.append(rwd)
+                    curr_rwd.append(rwd.float())
                 elif args['task_type'] == 'value':
                     rwd = (torch.rand(1)<prob_s[i]).float()
                     output = output.reshape(output_mask['target'].shape[0], 1, output_size)
-                    acc.append(((output-ch_s['pre_choice'][i])*output_mask['target'].float().unsqueeze(-1)).pow(2).mean(0)/output_mask['target'].float().mean())
+                    acc.append(((output-target_valid['pre_choice'][i])*output_mask['target'].float().unsqueeze(-1)).pow(2).mean(0)/output_mask['target'].float().mean())
                     curr_rwd.append(rwd)
                 
                 if args['task_type']=='on_policy_double':
                     # use the action (optional) and reward as feedback
                     pop_post = pop_s['post_choice'][i]
                     action_enc = torch.eye(output_size)[action]
-                    if args['decision_space']=='good':
-                        action_valid_enc = torch.eye(args['num_options'])[action_valid]
-                        pop_post = pop_post*action_valid_enc.reshape(1,1,args['num_options'],1)
-                    elif args['decision_space']=='action':
-                        pop_post = pop_post*action_enc.reshape(1,1,output_size,1)
-                    action_enc = action_enc*DA_s['post_choice']
-                    R = (2*rwd-1)*DA_s['post_choice']
-                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=action_enc, save_weights=False)
+                    rwd_enc = torch.eye(2)[rwd]
+                    # if args['decision_space']=='good':
+                    #     action_valid_enc = torch.eye(args['num_options'])[action_valid]
+                    #     pop_post = pop_post*action_valid_enc.reshape(1,1,args['num_options'],1)
+                    # elif args['decision_space']=='action':
+                    #     pop_post = pop_post*action_enc.reshape(1,1,output_size,1)
+                    action_enc = action_enc*ch_mask['post_choice']
+                    rwd_enc = rwd_enc*rwd_mask['post_choice']
+                    DAs = (2*rwd.float()-1)*rwd_mask['post_choice']
+                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=action_enc, DAs=DAs, save_weights=False)
                 elif args['task_type'] == 'value':
                     pop_post = pop_s['post_choice'][i]
-                    R = (2*rwd-1)*DA_s['post_choice']
-                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=None, save_weights=False)
+                    rwd_enc = torch.eye(2)[rwd]
+                    DAs = (2*rwd.float()-1)*rwd_mask['post_choice']
+                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=None, DAs=DAs, save_weights=False)
                 
                 for k, v in ss.items():
                     all_saved_states_post[k][-1].append(v)
@@ -751,7 +749,6 @@ def run_model(args, model, task_mdprl, n_samples=None):
         all_probs = torch.stack(all_probs, dim=1)
         return [accs, rwds], [accs_means, rwds_means], [accs_stds, rwds_stds], all_saved_states, all_indices, all_probs
 
-
 def run_model_all_pairs_with_hidden_init(args, model, task_mdprl, n_samples=30, hidden_init=None):
     model.eval()
     accs = []
@@ -765,8 +762,8 @@ def run_model_all_pairs_with_hidden_init(args, model, task_mdprl, n_samples=30, 
     with torch.no_grad():
         for pair_idx in tqdm.tqdm(range(task_mdprl.pairs.shape[0])):
             for batch_idx in range(n_samples):
-                DA_s, ch_s, pop_s, index_s, prob_s, output_mask = \
-                    task_mdprl.generateinput(batch_size=1, N_s=0, num_choices=args['num_options'], prob_index=task_mdprl.prob_mdprl, \
+                pop_s, target_valid, output_mask, rwd_mask, ch_mask, index_s, prob_s = \
+                    task_mdprl.generateinput(batch_size=1, N_s=0, num_choices=args['num_options'], rwd_schedule=task_mdprl.prob_mdprl, \
                                              stim_order=task_mdprl.pairs[pair_idx:pair_idx+1,:])
                 acc = []
                 curr_rwd = []
@@ -774,16 +771,17 @@ def run_model_all_pairs_with_hidden_init(args, model, task_mdprl, n_samples=30, 
                 all_saved_states_pre
                     # first phase, give stimuli and no feedback
                 output, hs, hidden, ss = model(pop_s['pre_choice'][0], hidden=hidden, 
-                                                Rs=0*DA_s['pre_choice'], Vs=None,
-                                                acts=torch.zeros(1, output_size)*DA_s['pre_choice'],
-                                                save_weights=False, reinit_hidden=False)
+                                                DAs=torch.zeros(1, 1, 1)*rwd_mask['pre_choice'],
+                                                Rs=torch.zeros(1, 1, 2)*rwd_mask['pre_choice'],
+                                                acts=torch.zeros(1, 1, output_size)*ch_mask['pre_choice'],
+                                                save_weights=False)
 
                 # add empty list for the current episode
                 if batch_idx==0:
                     for k in ss.keys():
                         all_saved_states_pre[k].append([])
                         all_saved_states_post[k].append([])
-                    all_saved_states['whs_final'].append([])
+#                     all_saved_states['whs_final'].append([])
                     all_saved_states_pre['hs'].append([])
                     all_saved_states_post['hs'].append([])
 
@@ -793,34 +791,38 @@ def run_model_all_pairs_with_hidden_init(args, model, task_mdprl, n_samples=30, 
                 all_saved_states_pre['hs'][-1].append(hs) # [num_pairs, [num_samples_per_pair, [time_pre, 1, hidden_size]]]
 
                 # use output to calculate action, reward, and record loss function
-                action_valid = torch.argmax(output[-1,:,index_s[0]], -1) # the object that can be chosen (0~1), (batch size, )
+                action_valid = torch.argmax(output[-1,:,index_s[0]], -1)
                 action = index_s[0, action_valid] # (batch size, )
-                rwd = (torch.rand(args['batch_size'])<prob_s[0][range(args['batch_size']), action_valid]).float()
+                rwd = (torch.rand(args['batch_size'])<prob_s[0][range(args['batch_size']), action_valid]).long()
                 acc.append((action_valid==torch.argmax(prob_s[0], -1)).float())    
                 curr_rwd.append(rwd)
                 
                 # use the action (optional) and reward as feedback
                 pop_post = pop_s['post_choice'][0]
                 action_enc = torch.eye(output_size)[action]
-                action_valid_enc = torch.eye(args['num_options'])[action_valid]
-                pop_post = pop_post*action_valid_enc.reshape(1,1,args['num_options'],1)
-                action_enc = action_enc*DA_s['post_choice']
-                R = (2*rwd-1)*DA_s['post_choice']
-                _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=R, Vs=None, acts=action_enc, save_weights=False)
+                rwd_enc = torch.eye(2)[rwd]
+                action_enc = action_enc*ch_mask['post_choice']
+                rwd_enc = rwd_enc*rwd_mask['post_choice']
+                DAs = (2*rwd.float()-1)*rwd_mask['post_choice']
+                _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=action_enc, DAs=DAs, save_weights=False)
                 
                 # save the post-feedback states
                 for k, v in ss.items():
                     all_saved_states_post[k][-1].append(v)
                 all_saved_states_post['hs'][-1].append(hs) # [num_pairs, [num_samples_per_pair, [time_post, 1, hidden_size]]]
 
+#             print(len(all_saved_states_pre['hs'][0][0]))
+
+
             # stack trials for each session
             for k in all_saved_states_pre.keys():
-                all_saved_states_pre[k] = torch.stack(all_saved_states_pre[k], axis=0)
+                all_saved_states_pre[k][-1] = torch.stack(all_saved_states_pre[k][-1], axis=0)
             for k in all_saved_states_post.keys():
-                all_saved_states_post[k] = torch.stack(all_saved_states_post[k], axis=0)
+                all_saved_states_post[k][-1] = torch.stack(all_saved_states_post[k][-1], axis=0)
             for k in all_saved_states.keys():
-                all_saved_states[k] = torch.stack(all_saved_states[k], axis=0)
+                all_saved_states[k][-1] = torch.stack(all_saved_states[k][-1], axis=0)
             # [num_pairs, [num_samples_per_pair, time_steps, 1, hidden_size]]
+            
 
             # save accuracies and reward
             acc = torch.stack(acc, dim=0)
@@ -857,7 +859,6 @@ def run_model_all_pairs_with_hidden_init(args, model, task_mdprl, n_samples=30, 
         all_indices = torch.stack(all_indices, dim=1) # trials X batch size X 2
         all_probs = torch.stack(all_probs, dim=1)
         return [accs, rwds], [accs_means, rwds_means], [accs_stds, rwds_stds], all_saved_states
-
 
 def order_stim_probs(stim_order, stim_probs):
     n_trials, n_batch, n_choices = stim_order.shape
