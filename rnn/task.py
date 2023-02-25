@@ -14,12 +14,6 @@ class MDPRL():
         self.prob_mdprl[:, :, :, 1] = ([0.16, 0.75, 0.98], [0.50, 0.50, 0.50], [0.02, 0.25, 0.84])
         self.prob_mdprl[:, :, :, 2] = ([0.92, 0.75, 0.43], [0.50, 0.50, 0.50], [0.57, 0.25, 0.08])
 
-        # generalizable probability matrix
-        prob_gen = np.zeros((3, 3, 3))
-        prob_gen[:, :, 0] = 0.9
-        prob_gen[:, :, 1] = 0.5
-        prob_gen[:, :, 2] = 0.1
-
         s = 1
         T = np.linspace(times['start_time']*s, times['end_time']*s, 1+int(times['total_time']*s/times['dt']))
         # when stimuli is present on the screen
@@ -284,7 +278,6 @@ class MDPRL():
                torch.from_numpy(prob_s).transpose(0, 1)
 
     def generateinputfromexp(self, batch_size, test_N_s, num_choices, participant_num):
-        # dim_order = np.random.permutation(3)
         return self.generateinput(batch_size, test_N_s, 
                                  rwd_schedule=self.prob_mdprl, 
                                  num_choices=num_choices, 
@@ -341,6 +334,303 @@ class MDPRL():
         return
 
     def reversal(self, probs):
+        new_order = np.random.permutation(3)
+        dim_to_flip = np.random.randint(0, 3)
+        new_probs = np.take(probs, new_order, dim_to_flip)
+        return new_probs
+
+class MDPRL_2_2():
+    def __init__(self, times, input_type):
+        self.prob_mdprl_gen = np.array([[0.9, 0.3], [0.7, 0.1]])
+        self.prob_mdprl_nogen = np.array([[0.9, 0.1], [0.3, 0.7]])
+
+        s = 1
+        T = np.linspace(times['start_time']*s, times['end_time']*s, 1+int(times['total_time']*s/times['dt']))
+        # when stimuli is present on the screen
+        self.T_stim = (T > times['stim_onset']*s) & (T <= times['stim_end']*s)
+        # when choice is read (only used for making the target)
+        self.T_ch = (T > times['choice_onset']*s) & (T <= times['choice_end']*s)
+        # when dopamine is released
+        self.T_rwd = (T > times['rwd_onset']*s) & (T <= times['rwd_end']*s)
+        # when choice is read (used for training the network)
+        self.T_mask = (T > times['mask_onset']*s) & (T <= times['mask_end']*s)
+
+        self.T = T
+        self.s = s
+        self.times = times
+
+        assert(input_type in ['feat', 'feat+obj']), 'invalid input type'
+        if input_type=='feat':
+            self.input_indexes = np.arange(0, 4)
+        elif input_type=='feat+obj':
+            self.input_indexes = np.arange(0, 8)
+        else:
+            raise RuntimeError
+
+        self.gen_levels = ['feat_1', 'feat_2', 'obj']
+
+        # -----------------------------------------------------------------------------------------
+        # initialization
+        # -----------------------------------------------------------------------------------------
+        index_shp = np.zeros((2, 2))
+        index_clr = np.zeros((2, 2))
+
+        index_shpclr = np.zeros((2, 2))
+
+        self.filter_stim = self.T_stim.astype(int)
+        self.filter_rwd = self.T_rwd.astype(int).reshape((1, -1))
+        self.filter_ch = self.T_ch.astype(int).reshape((1, -1))
+        self.filter_mask = self.T_mask.astype(int).reshape((1, -1))
+
+        # -----------------------------------------------------------------------------------------
+        # indexing features
+        # -----------------------------------------------------------------------------------------
+        index_shp = np.matrix([[0, 1], [0, 1]])
+        index_clr = np.matrix([[0, 0], [1, 1]])
+        index_shpclr = index_shp * 2 + index_clr
+
+        self.index_shp = index_shp.flatten().astype(int)
+        self.index_clr = index_clr.flatten().astype(int)
+        self.index_shpclr = index_shpclr.flatten().astype(int)
+
+        # -----------------------------------------------------------------------------------------
+        # generate input population activity
+        # -----------------------------------------------------------------------------------------
+        index_s = np.arange(0, 4, 1) # 4 objects
+        pop_stim = np.zeros((len(index_s), len(self.T), 8))
+        for n in range(len(index_s)):
+            pop_stim[n, :, self.index_shp[index_s[n]]] = self.filter_stim*1
+            pop_stim[n, :, 2+self.index_clr[index_s[n]]] = self.filter_stim*1
+            pop_stim[n, :, 4+self.index_shpclr[index_s[n]]] = self.filter_stim*1
+
+        self.pop_stim = pop_stim # objects, timestep, input_size
+
+        # -----------------------------------------------------------------------------------------
+        # generate feasible pairs
+        # -----------------------------------------------------------------------------------------
+        pairs = []
+        for i in range(len(index_s)):
+            for j in range(len(index_s)):
+                if i==j:
+                    continue
+                # allow both objects to share some feature for now, consistent with the experiemnt
+                # if self.index_shp[i]==self.index_shp[j] or \
+                #    self.index_clr[i]==self.index_clr[j]:
+                #     continue
+                pairs.append([i,j])
+        assert(len(pairs)==4*3)
+        self.pairs = np.array(pairs)
+
+        # # -----------------------------------------------------------------------------------------
+        # # loading experimental conditions
+        # # -----------------------------------------------------------------------------------------
+        # subjects = ['AA', 'AB',
+        #             'AC', 'AD',
+        #             'AE', 'AF', 'AG', 'AH', 'AI', 'AJ', 'AK', 'AL', 
+        #             'AM', 'AN', 'AO', 'AP', 'AQ', 'AR', 'AS', 'AT', 'AU', 
+        #             'AV', 'AW', 'AX', 'AY', 'AZ', 'BA', 'BB', 'BC', 'BD', 
+        #             'BE', 'BF', 'BG', 'BH', 'BI', 'BJ', 'BK', 'BL', 
+        #             'BM', 'BN', 'BO', 'BP', 'BQ', 'BR', 'CC', 'DD', 
+        #             'EE', 'FF', 'GG', 'HH', 'II', 'JJ', 'KK', 'LL', 
+        #             'MM', 'NN', 'OO', 'PP', 'QQ', 'RR', 'SS', 'TT', 
+        #             'UU', 'VV', 'WW', 'XX', 'YY', 'ZZ']
+        # subjects = [f'inputs/input_{s.lower()}' for s in subjects]
+        # subjects2 = ['AA', 'AB',
+        #              'AC', 'AD', 
+        #              'AE', 'AG', 'AH', 'AI', 'AJ', 'AK', 'AL', 'AM', 
+        #              'AN', 'AO', 'AP', 'AQ', 'AR', 'AS', 'AT', 'AU', 'AV', 
+        #              'AW', 'AX', 'AY']
+        # subjects += [f'inputs2/input_{s}' for s in subjects2]
+        # base_dir = '../MdPRL/Behavioral task/PRLexp/inputs_all'
+        # self.test_stim_order = []
+        # self.test_stim_dim_order = []
+        # # self.test_rwd = []
+        # for s in subjects:
+        #     exp_inputs = sio.loadmat(os.path.join(base_dir, f'{s}.mat'))
+        #     self.choiceMap = exp_inputs['expr']['choiceMap'][0,0]
+        #     self.test_stim_order.append(exp_inputs['input']['inputTarget'][0,0])
+        #     self.test_stim_dim_order.append(np.random.permutation(3))
+        #     # self.test_rwd.append(exp_inputs['input']['inputReward'][0,0])
+        # self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1)-1
+        # self.test_stim_dim_order = np.stack(self.test_stim_order, axis=0)
+        # # self.test_rwd = torch.from_numpy(np.stack(self.test_rwd, axis=0).transpose(2,0,1))
+
+    def _generate_generalizable_prob(self, gen_level, jitter=0.0):
+        # different level of gernalizability in terms of nonlinear terms: 0 (all linear), 1 (conjunction of two features), 2 (no regularity)
+        # feat_1,2,3: all linear terms, with 2,1,0 irrelevant features
+        # conj, feat+conj: a conj of two features, with a relevant or irrelevant feature
+        # obj: a conj of all features
+        assert gen_level in self.gen_levels
+        if gen_level in ['feat_1', 'feat_2']:
+            irrelevant_features = 2-int(gen_level[5])
+            log_odds = np.random.randn(2,2)
+            log_odds[:irrelevant_features] = 0 # make certain features irrelavant
+            probs = np.empty((2,2))
+            for i in range(2):
+                for j in range(2):
+                    probs[i,j] = (log_odds[0,i]+log_odds[1,j])/np.sqrt(int(gen_level[5]))
+        elif gen_level=='obj':
+            probs = np.random.randn(2,2)
+        else:
+            raise RuntimeError
+
+        # add jitter to break draws
+        probs = 1/(1+np.exp(-(probs*np.sqrt(2)+jitter*np.random.randn(*probs.shape))))
+        
+        # permute axis to change the order of dimensoins with different levels of information
+        probs = probs.transpose(np.random.permutation(2))
+        probs = probs.reshape(1, 2, 2)
+        return probs
+
+    def generateinput(self, batch_size, N_s, num_choices, subsample_stims=4, gen_level=None, rwd_schedule=None, stim_order=None):
+        if batch_size>1:
+            raise NotImplementedError
+        '''
+        sample reward schedule for the current session
+        '''
+        if rwd_schedule is not None:
+            assert(len(rwd_schedule.shape)==4 and rwd_schedule.shape[1:] == (2, 2))
+        else:
+            if gen_level is None:
+                gen_level = np.random.choice(self.gen_levels) # sample generalization level
+            rwd_schedule = self._generate_generalizable_prob(gen_level)
+        batch_size = rwd_schedule.shape[0]
+        rwd_schedule = np.reshape(rwd_schedule, (batch_size, 4))
+        
+        '''
+        sample order of presentation
+        '''
+        if stim_order is not None:
+            len_seq = len(stim_order)
+        else:
+            len_seq = N_s
+
+        if stim_order is None:
+            if num_choices==2:
+                index_s_i = self.pairs[np.random.choice(np.arange(len(self.pairs)), size=len_seq)] 
+            elif num_choices==1:
+                index_s = np.repeat(np.random.permutation(4)[:subsample_stims], N_s)
+                index_s_i = np.random.permutation(index_s).reshape(len_seq,1)
+            else:
+                raise ValueError
+        else:
+            index_s_i = stim_order
+        # index_s_i shape is (len_seq X num_choices)
+        prob_s = np.stack([rwd_schedule[:, index_s_i[:,i]] for i in range(num_choices)], axis=-1)
+        assert(index_s_i.shape==(len_seq, num_choices)), f"{index_s_i.shape}"
+        assert(prob_s.shape==(batch_size, len_seq, num_choices)), f"{prob_s.shape}"
+        prob_s += 1e-8*np.random.rand(*prob_s.shape)
+
+        '''
+        make the input to the network and target
+        '''
+        pop_s = np.zeros((len_seq, len(self.T), batch_size, num_choices, 8)) # input population activity
+        target = np.zeros((len_seq, len(self.T), batch_size))*np.nan # initialize target array
+
+        for i in range(batch_size):
+            for j in range(num_choices):
+                pop_s[:,:,i,j,:] = self.pop_stim[index_s_i[:,j],:,:] # size is num_trials X timesteps X input size
+            if num_choices==1:
+                target[:,:,i] = prob_s[i,:,:].squeeze(-1) # if only one choice, the target is the reward prob
+            else:
+                target[:,:,i] = np.argmax(prob_s[i,:,:], -1)[:,None] # if more than one choice, find position of more rewarding target
+
+        # mask for which signals to supervise
+        output_mask = {'fixation': torch.from_numpy((self.T<0.0*self.s)).reshape(1, len(self.T), 1), \
+                        'target': torch.from_numpy(self.T_mask).reshape(len(self.T))[self.T <= self.times['mask_end']*self.s]}
+        
+        # select input encoding dimensions (to include conj/obj input or not)
+        pop_s = pop_s[:,:,:,:,self.input_indexes]
+        pop_s = {
+            'pre_choice': torch.from_numpy(pop_s[:, self.T <= self.times['choice_onset']*self.s]).float(),
+            'post_choice': torch.from_numpy(pop_s[:, self.T > self.times['choice_onset']*self.s]).float()
+        }
+
+        # mask for reward outcome presentation
+        rwd_mask = self.filter_rwd.reshape((len(self.T),1,1)) 
+        rwd_mask = {
+            'pre_choice': torch.from_numpy(rwd_mask[self.T <= self.times['choice_onset']*self.s]).float(),
+            'post_choice': torch.from_numpy(rwd_mask[self.T > self.times['choice_onset']*self.s]).float()
+        }
+
+        # mask for choice presentation
+        ch_mask = self.filter_ch.reshape((len(self.T),1,1)) 
+        ch_mask = {
+            'pre_choice': torch.from_numpy(ch_mask[self.T <= self.times['choice_onset']*self.s]).float(),
+            'post_choice': torch.from_numpy(ch_mask[self.T > self.times['choice_onset']*self.s]).float()
+        }
+
+        target = {
+            'pre_choice': torch.from_numpy(target[:, self.T <= self.times['choice_onset']*self.s]),
+            'post_choice': torch.from_numpy(target[:, self.T > self.times['choice_onset']*self.s])
+        }
+
+        return pop_s, target, output_mask, rwd_mask, ch_mask, \
+               torch.from_numpy(index_s_i).long(), \
+               torch.from_numpy(prob_s).transpose(0, 1)
+
+    def generateinputfromexp(self, batch_size, test_N_s, num_choices, participant_num, dim_order):
+        raise NotImplementedError
+        assert(np.all(np.sort(dim_order)==np.arange(1,4)))
+        return self.generateinput(batch_size, test_N_s, 
+                                 rwd_schedule=np.transpose(self.prob_mdprl, [0, *dim_order]), 
+                                 num_choices=num_choices, 
+                                 stim_order=self.test_stim_order[:,participant_num])
+
+    def value_est(self, probdata=None):
+        raise NotImplementedError
+        if probdata is None:
+            probdata = self.prob_mdprl
+
+        probdata = probdata.reshape(27)
+
+        means_shp = np.empty(3)
+        means_pttrn = np.empty(3)
+        means_clr = np.empty(3)
+        for d in range(3):
+            means_shp[d] = probdata[self.index_shp==d].mean()
+            means_pttrn[d] = probdata[self.index_pttrn==d].mean()
+            means_clr[d] = probdata[self.index_clr==d].mean()
+
+        self.est_shp = means_shp[self.index_shp]
+        self.est_pttrn = means_pttrn[self.index_pttrn]
+        self.est_clr = means_shp[self.index_clr]
+
+        means_shppttrn = np.empty(9)
+        means_pttrnclr = np.empty(9)
+        means_shpclr = np.empty(9)
+        for d in range(9):
+            means_shppttrn[d] = probdata[self.index_shppttrn==d].mean()
+            means_pttrnclr[d] = probdata[self.index_pttrnclr==d].mean()
+            means_shpclr[d] = probdata[self.index_shpclr==d].mean()
+
+        self.est_shppttrn = means_shppttrn[self.index_shppttrn]
+        self.est_pttrnclr = means_pttrnclr[self.index_pttrnclr]
+        self.est_shpclr = means_shpclr[self.index_shpclr]
+        
+        self.est_shppttrnclr = probdata
+
+        return [self.est_shp, self.est_pttrn, self.est_clr, 
+                self.est_shppttrn, self.est_pttrnclr, self.est_shpclr, 
+                self.est_shppttrnclr]
+
+    def stim_encoding(self, encoding_type='feature_idx'):
+        raise NotImplementedError
+        if encoding_type=='feature_idx':
+            return {'C': self.index_clr, 'P': self.index_pttrn, 'S': self.index_shp}
+        elif encoding_type=='all_onehot':
+            stim_onset_time = np.argmax(self.filter_stim)
+            encmat = self.pop_stim[:, stim_onset_time, :]
+            assert(encmat.shape==(27,63))
+            assert(encmat.sum()>0)
+            return encmat
+
+    def generalizability(self, probdata=None):
+        raise NotImplementedError
+        return
+
+    def reversal(self, probs):
+        raise NotImplementedError
         new_order = np.random.permutation(3)
         dim_to_flip = np.random.randint(0, 3)
         new_probs = np.take(probs, new_order, dim_to_flip)

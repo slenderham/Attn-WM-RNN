@@ -37,8 +37,8 @@ if __name__ == "__main__":
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
-    parser.add_argument('--sigma_rec', type=float, default=0.1, help='Std for recurrent noise')
-    parser.add_argument('--sigma_w', type=float, default=0.0, help='Std for weight noise')
+    parser.add_argument('--sigma_rec', type=float, default=0.05, help='Std for recurrent noise')
+    parser.add_argument('--sigma_w', type=float, default=0.0001, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=None, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
@@ -205,10 +205,12 @@ if __name__ == "__main__":
                 # use output to calculate action, reward, and record loss function
                 if args.task_type=='on_policy_double':
                     if args.decision_space=='action':
-                        action = torch.argmax(output[-1,:,:], -1) # batch size
+                        # action = torch.argmax(output[-1,:,:], -1) # batch size
+                        action = torch.multinomial(output[-1,:,:], 1)
                         rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).long()
                     elif args.decision_space=='good':
-                        action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # size = (batch_size)
+                        # action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # size = (batch_size)
+                        action_valid = torch.multinomial(output[-1,:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
                         action = index_s[i, action_valid] # (batch size)
                         assert(action.shape==(args.batch_size,))
                         target = index_s[i, target_valid['pre_choice'][i].long()] # (batch size)
@@ -344,7 +346,8 @@ if __name__ == "__main__":
                                 rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
                                 loss.append((action==torch.argmax(prob_s[i], -1)).float())
                             elif args.decision_space=='good':
-                                action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # the object that can be chosen (0~1)
+                                # action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # the object that can be chosen (0~1)
+                                action_valid = torch.multinomial(output[-1,:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
                                 action = index_s[i, action_valid] # the object chosen (0~26), but only the valid one
                                 rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action_valid]).long() #(batch_size)
                                 loss.append((action_valid==target_valid['pre_choice'][i,-1]).float())

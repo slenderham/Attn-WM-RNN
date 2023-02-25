@@ -1,3 +1,4 @@
+import itertools
 import math
 from warnings import WarningMessage
 
@@ -9,7 +10,7 @@ from joblib import Parallel, delayed
 from joblib.parallel import delayed
 from scipy.optimize import curve_fit, linear_sum_assignment
 from scipy.spatial.distance import pdist
-from scipy.stats import zscore
+from scipy.stats import zscore, spearmanr, norm
 from sklearn.cluster import KMeans
 from sklearn.mixture import BayesianGaussianMixture
 from sklearn.decomposition import PCA
@@ -21,6 +22,7 @@ from tensorly.decomposition import parafac, non_negative_parafac
 import tensorly as tl
 from tensorly.tenalg import mode_dot
 from dPCA import dPCA
+
 
 def run_pca(hs, rank=3):
     trials, timesteps, batch_size, hidden_dim = hs.shape
@@ -234,3 +236,38 @@ def get_CPD(hs, xs, full_model, channel_groups):
                 cpd[i,j,k-1,:]=(sse_X_k-sse)/(sse_X_k+1e-6)
 
     return cpd
+
+def get_dpca(Xs, labels, n_components):
+    all_non_time_labels = labels
+    join_dict = {}
+    for label in itertools.combinations(all_non_time_labels, 4):
+        join_dict['t'+label] = [label, 't'+label]
+
+    dpca_model = dPCA.dPCA("trscp", join=join_dict, n_components=n_components)
+    low_hs = dpca_model.fit_transform(Xs)
+
+    all_axes = []
+    all_explained_vars = []
+    all_labels = []
+    for k in dpca_model.marginalized_psth.keys():
+        all_explained_vars.append(dpca_model.explained_variance_ratio_[k])
+        print(f"Variance explained by {k}: {dpca_model.explained_variance_ratio_[k].sum()}")
+        all_axes.append(dpca_model.P[k])
+        all_labels += [k]*dpca_model.n_components
+
+    all_axes = np.concatenate(all_axes, axis=0)
+    all_explained_vars = np.concatenate(all_explained_vars, axis=0)
+
+    return low_hs, all_axes, all_explained_vars, all_labels
+
+def axes_overlap(all_axes, n_components):
+    axes_overlap = all_axes.T@all_axes
+    sig_thresh = np.abs(norm.ppf(0.001)/np.sqrt(Xs.shape[0]))
+
+    axes_corr_val, axes_corr_ps = spearmanr(axes_overlap, axis=1)
+
+    txs, tys = np.meshgrid(np.arange(sum(n_components.values())),np.arange(sum(n_components.values())))
+    txs = txs[(np.abs(axes_overlap)>sig_thresh) & axes_corr_ps<0.001]
+    tys = tys[(np.abs(axes_overlap)>sig_thresh) & axes_corr_ps<0.001]
+
+    return axes_overlap, axes_corr_val, (txs, tys)
