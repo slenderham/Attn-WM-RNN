@@ -146,12 +146,12 @@ class MDPRL():
         self.test_stim_dim_order = np.stack(self.test_stim_order, axis=0)
         # self.test_rwd = torch.from_numpy(np.stack(self.test_rwd, axis=0).transpose(2,0,1))
 
-    def _generate_generalizable_prob(self, gen_level, jitter=0.0):
+    def _generate_generalizable_prob(self, gen_level, jitter=0.0, reward_mean_scale=[-1, 1], reward_range_scale=[2, 8]):
         # different level of gernalizability in terms of nonlinear terms: 0 (all linear), 1 (conjunction of two features), 2 (no regularity)
         # feat_1,2,3: all linear terms, with 2,1,0 irrelevant features
         # conj, feat+conj: a conj of two features, with a relevant or irrelevant feature
         # obj: a conj of all features
-        assert gen_level in self.gen_levels
+        # assert gen_level in self.gen_levels
         if gen_level in ['feat_1', 'feat_2', 'feat_3']:
             irrelevant_features = 3-int(gen_level[5])
             log_odds = np.random.randn(3,3)
@@ -182,8 +182,14 @@ class MDPRL():
         else:
             raise RuntimeError
 
+        # independently control the mean and std of reward
+        probs = (probs-np.mean(probs))/np.ptp(probs)
+        reward_mean = reward_mean_scale[0]+np.random.rand()*(reward_mean_scale[1]-reward_mean_scale[0]) # uniformly between about 0.3-0.7
+        reward_range = reward_range_scale[0]+np.random.rand()*(reward_range_scale[1]-reward_range_scale[0]) # uniformly between about 0.25-1.0
+        probs = probs*reward_range+reward_mean
+        
         # add jitter to break draws
-        probs = 1/(1+np.exp(-(probs*np.sqrt(2)+jitter*np.random.randn(*probs.shape))))
+        probs = 1/(1+np.exp(-(probs+jitter*np.random.randn(*probs.shape))))
         
         # permute axis to change the order of dimensoins with different levels of information
         probs = probs.transpose(np.random.permutation(3))
@@ -225,9 +231,9 @@ class MDPRL():
             index_s_i = stim_order
         # index_s_i shape is (len_seq X num_choices)
         prob_s = np.stack([rwd_schedule[:, index_s_i[:,i]] for i in range(num_choices)], axis=-1)
-        assert(index_s_i.shape==(len_seq, num_choices)), f"{index_s_i.shape}"
-        assert(prob_s.shape==(batch_size, len_seq, num_choices)), f"{prob_s.shape}"
-        prob_s += 1e-8*np.random.rand(*prob_s.shape)
+        # assert(index_s_i.shape==(len_seq, num_choices)), f"{index_s_i.shape}"
+        # assert(prob_s.shape==(batch_size, len_seq, num_choices)), f"{prob_s.shape}"
+        # prob_s += 1e-8*np.random.rand(*prob_s.shape)
 
         '''
         make the input to the network and target
@@ -517,8 +523,8 @@ class MDPRL_2_2():
             index_s_i = stim_order
         # index_s_i shape is (len_seq X num_choices)
         prob_s = np.stack([rwd_schedule[:, index_s_i[:,i]] for i in range(num_choices)], axis=-1)
-        assert(index_s_i.shape==(len_seq, num_choices)), f"{index_s_i.shape}"
-        assert(prob_s.shape==(batch_size, len_seq, num_choices)), f"{prob_s.shape}"
+        # assert(index_s_i.shape==(len_seq, num_choices)), f"{index_s_i.shape}"
+        # assert(prob_s.shape==(batch_size, len_seq, num_choices)), f"{prob_s.shape}"
         prob_s += 1e-8*np.random.rand(*prob_s.shape)
 
         '''

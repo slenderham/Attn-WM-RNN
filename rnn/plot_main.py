@@ -652,7 +652,8 @@ def run_model(args, model, task_mdprl, n_samples=None):
                         rwd = (torch.rand(args['batch_size'])<prob_s[i][range(args['batch_size']), action]).float()
                         all_saved_states['choose_better'][-1].append((action==torch.argmax(prob_s[i], -1)).float().squeeze())
                     elif args['decision_space']=='good':
-                        action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # the object that can be chosen (0~1), (batch size, )
+                        # action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # the object that can be chosen (0~1), (batch size, )
+                        action_valid = torch.multinomial(output[-1,:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
                         action = index_s[i, action_valid] # (batch size, )
                         rwd = (torch.rand(args['batch_size'])<prob_s[i][range(args['batch_size']), action_valid]).long()
                         all_saved_states['choose_better'][-1].append((action_valid==torch.argmax(prob_s[i], -1)).float()[None,...]) 

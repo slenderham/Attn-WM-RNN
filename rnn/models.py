@@ -7,6 +7,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
 
+
+@torch.jit.script
+def fused_retanh(x):
+    return torch.tanh(F.relu(x))
+
 def _get_activation_function(func_name):
     if func_name=='relu':
         return F.relu
@@ -15,7 +20,7 @@ def _get_activation_function(func_name):
     elif func_name=='softplus2':
         return lambda x: x/(1-torch.exp(-x))
     elif func_name=='retanh':
-        return lambda x: torch.tanh(F.relu(x))
+        return fused_retanh
     elif func_name=='sigmoid':
         return lambda x: torch.tanh(x-1)+1
     else:
@@ -28,7 +33,6 @@ def _get_pos_function(func_name):
         return torch.abs
     else:
         raise RuntimeError(F"{func_name} is an invalid function enforcing positive weight.")
-
 
 def _get_connectivity_mask_rec(rec_mask, num_areas, e_hidden_units_per_area, i_hidden_units_per_area):
     conn_mask = {}
@@ -233,7 +237,7 @@ class PlasticLeakyRNNCell(nn.Module):
                 self.kappa_in = nn.Parameter(self.x2h.effective_weight().abs().detach()/self.tau_w)
             else:
                 self.kappa_in = torch.zeros(1, self.hidden_size, self.input_size)
-            # self.kappa_rec = nn.Parameter(torch.rand(1, self.hidden_size, self.hidden_size)/self.tau_w)
+            # self.kappa_rec = nn.Parameter(torch.rand(self.hidden_size, self.hidden_size)/self.tau_w)
             self.kappa_rec = nn.Parameter(self.h2h.effective_weight().abs().detach()/self.tau_w)
 
     def plasticity_func(self, w, baseline, R, pre, post, kappa, lb, ub):
@@ -315,8 +319,8 @@ class HierarchicalRNN(nn.Module):
         # for _ in range(self.output_size):
         #     in_mask = torch.cat([in_mask, torch.FloatTensor([[0, 1, *[0]*(self.num_areas-2)]]).T], dim=-1)
         # rwd input goes to all areas, action only goes to first area (choice presentation), and last area (motor efference copy)
-        aux_mask = [torch.FloatTensor([1, *[1]*(self.num_areas-2), 1]).unsqueeze(-1), \
-                    torch.FloatTensor([0, *[0]*(self.num_areas-2), 1]).unsqueeze(-1)]
+        aux_mask = [torch.FloatTensor([1, *[1]*(self.num_areas-1)]).unsqueeze(-1), \
+                    torch.FloatTensor([*[0]*(self.num_areas-1), 1]).unsqueeze(-1)]
         rec_mask = torch.eye(self.num_areas) + torch.diag(torch.ones(self.num_areas-1), 1) + torch.diag(torch.ones(self.num_areas-1), -1)
 
         self.conn_masks = _get_connectivity_mask(in_mask=in_mask, aux_mask=aux_mask, rec_mask=rec_mask,

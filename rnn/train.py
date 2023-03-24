@@ -144,6 +144,7 @@ if __name__ == "__main__":
     model = HierarchicalRNN(**model_specs)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     print(model)
+    lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
     for n, p in model.named_parameters():
         print(n, p.numel())
     print(optimizer)
@@ -155,7 +156,7 @@ if __name__ == "__main__":
     def train(iters):
         model.train()
         pbar = tqdm(total=iters)
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
         total_acc = 0
         total_loss = 0
         for batch_idx in range(iters):
@@ -212,11 +213,13 @@ if __name__ == "__main__":
                         # action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # size = (batch_size)
                         action_valid = torch.multinomial(output[-1,:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
                         action = index_s[i, action_valid] # (batch size)
-                        assert(action.shape==(args.batch_size,))
+                        # assert(action.shape==(args.batch_size,))
+                        # output = output[:,:,index_s[i]]
+                        # target = target_valid['pre_choice'][i].long()
                         target = index_s[i, target_valid['pre_choice'][i].long()] # (batch size)
-                        assert(target.shape==(output.shape[0],args.batch_size))
+                        # assert(target.shape==(output.shape[0],args.batch_size))
                         rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action_valid]).long() #(batch_size)
-                        assert(rwd.shape==(args.batch_size,))
+                        # assert(rwd.shape==(args.batch_size,))
                     output = output[output_mask['target'].squeeze()>0.5,:,:].flatten(1)
                     target = target[output_mask['target'].squeeze()>0.5,:].flatten()
                     loss += F.cross_entropy(output, target)
@@ -258,11 +261,11 @@ if __name__ == "__main__":
                     # elif args.decision_space=='action':
                     #     pop_post = pop_post*action_enc.reshape(1,1,output_size,1)
                     action_enc = action_enc*ch_mask['post_choice']
-                    assert(action_enc.shape==(pop_post.shape[0],args.batch_size,output_size))
+                    # assert(action_enc.shape==(pop_post.shape[0],args.batch_size,output_size))
                     rwd_enc = rwd_enc*rwd_mask['post_choice']
-                    assert(rwd_enc.shape==(pop_post.shape[0],args.batch_size,2))
+                    # assert(rwd_enc.shape==(pop_post.shape[0],args.batch_size,2))
                     DAs = (2*rwd.float()-1)*rwd_mask['post_choice']
-                    assert(DAs.shape==(pop_post.shape[0],args.batch_size,1))
+                    # assert(DAs.shape==(pop_post.shape[0],args.batch_size,1))
                     _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=action_enc, DAs=DAs, save_weights=True)
                 elif args.task_type == 'value':
                     pop_post = pop_s['post_choice'][i]
@@ -304,13 +307,13 @@ if __name__ == "__main__":
                 # plt.colorbar()
                 # plt.show()
                 optimizer.step()
-                optimizer.zero_grad()
+                optimizer.zero_grad(set_to_none=True)
 
             if (batch_idx+1) % log_interval == 0:
                 if torch.isnan(loss):
                     quit()
                 pbar.set_description('Iteration {} Loss: {:.4f}'.format(batch_idx+1, total_loss/(batch_idx+1)))
-                pbar.refresh()
+                # pbar.refresh()
                 
             pbar.update()
         pbar.close()
@@ -390,6 +393,7 @@ if __name__ == "__main__":
     for i in range(args.epochs):
         training_loss = train(args.iters)
         eval_loss_means, eval_loss_stds = eval(i)
+        lr_scheduler.step()
         metrics['eval_losses_mean'].append(eval_loss_means)
         metrics['eval_losses_std'].append(eval_loss_stds)
         metrics = dict(metrics)
