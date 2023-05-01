@@ -37,8 +37,8 @@ if __name__ == "__main__":
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
-    parser.add_argument('--sigma_rec', type=float, default=0.05, help='Std for recurrent noise')
-    parser.add_argument('--sigma_w', type=float, default=0.0001, help='Std for weight noise')
+    parser.add_argument('--sigma_rec', type=float, default=0.1, help='Std for recurrent noise')
+    parser.add_argument('--sigma_w', type=float, default=0.001, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=None, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
@@ -144,7 +144,7 @@ if __name__ == "__main__":
     model = HierarchicalRNN(**model_specs)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     print(model)
-    lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    # lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
     for n, p in model.named_parameters():
         print(n, p.numel())
     print(optimizer)
@@ -393,7 +393,7 @@ if __name__ == "__main__":
     for i in range(args.epochs):
         training_loss = train(args.iters)
         eval_loss_means, eval_loss_stds = eval(i)
-        lr_scheduler.step()
+        # lr_scheduler.step()
         metrics['eval_losses_mean'].append(eval_loss_means)
         metrics['eval_losses_std'].append(eval_loss_stds)
         metrics = dict(metrics)

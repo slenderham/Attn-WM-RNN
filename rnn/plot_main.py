@@ -8,6 +8,7 @@ import numpy as np
 import scipy.cluster.hierarchy as sch
 from scipy.signal import convolve2d
 import torch
+import matplotlib as mpl
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from sklearn import cluster
@@ -24,17 +25,6 @@ from task import MDPRL
 from utils import load_checkpoint
 
 # plt.rcParams["figure.figsize"] = (16,10)
-
-def convert_pvalue_to_asterisks(pvalue):
-    if pvalue <= 0.0001:
-        return "****"
-    elif pvalue <= 0.001:
-        return "***"
-    elif pvalue <= 0.01:
-        return "**"
-    elif pvalue <= 0.05:
-        return "*"
-    return "ns"
 
 def get_sub_mats(ws, num_areas, e_hidden_size, i_hidden_size):
     trials, timesteps, batch_size, post_dim, pre_dim = ws.shape
@@ -263,7 +253,7 @@ def plot_weight_summary(args, ws):
     fig = plt.figure()
     ax = fig.add_subplot()
     diff_ws = ((ws[1:]-ws[:-1])**2).sum([-1, -2])
-    plot_mean_and_std(ax, diff_ws.mean(1), diff_ws.std(1)/np.sqrt(batch_size), None)
+    plot_mean_and_std(ax, diff_ws.mean(1), diff_ws.std(1)/np.sqrt(batch_size), None, color='black')
     ax.set_xlabel('Trial')
     ax.set_ylabel(r'$|\Delta W|_2$')
     fig.show()
@@ -273,18 +263,18 @@ def plot_weight_summary(args, ws):
     fig = plt.figure()
     ax = fig.add_subplot()
     norm_ws = (ws**2).sum([-1, -2]) # frobenius norm
-    plot_mean_and_std(ax, norm_ws.mean(1), norm_ws.std(1)/np.sqrt(batch_size), None)
+    plot_mean_and_std(ax, norm_ws.mean(1), norm_ws.std(1)/np.sqrt(batch_size), None, color='black')
     ax.set_xlabel('Trial')
     ax.set_ylabel(r'$|W|_2$')
     fig.show()
     print('Finished calculating weight norms')
-    
+
     # variance of entries across trials
     fig = plt.figure()
     ax = fig.add_subplot()
     mean_ws = ws.mean(1, keepdims=True)
     std_ws = ((ws-mean_ws)**2).sum([-1, -2])
-    plot_mean_and_std(ax, std_ws.mean(1), std_ws.std(1)/np.sqrt(batch_size), None)
+    plot_mean_and_std(ax, std_ws.mean(1), std_ws.std(1)/np.sqrt(batch_size), None, color='black')
     ax.set_xlabel('Trial')
     ax.set_ylabel('Cross session variability')
     fig.show()
@@ -309,17 +299,18 @@ def plot_learning_curve(args, all_rewards, all_choose_betters):
     plot_mean_and_std(ax, 
                       all_choose_betters.mean(axis=1), 
                       all_choose_betters.std(axis=1)/np.sqrt(all_choose_betters.squeeze().shape[1]), 
-                      label='Percent Better', color='black')
+                      label='Percent Better', color='grey')
     plot_mean_and_std(ax, 
                       all_rewards.mean(axis=1), 
                       all_rewards.std(axis=1)/np.sqrt(all_rewards.squeeze().shape[1]), 
-                      label='Reward', color='grey')
+                      label='Reward', color='black')
+    
     ax.vlines(x=args['N_s_min'], ymin=0.3, ymax=0.9, colors='black', linestyle='--')
     ax.legend()
     ax.set_xlabel('Trials')
-    ax.set_ylabel('Percent Correct')
+    ax.set_ylim([0.45, 0.85])
     plt.tight_layout()
-    plt.savefig(f'plots/{args["exp_dir"]}/learning_curve')
+    plt.savefig(f'plots/{args["exp_dir"]}/learning_curve.pdf')
     # plt.show()
 
 def plot_sorted_matrix(w, e_size, w_type, plot_args):

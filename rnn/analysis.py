@@ -10,7 +10,7 @@ from joblib import Parallel, delayed
 from joblib.parallel import delayed
 from scipy.optimize import curve_fit, linear_sum_assignment
 from scipy.spatial.distance import pdist
-from scipy.stats import zscore, spearmanr, norm
+from scipy.stats import zscore, spearmanr, norm, pearsonr
 from sklearn.cluster import KMeans
 from sklearn.mixture import BayesianGaussianMixture
 from sklearn.decomposition import PCA
@@ -23,6 +23,17 @@ import tensorly as tl
 from tensorly.tenalg import mode_dot
 from dPCA import dPCA
 
+def convert_pvalue_to_asterisks(pvalue):
+    if pvalue <= 0.001:
+        return "***"
+    elif pvalue <= 0.01:
+        return "**"
+    elif pvalue <= 0.05:
+        return "*"
+    return ""
+
+def batch_cosine_similarity(a, b, dim=-1):
+    return (a/np.linalg.norm(a, axis=dim)[...,None]) @ (b/np.linalg.norm(b, axis=dim)[...,None]).T
 
 def run_pca(hs, rank=3):
     trials, timesteps, batch_size, hidden_dim = hs.shape

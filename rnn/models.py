@@ -236,14 +236,14 @@ class PlasticLeakyRNNCell(nn.Module):
                 # self.kappa_in = nn.Parameter(torch.rand(1, self.hidden_size, self.input_size)/self.tau_w)
                 self.kappa_in = nn.Parameter(self.x2h.effective_weight().abs().detach()/self.tau_w)
             else:
-                self.kappa_in = torch.zeros(1, self.hidden_size, self.input_size)
+                self.kappa_in = 0
             # self.kappa_rec = nn.Parameter(torch.rand(self.hidden_size, self.hidden_size)/self.tau_w)
             self.kappa_rec = nn.Parameter(self.h2h.effective_weight().abs().detach()/self.tau_w)
 
     def plasticity_func(self, w, baseline, R, pre, post, kappa, lb, ub):
         if self.plas_rule=='add':
             new_w = baseline*self.alpha_w + w*self.oneminusalpha_w \
-                + self.dt*R*kappa*(torch.einsum('bi, bj->bij', post, pre)+self._sigma_w*torch.randn_like(w))
+                + self.dt*R*kappa*(torch.bmm(post.unsqueeze(2), pre.unsqueeze(1))+self._sigma_w*torch.randn_like(w))
             # multiplicative noise: multiply by learning rate only? multiply by update and weight magnitude? multiply by update?
         elif self.plas_rule=='mult':
             raise NotImplementedError
