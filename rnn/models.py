@@ -174,7 +174,7 @@ class EILinear(nn.Module):
             return result
 
 class PlasticLeakyRNNCell(nn.Module):
-    def __init__(self, input_size, hidden_size, aux_input_size, input_plastic, num_areas, plastic=True, 
+    def __init__(self, input_size, hidden_size, aux_input_size, num_areas, plastic=True, 
                 activation='retanh', dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
                 balance_ei=False, plas_rule='mult', conn_mask={}, **kwargs):
@@ -184,7 +184,6 @@ class PlasticLeakyRNNCell(nn.Module):
         self.aux_input_size = aux_input_size
         self.weight_bound = weight_bound
         self.plas_rule = plas_rule
-        self.input_plastic = input_plastic
 
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='abs',
                             e_prop=1, zero_cols_prop=0, bias=False, 
@@ -231,12 +230,6 @@ class PlasticLeakyRNNCell(nn.Module):
 
         self.plastic = plastic
         if plastic:
-            # separate lr for different neurons
-            if input_plastic:
-                # self.kappa_in = nn.Parameter(torch.rand(1, self.hidden_size, self.input_size)/self.tau_w)
-                self.kappa_in = nn.Parameter(self.x2h.effective_weight().abs().detach()/self.tau_w)
-            else:
-                self.kappa_in = 0
             # self.kappa_rec = nn.Parameter(torch.rand(self.hidden_size, self.hidden_size)/self.tau_w)
             self.kappa_rec = nn.Parameter(self.h2h.effective_weight().abs().detach()/self.tau_w)
 
@@ -259,14 +252,14 @@ class PlasticLeakyRNNCell(nn.Module):
         batch_size = x.shape[0]
         
         if self.plastic:
-            state, output, wx, wh = h
+            state, output, wh = h
         else:
             state, output = h
         
         x = torch.relu(x + self._sigma_in * torch.randn_like(x))
 
         if self.plastic:
-            total_input = self.h2h(output, wh) + self.x2h(x, wx)
+            total_input = self.h2h(output, wh) + self.x2h(x)
         else:
             total_input = self.h2h(output) + self.x2h(x)
 
@@ -279,18 +272,15 @@ class PlasticLeakyRNNCell(nn.Module):
 
         if self.plastic:
             da = da.unsqueeze(-1)
-            if self.input_plastic:
-                wx = self.plasticity_func(wx, self.x2h.pos_func(self.x2h.weight).unsqueeze(0), da, x, new_output, 
-                                        self.kappa_in.abs(), 0, self.weight_bound)
             wh = self.plasticity_func(wh, self.h2h.pos_func(self.h2h.weight).unsqueeze(0), da, new_output, new_output,
                                         self.kappa_rec.abs(), 0, self.weight_bound)
-            return [new_state, new_output, wx, wh]
+            return [new_state, new_output, wh]
         else:
             return [new_state, new_output]
 
 class HierarchicalRNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size, num_areas, num_options,
-                inter_regional_sparsity, inter_regional_gain, input_plastic,
+                inter_regional_sparsity, inter_regional_gain,
                 plastic=True, activation='retanh', train_init_state=False,
                 dt=0.02, tau_x=0.1, tau_w=1.0, weight_bound=1.0,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
@@ -338,7 +328,7 @@ class HierarchicalRNN(nn.Module):
         self.rnn = PlasticLeakyRNNCell(input_size=self.input_size, hidden_size=hidden_size*self.num_areas, aux_input_size=sum(self.aux_input_size), plastic=plastic, 
                                        activation=activation, dt=dt, tau_x=tau_x, tau_w=tau_w, weight_bound=weight_bound, train_init_state=train_init_state, 
                                        e_prop=e_prop, sigma_rec=sigma_rec, sigma_in=sigma_in, sigma_w=sigma_w, init_spectral=init_spectral,
-                                       balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks, input_plastic=input_plastic, num_areas=num_areas)
+                                       balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks, num_areas=num_areas)
 
         # sparsify inter-regional connectivity, but not enforeced
         sparse_mask_ff = (torch.rand((self.conn_masks['rec_inter_ff'].abs().sum().long(),))<inter_regional_sparsity[0])
@@ -365,8 +355,7 @@ class HierarchicalRNN(nn.Module):
         batch_size = x.shape[1]
         h_init = self.x0.to(x.device) + self.rnn._sigma_rec * torch.randn(batch_size, self.hidden_size*self.num_areas)
         if self.plastic:
-            return [h_init, h_init.relu(),
-                    self.rnn.x2h.pos_func(self.rnn.x2h.weight).unsqueeze(0).repeat(batch_size, 1, 1), 
+            return [h_init, h_init.relu(), 
                     self.rnn.h2h.pos_func(self.rnn.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1)]
         else:
             return [h_init, h_init.relu()]
@@ -388,7 +377,6 @@ class HierarchicalRNN(nn.Module):
         hs = []
 
         if save_weights:
-            wxs = []
             whs = []
         
         for i in range(steps):
@@ -412,15 +400,12 @@ class HierarchicalRNN(nn.Module):
             hidden = self.rnn(curr_x, hidden, DAs[i], aux_x)
             hs.append(hidden[1])
             if save_weights:
-                wxs.append(hidden[2])
-                whs.append(hidden[3])
+                whs.append(hidden[2])
 
         hs = torch.stack(hs, dim=0)
         saved_states = {}
         if save_weights:
-            wxs = torch.stack(wxs, dim=0)
             whs = torch.stack(whs, dim=0)
-            saved_states['wxs'] = wxs
             saved_states['whs'] = whs
 
         os = self.h2o(hs[:,:,(self.num_areas-1)*self.e_size:self.num_areas*self.e_size])

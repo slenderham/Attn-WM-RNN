@@ -50,7 +50,7 @@ if __name__ == "__main__":
     parser.add_argument('--l1w', type=float, default=0.0, help='Weight for L1 reg on weight')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
     parser.add_argument('--plas_rule', type=str, choices=['add', 'mult'], default='add', help='Plasticity rule')
-    parser.add_argument('--input_plas_off', action='store_true', help='Disable input plasticity')
+    # parser.add_argument('--input_plas_off', action='store_true', help='Disable input plasticity')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat+conj+obj', help='Input coding')
     parser.add_argument('--decision_space', type=str, choices=['good', 'good_feat', 'good_feat_conj_obj', 'action'], help='Supervise with good-based or action-based decision making')
     parser.add_argument('--sep_lr', action='store_true', help='Use different lr between diff type of units')
@@ -138,8 +138,7 @@ if __name__ == "__main__":
                    'rwd_input': args.rwd_input, 'action_input': args.action_input, 'plas_rule': args.plas_rule,
                    'sep_lr': args.sep_lr, 'num_choices': 2 if 'double' in args.task_type else 1,
                    'structured_conn': args.structured_conn, 'num_areas': args.num_areas, 
-                   'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (0.5, 0.5),
-                   'input_plastic': not args.input_plas_off}
+                   'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (0.5, 0.5)}
     
     model = HierarchicalRNN(**model_specs)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
@@ -242,8 +241,7 @@ if __name__ == "__main__":
                     # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
 
                 reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
-                reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2,-1)).mean()\
-                                +ss['whs'].pow(2).sum(dim=(-2,-1)).mean())
+                reg += args.l2w*ss['whs'].pow(2).sum(dim=(-2,-1)).mean()
                 if args.num_areas>1:
                     reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
 
@@ -287,8 +285,7 @@ if __name__ == "__main__":
                 # plt.show()
 
                 reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
-                reg += args.l2w*(ss['wxs'].pow(2).sum(dim=(-2, -1)).mean()\
-                                +ss['whs'].pow(2).sum(dim=(-2, -1)).mean())
+                reg += args.l2w*ss['whs'].pow(2).sum(dim=(-2, -1)).mean()
                 if args.num_areas>1:
                     reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
 
@@ -296,7 +293,9 @@ if __name__ == "__main__":
             
             # add weight decay for static weights
             loss /= len(pop_s['pre_choice'])
-            loss += args.l2w*(model.rnn.aux2h.effective_weight().pow(2).sum()+model.h2o.effective_weight().pow(2).sum())
+            loss += args.l2w*(model.rnn.x2h.effective_weight().pow(2).sum()+
+                              model.rnn.aux2h.effective_weight().pow(2).sum()+
+                              model.h2o.effective_weight().pow(2).sum())
 
             (loss/args.grad_accumulation_steps).backward()
             if (batch_idx+1) % args.grad_accumulation_steps == 0:

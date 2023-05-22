@@ -26,25 +26,48 @@ from utils import load_checkpoint
 
 # plt.rcParams["figure.figsize"] = (16,10)
 
-def get_sub_mats(ws, num_areas, e_hidden_size, i_hidden_size):
+def get_sub_mats(ws, num_areas, e_hidden_size, i_hidden_size, separate_ei=True):
     trials, timesteps, batch_size, post_dim, pre_dim = ws.shape
     assert((e_hidden_size+i_hidden_size)*num_areas==pre_dim and (e_hidden_size+i_hidden_size)*num_areas==post_dim)
     total_e_size = e_hidden_size*num_areas
     submats = {}
-    for i in range(num_areas):
-        submats[f"rec_intra_{i}"] = ws[:,:,:,list(range(i*e_hidden_size, (i+1)*e_hidden_size))+\
-                                             list(range(total_e_size+i*i_hidden_size, total_e_size+(i+1)*i_hidden_size))]\
-                                      [:,:,:,:,list(range(i*e_hidden_size, (i+1)*e_hidden_size))+\
-                                             list(range(total_e_size+i*i_hidden_size, total_e_size+(i+1)*i_hidden_size))]
+    if not separate_ei:
+        for i in range(num_areas):
+            submats[f"rec_intra_{i}"] = ws[:,:,:,list(range(i*e_hidden_size, (i+1)*e_hidden_size))+\
+                                                list(range(total_e_size+i*i_hidden_size, total_e_size+(i+1)*i_hidden_size))]\
+                                        [:,:,:,:,list(range(i*e_hidden_size, (i+1)*e_hidden_size))+\
+                                                list(range(total_e_size+i*i_hidden_size, total_e_size+(i+1)*i_hidden_size))]
 
-    for i in range(num_areas-1):
-        submats[f"rec_inter_ff_{i}_{i+1}"] = ws[:,:,:,list(range((i+1)*e_hidden_size, (i+2)*e_hidden_size))+\
-                                                 list(range(total_e_size+(i+1)*i_hidden_size, total_e_size+(i+2)*i_hidden_size))]\
-                                        [:,:,:,:,list(range(i*e_hidden_size, (i+1)*e_hidden_size))]
-        submats[f"rec_inter_fb_{i+1}_{i}"] = ws[:,:,:,list(range(i*e_hidden_size, i*e_hidden_size))+\
-                                                 list(range(total_e_size+(i+1)*i_hidden_size, total_e_size+(i+2)*i_hidden_size))]\
-                                        [:,:,:,:,list(range((i+1)*e_hidden_size, (i+2)*e_hidden_size))]
-    return submats
+        for i in range(num_areas-1):
+            submats[f"rec_inter_ff_{i}_{i+1}"] = ws[:,:,:,list(range((i+1)*e_hidden_size, (i+2)*e_hidden_size))+\
+                                                    list(range(total_e_size+(i+1)*i_hidden_size, total_e_size+(i+2)*i_hidden_size))]\
+                                            [:,:,:,:,list(range(i*e_hidden_size, (i+1)*e_hidden_size))]
+            submats[f"rec_inter_fb_{i+1}_{i}"] = ws[:,:,:,list(range(i*e_hidden_size, i*e_hidden_size))+\
+                                                    list(range(total_e_size+(i+1)*i_hidden_size, total_e_size+(i+2)*i_hidden_size))]\
+                                            [:,:,:,:,list(range((i+1)*e_hidden_size, (i+2)*e_hidden_size))]
+        return submats
+    else:
+        for i in range(num_areas):
+            e_indices = list(range(i*e_hidden_size, (i+1)*e_hidden_size))
+            i_indices = list(range(total_e_size+i*i_hidden_size, total_e_size+(i+1)*i_hidden_size))
+
+            submats[f"rec_intra_ee_{i}"] = ws[...,e_indices,:][:,:,:,:,e_indices]
+            submats[f"rec_intra_ie_{i}"] = ws[...,i_indices,:][:,:,:,:,e_indices]
+            submats[f"rec_intra_ei_{i}"] = ws[...,e_indices,:][:,:,:,:,i_indices]
+            submats[f"rec_intra_ii_{i}"] = ws[...,i_indices,:][:,:,:,:,i_indices]
+
+        for i in range(num_areas-1):
+            e_hi_indices = list(range((i+1)*e_hidden_size, (i+2)*e_hidden_size))
+            e_lo_indices = list(range(i*e_hidden_size, (i+1)*e_hidden_size))
+            i_hi_indices = list(range(total_e_size+(i+1)*i_hidden_size, total_e_size+(i+2)*i_hidden_size))
+            i_lo_indices = list(range(total_e_size+i*i_hidden_size, total_e_size+(i+1)*i_hidden_size))
+
+            submats[f"rec_inter_ff_ee_{i}_{i+1}"] = ws[:,:,:,e_hi_indices,:][:,:,:,:,e_lo_indices]
+            submats[f"rec_inter_ff_ie_{i}_{i+1}"] = ws[:,:,:,i_hi_indices,:][:,:,:,:,e_lo_indices]
+            submats[f"rec_inter_fb_ee_{i+1}_{i}"] = ws[:,:,:,e_lo_indices,:][:,:,:,:,e_hi_indices]
+            submats[f"rec_inter_fb_ie_{i+1}_{i}"] = ws[:,:,:,i_lo_indices,:][:,:,:,:,e_hi_indices]
+        
+        return submats
 
 def get_input_encodings(wxs, stim_enc_mat):
     # wxs: hidden_size X input_size
@@ -247,36 +270,71 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
 def plot_weight_summary(args, ws):
     trials, timesteps, batch_size, post_dim, pre_dim = ws.shape
     assert(timesteps==1)
-    ws = ws.squeeze()
+
+    all_submats = get_sub_mats(ws, args['num_areas'], 
+                               round(args['hidden_size']*args['e_prop']), 
+                               round(args['hidden_size']*(1-args['e_prop'])))
     
+    submat_keys = [
+        ["rec_intra_ee_0", "rec_inter_fb_ee_1_0", "rec_intra_ei_0"],
+        ["rec_inter_ff_ee_0_1", "rec_intra_ee_1", "rec_intra_ei_1"],
+        ["rec_intra_ie_0", "rec_inter_fb_ie_1_0", "rec_intra_ii_0"],
+        ["rec_inter_ff_ie_0_1", "rec_intra_ie_1", "rec_intra_ii_1"],
+    ]
+
+    submat_names = [
+        ["EE 0->0", "EE 1->0", "EI 0->0"],
+        ["EE 0->1", "EE 1->1", "EI 1->1"],
+        ["IE 0->0", "IE 1->0", "II 0->0"],
+        ["IE 0->1", "IE 1->0", "II 1->1"],
+    ]
+
+    for k in all_submats.keys():
+        all_submats[k] = all_submats[k].squeeze()
+
     # norm of update
-    fig = plt.figure()
-    ax = fig.add_subplot()
-    diff_ws = ((ws[1:]-ws[:-1])**2).sum([-1, -2])
-    plot_mean_and_std(ax, diff_ws.mean(1), diff_ws.std(1)/np.sqrt(batch_size), None, color='black')
-    ax.set_xlabel('Trial')
-    ax.set_ylabel(r'$|\Delta W|_2$')
+    fig, axes = plt.subplots(4, 3)
+    for i in range(4):
+        for j in range(3):
+            sub_w = all_submats[submat_keys[i][j]]
+            diff_ws = ((sub_w[1:]-sub_w[:-1])**2).sum([-1, -2])/(sub_w[0]**2).sum([-1, -2])
+            plot_mean_and_std(axes[i][j], diff_ws.mean(1), diff_ws.std(1)/np.sqrt(batch_size), 
+                              None, color='salmon' if j<=1 else 'skyblue')
+            axes[i][j].set_title(submat_names[i][j])
+    fig.supxlabel('Trial')
+    fig.supylabel(r'$|\Delta W|_2$')
+    plt.tight_layout()
     fig.show()
     print('Finished calculating norm of update')
 
     # norm of weights
-    fig = plt.figure()
-    ax = fig.add_subplot()
-    norm_ws = (ws**2).sum([-1, -2]) # frobenius norm
-    plot_mean_and_std(ax, norm_ws.mean(1), norm_ws.std(1)/np.sqrt(batch_size), None, color='black')
-    ax.set_xlabel('Trial')
-    ax.set_ylabel(r'$|W|_2$')
+    fig, axes = plt.subplots(4, 3)
+    for i in range(4):
+        for j in range(3):
+            sub_w = all_submats[submat_keys[i][j]]
+            norm_ws = (sub_w**2).sum([-1, -2])/(sub_w[0]**2).sum([-1, -2]) # frobenius norm
+            plot_mean_and_std(axes[i][j], norm_ws.mean(1), norm_ws.std(1)/np.sqrt(batch_size), 
+                              None, color='salmon' if j<=1 else 'skyblue')
+            axes[i][j].set_title(submat_names[i][j])
+    fig.supxlabel('Trial')
+    fig.supylabel(r'$|W|_2$')
+    plt.tight_layout()
     fig.show()
     print('Finished calculating weight norms')
 
     # variance of entries across trials
-    fig = plt.figure()
-    ax = fig.add_subplot()
-    mean_ws = ws.mean(1, keepdims=True)
-    std_ws = ((ws-mean_ws)**2).sum([-1, -2])
-    plot_mean_and_std(ax, std_ws.mean(1), std_ws.std(1)/np.sqrt(batch_size), None, color='black')
-    ax.set_xlabel('Trial')
-    ax.set_ylabel('Cross session variability')
+    fig, axes = plt.subplots(4, 3)
+    for i in range(4):
+        for j in range(3):
+            sub_w = all_submats[submat_keys[i][j]]
+            mean_ws = sub_w.mean(1, keepdims=True)
+            std_ws = ((sub_w-mean_ws)**2).sum([-1, -2])/(sub_w[0]**2).sum([-1, -2])
+            plot_mean_and_std(axes[i][j], std_ws.mean(1), std_ws.std(1)/np.sqrt(batch_size), 
+                              None, color='salmon' if j<=1 else 'skyblue')
+            axes[i][j].set_title(submat_names[i][j])
+    fig.supxlabel('Trial')
+    fig.supylabel('Cross session variability')
+    plt.tight_layout()
     fig.show()
     print('Finished calculating variability')
 
@@ -616,6 +674,7 @@ def run_model(args, model, task_mdprl, n_samples=None):
             all_saved_states['reward_probs'].append(torch.from_numpy(np.expand_dims(prob_s, axis=(1,)))) # num_trials X time_steps(1) X batch_size X num_choices
 
             all_saved_states['choices'].append([])
+            all_saved_states['foregone'].append([])
             all_saved_states['rewards'].append([])
             all_saved_states['choose_better'].append([])
             
@@ -646,10 +705,12 @@ def run_model(args, model, task_mdprl, n_samples=None):
                         # action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # the object that can be chosen (0~1), (batch size, )
                         action_valid = torch.multinomial(output[-1,:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
                         action = index_s[i, action_valid] # (batch size, )
+                        nonaction = index_s[i, 1-action_valid] # (batch size, )
                         rwd = (torch.rand(args['batch_size'])<prob_s[i][range(args['batch_size']), action_valid]).long()
                         all_saved_states['choose_better'][-1].append((action_valid==torch.argmax(prob_s[i], -1)).float()[None,...]) 
                     all_saved_states['rewards'][-1].append(rwd.float()[None,...])
                     all_saved_states['choices'][-1].append(action[None,...])
+                    all_saved_states['foregone'][-1].append(nonaction[None,...])
                 elif args['task_type'] == 'value':
                     raise NotImplementedError
                     rwd = (torch.rand(1)<prob_s[i]).float()
