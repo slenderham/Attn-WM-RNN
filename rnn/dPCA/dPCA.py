@@ -308,7 +308,7 @@ class dPCA(BaseEstimator):
 
        # save the marginalizations for use outside
        # thse should all be the same number of dimensions, but with shape 1 in the dimensions averaged over
-        self.marginalized_psth = Xmargs
+        self.marginalized_psth = Xmargs.copy()
         
         Xmargs = dense_marg(X,Xmargs)
 
