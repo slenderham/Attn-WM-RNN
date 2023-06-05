@@ -267,11 +267,14 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
         pdf.savefig(fig)
         print(f'Figure saved at plots/{args["exp_dir"]}/learning_rates.pdf')
     
-def plot_weight_summary(args, ws):
+def plot_weight_summary(args, ws, w_baseline):
     trials, timesteps, batch_size, post_dim, pre_dim = ws.shape
     assert(timesteps==1)
 
     all_submats = get_sub_mats(ws, args['num_areas'], 
+                               round(args['hidden_size']*args['e_prop']), 
+                               round(args['hidden_size']*(1-args['e_prop'])))
+    all_submat_baselines = get_sub_mats(w_baseline[None,None,None,...], args['num_areas'],
                                round(args['hidden_size']*args['e_prop']), 
                                round(args['hidden_size']*(1-args['e_prop'])))
     
@@ -283,26 +286,29 @@ def plot_weight_summary(args, ws):
     ]
 
     submat_names = [
-        ["EE 0->0", "EE 1->0", "EI 0->0"],
-        ["EE 0->1", "EE 1->1", "EI 1->1"],
-        ["IE 0->0", "IE 1->0", "II 0->0"],
-        ["IE 0->1", "IE 1->0", "II 1->1"],
+        [r"EE 0 $\to$ 0", r"EE 1 $\to$ 0", r"EI 0 $\to$ 0"],
+        [r"EE 0 $\to$ 1", r"EE 1 $\to$ 1", r"EI 1 $\to$ 1"],
+        [r"IE 0 $\to$ 0", r"IE 1 $\to$ 0", r"II 0 $\to$ 0"],
+        [r"IE 0 $\to$ 1", r"IE 1 $\to$ 1", r"II 1 $\to$ 1"],
     ]
 
     for k in all_submats.keys():
         all_submats[k] = all_submats[k].squeeze()
+        all_submat_baselines[k] = all_submat_baselines[k].squeeze()
 
     # norm of update
     fig, axes = plt.subplots(4, 3)
     for i in range(4):
         for j in range(3):
             sub_w = all_submats[submat_keys[i][j]]
-            diff_ws = ((sub_w[1:]-sub_w[:-1])**2).sum([-1, -2])/(sub_w[0]**2).sum([-1, -2])
+            sub_w_baseline = all_submat_baselines[submat_keys[i][j]]
+            diff_ws = ((sub_w[1:]-sub_w[:-1])**2).sum([-1, -2])/(sub_w_baseline**2).sum([-1, -2])
             plot_mean_and_std(axes[i][j], diff_ws.mean(1), diff_ws.std(1)/np.sqrt(batch_size), 
                               None, color='salmon' if j<=1 else 'skyblue')
-            axes[i][j].set_title(submat_names[i][j])
-    fig.supxlabel('Trial')
-    fig.supylabel(r'$|\Delta W|_2$')
+            axes[i][j].set_title(submat_names[i][j], fontsize=11)
+            axes[i][j].tick_params(labelsize=11)
+    fig.supxlabel('Trial', fontsize=11)
+    fig.supylabel(r'$|\Delta W|_2$', fontsize=11)
     plt.tight_layout()
     fig.show()
     print('Finished calculating norm of update')
@@ -312,12 +318,14 @@ def plot_weight_summary(args, ws):
     for i in range(4):
         for j in range(3):
             sub_w = all_submats[submat_keys[i][j]]
-            norm_ws = (sub_w**2).sum([-1, -2])/(sub_w[0]**2).sum([-1, -2]) # frobenius norm
+            sub_w_baseline = all_submat_baselines[submat_keys[i][j]]
+            norm_ws = (sub_w**2).sum([-1, -2])/(sub_w_baseline**2).sum([-1, -2])
             plot_mean_and_std(axes[i][j], norm_ws.mean(1), norm_ws.std(1)/np.sqrt(batch_size), 
                               None, color='salmon' if j<=1 else 'skyblue')
-            axes[i][j].set_title(submat_names[i][j])
-    fig.supxlabel('Trial')
-    fig.supylabel(r'$|W|_2$')
+            axes[i][j].set_title(submat_names[i][j], fontsize=11)
+            axes[i][j].tick_params(labelsize=11)
+    fig.supxlabel('Trial', fontsize=11)
+    fig.supylabel(r'$|W|_2$', fontsize=11)
     plt.tight_layout()
     fig.show()
     print('Finished calculating weight norms')
@@ -327,13 +335,15 @@ def plot_weight_summary(args, ws):
     for i in range(4):
         for j in range(3):
             sub_w = all_submats[submat_keys[i][j]]
+            sub_w_baseline = all_submat_baselines[submat_keys[i][j]]
             mean_ws = sub_w.mean(1, keepdims=True)
-            std_ws = ((sub_w-mean_ws)**2).sum([-1, -2])/(sub_w[0]**2).sum([-1, -2])
+            std_ws = ((sub_w-mean_ws)**2).sum([-1, -2])/(sub_w_baseline**2).sum([-1, -2])
             plot_mean_and_std(axes[i][j], std_ws.mean(1), std_ws.std(1)/np.sqrt(batch_size), 
                               None, color='salmon' if j<=1 else 'skyblue')
-            axes[i][j].set_title(submat_names[i][j])
-    fig.supxlabel('Trial')
-    fig.supylabel('Cross session variability')
+            axes[i][j].set_title(submat_names[i][j], fontsize=11)
+            axes[i][j].tick_params(labelsize=11)
+    fig.supxlabel('Trial', fontsize=11)
+    fig.supylabel('Cross session variability', fontsize=11)
     plt.tight_layout()
     fig.show()
     print('Finished calculating variability')
@@ -760,7 +770,6 @@ def run_model(args, model, task_mdprl, n_samples=None):
             print(k, v.shape)
         
         return all_saved_states
-
 
 def run_model_all_pairs_with_hidden_init(args, model, task_mdprl, n_samples=60, hidden_init=None):
     model.eval()

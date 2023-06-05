@@ -483,9 +483,13 @@ class dPCA(BaseEstimator):
             C = np.dot(mX,pinvX)
 
             if isinstance(self.n_components,dict):
-                U,_,_ = randomized_svd(np.dot(C,rX),n_components=self.n_components[key],n_iter=self.n_iter,random_state=np.random.randint(10e5),flip_sign=True)
+                # U,_,_ = randomized_svd(np.dot(C,rX),n_components=self.n_components[key],n_iter=self.n_iter,random_state=np.random.randint(10e5),flip_sign=True)
+                U,_,_ = np.linalg.svd(np.dot(C,rX), full_matrices=False)
+                U = U[:,:self.n_components[key]]
             else:
-                U,_,_ = randomized_svd(np.dot(C,rX),n_components=self.n_components,n_iter=self.n_iter,random_state=np.random.randint(10e5),flip_sign=True)
+                # U,_,_ = randomized_svd(np.dot(C,rX),n_components=self.n_components,n_iter=self.n_iter,random_state=np.random.randint(10e5),flip_sign=True)
+                U,_,_ = np.linalg.svd(np.dot(C,rX), full_matrices=False)
+                U = U[:,:self.n_components]
 
             P[key] = U
             D[key] = np.dot(U.T,C).T
@@ -957,7 +961,10 @@ class dPCA(BaseEstimator):
 
         """
         X = self._zero_mean(X)
+        print(X.shape)
         total_variance = np.sum(X**2)
+        non_unit_dims = tuple(range(1,len(X.shape)))
+        unitwise_variance = np.sum(X**2, axis=non_unit_dims)
 
         def marginal_variances(marginal):
             ''' Computes the relative variance explained of each component
@@ -966,16 +973,26 @@ class dPCA(BaseEstimator):
             D, P, Xr = self.D[marginal], self.P[marginal], X.reshape((X.shape[0],-1))
             return [1 - np.sum((Xr - P[:,k:k+1]@(D[:,k:k+1].T@Xr))**2) / total_variance for k in range(D.shape[1])]
 
+        def unitwise_marginal_variances(marginal):
+            ''' Computes the relative variance explained of each component
+                within a marginalization for each unit individually
+            '''
+            D, P, Xr = self.D[marginal], self.P[marginal], X.reshape((X.shape[0],-1))
+            return [1 - np.sum((Xr - P[:,k:k+1]@(D[:,k:k+1].T@Xr))**2, -1) / (unitwise_variance+1e-8) for k in range(D.shape[1])]        
+
         if marginalization is not None:
             D, Xr         = self.D[marginalization], X.reshape((X.shape[0],-1))
             X_transformed = (D.T@Xr).reshape((D.shape[1],) + X.shape[1:])
             self.explained_variance_ratio_ = {marginalization : marginal_variances(marginalization)}
+            self.unitwise_explained_variance_ratio_ = {marginalization : unitwise_marginal_variances(marginalization)}
         else:
             X_transformed = {}
             self.explained_variance_ratio_ = {}
+            self.unitwise_explained_variance_ratio_ = {}
             for key in list(self.marginalizations.keys()):
                 X_transformed[key] = (self.D[key].T@X.reshape((X.shape[0],-1))).reshape((self.D[key].shape[1],) + X.shape[1:])
                 self.explained_variance_ratio_[key] = marginal_variances(key)
+                self.unitwise_explained_variance_ratio_[key] = unitwise_marginal_variances(key)
 
         return X_transformed
 

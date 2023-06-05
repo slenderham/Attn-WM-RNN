@@ -152,6 +152,7 @@ class EILinear(nn.Module):
             if init_gain is not None:
                 self.weight.data *= init_gain
             if init_spectral is not None:
+                print(torch.linalg.eigvals(self.effective_weight()).real.max())
                 self.weight.data *= init_spectral / torch.linalg.eigvals(self.effective_weight()).real.max()
 
             if self.bias is not None:
@@ -197,12 +198,13 @@ class PlasticLeakyRNNCell(nn.Module):
         if self.aux_input_size>0:
             self.aux2h = EILinear(self.aux_input_size, hidden_size, remove_diag=False, pos_function='abs',
                                   e_prop=1, zero_cols_prop=0, bias=False,
-                                  init_gain=math.sqrt(self.aux_input_size/(input_size+aux_input_size)/hidden_size),
+                                  init_gain=math.sqrt(self.aux_input_size/(input_size+aux_input_size)/hidden_size*num_areas),
                                   conn_mask=conn_mask.get('aux', None))
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='abs',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
                             init_spectral=init_spectral, balance_ei=balance_ei,
                             conn_mask=conn_mask['rec'])
+        self.h2h.weight.data.clamp_(-self.weight_bound, self.weight_bound)
 
         self.tau_x = tau_x
         self.tau_w = tau_w
@@ -230,7 +232,7 @@ class PlasticLeakyRNNCell(nn.Module):
 
         self.plastic = plastic
         if plastic:
-            # self.kappa_rec = nn.Parameter(torch.rand(self.hidden_size, self.hidden_size)/self.tau_w)
+            # self.kappa_rec = nn.Parameter(torch.empty(self.hidden_size, self.hidden_size).exponential_(self.tau_w))
             self.kappa_rec = nn.Parameter(self.h2h.effective_weight().abs().detach()/self.tau_w)
 
     def plasticity_func(self, w, baseline, R, pre, post, kappa, lb, ub):

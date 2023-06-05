@@ -213,6 +213,9 @@ if __name__ == "__main__":
                         action_valid = torch.multinomial(output[-1,:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
                         action = index_s[i, action_valid] # (batch size)
                         # assert(action.shape==(args.batch_size,))
+                        # valid_mask = torch.zeros_like(output)
+                        # valid_mask[:,:,index_s[i]] = 1
+                        # output = torch.masked_fill(output, valid_mask<0.5, float('-inf'))
                         # output = output[:,:,index_s[i]]
                         # target = target_valid['pre_choice'][i].long()
                         target = index_s[i, target_valid['pre_choice'][i].long()] # (batch size)
@@ -220,6 +223,7 @@ if __name__ == "__main__":
                         rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action_valid]).long() #(batch_size)
                         # assert(rwd.shape==(args.batch_size,))
                     output = output[output_mask['target'].squeeze()>0.5,:,:].flatten(1)
+                    # output_masked = output_masked[output_mask['target'].squeeze()>0.5,:,:].flatten(1)
                     target = target[output_mask['target'].squeeze()>0.5,:].flatten()
                     loss += F.cross_entropy(output, target)
                     total_loss += F.cross_entropy(output, target).detach().item()/len(pop_s['pre_choice'])
@@ -307,11 +311,13 @@ if __name__ == "__main__":
                 # plt.show()
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
+                # clamp weight values to 
+                model.rnn.h2h.weight.data.clamp_(-model.rnn.weight_bound, model.rnn.weight_bound)
 
             if (batch_idx+1) % log_interval == 0:
                 if torch.isnan(loss):
                     quit()
-                pbar.set_description('Iteration {} Loss: {:.4f}'.format(batch_idx+1, total_loss/(batch_idx+1)))
+                pbar.set_description('Iteration {} Loss: {:.4f} Acc: {:.4f}'.format(batch_idx+1, total_loss/(batch_idx+1), total_acc/(batch_idx+1)))
                 # pbar.refresh()
                 
             pbar.update()

@@ -10,7 +10,6 @@ import statsmodels.formula.api as smf
 import itertools
 import statsmodels.api as sm
 from analysis import convert_pvalue_to_asterisks
-plt.rc('font', size=15) 
 from utils import create_colormap
 
 def obj_to_ft_conj(obj, task_mdprl):
@@ -99,18 +98,18 @@ def credit_assignment(all_saved_states, task_mdprl):
                 color=mpl.colormaps['tab10'](np.arange(0,7)), 
                 capsize=5)
     axes[0].set_ylabel('Regression weights')
-    axes[0].set_xlabel('Reward')
-    axes[1].set_xlabel('Choice')
-    axes[0].set_ylim([-0.15, 0.35])
-    axes[1].set_ylim([-0.15, 0.35])
+    axes[0].set_xlabel('Win-stay lose-switch')
+    axes[1].set_xlabel('Choice autocorrelation')
+    axes[0].set_ylim([-0.25, 0.55])
+    axes[1].set_ylim([-0.25, 0.55])
     axes[0].set_xticks(np.arange(1, len(var_names)+1), labels=all_xlabels)
     axes[1].set_xticks(np.arange(1, len(var_names)+1), labels=all_xlabels)
     for i in range(6):
-        axes[0].text(i+1, all_coeffs[i]+all_ses[i]+0.01, convert_pvalue_to_asterisks(all_ps[i]), 
+        axes[0].text(i+1, all_coeffs[i]+np.sign(all_coeffs[i])*(all_ses[i]+0.02)-0.01, convert_pvalue_to_asterisks(all_ps[i]), 
                      verticalalignment='center', horizontalalignment='center')
         
     for i in range(6):
-        axes[1].text(i+1, all_coeffs[i+6]+all_ses[i+6]+0.01, convert_pvalue_to_asterisks(all_ps[i+6]), 
+        axes[1].text(i+1, all_coeffs[i+6]+np.sign(all_coeffs[i+6])*(all_ses[i+6]+0.02)-0.01, convert_pvalue_to_asterisks(all_ps[i+6]), 
                      verticalalignment='center', horizontalalignment='center')
     plt.tight_layout()
     # plt.savefig(os.path.join(figure_data_dir, f"credit_assignment_{num_block}.pdf"))
@@ -185,15 +184,15 @@ def steady_state_choice_analysis(all_saved_states, task_mdprl):
     axin.bar(np.arange(1, len(var_names)+1), all_coeffs, color=mpl.colormaps['tab10']([0, 3, 7]))
     axin.errorbar(np.arange(1, len(var_names)+1), all_coeffs, all_ses, linestyle="", color='k')
     axin.text(1, all_coeffs[0]+all_ses[0]+0.05, convert_pvalue_to_asterisks(all_ps[0]), 
-            verticalalignment='center', horizontalalignment='center', fontsize=14)
+            verticalalignment='center', horizontalalignment='center', fontsize=16)
     axin.text(2, all_coeffs[1]+all_ses[1]+0.05, convert_pvalue_to_asterisks(all_ps[1]), 
-            verticalalignment='center', horizontalalignment='center', fontsize=14)
-    plt.text(3, all_coeffs[2]*np.sign(all_ses[2]+0.1), convert_pvalue_to_asterisks(all_ps[2]), 
-            verticalalignment='center', horizontalalignment='center')
-    axin.set_ylim([-0.1, 2.5])
+            verticalalignment='center', horizontalalignment='center', fontsize=16)
+    plt.text(3, all_coeffs[2]+np.sign(all_coeffs[2])*(all_ses[2]+0.3), convert_pvalue_to_asterisks(all_ps[2]), 
+            verticalalignment='center', horizontalalignment='center', fontsize=16)
+    axin.set_ylim([-0.5, 3.0])
     axin.set_xticks(range(1,4), labels=var_names, fontsize=12)
     axin.set_yticks(range(0,3), labels=range(0,3), fontsize=12)
-    axin.set_ylabel('Slopes', fontsize=14)
+    axin.set_ylabel('Slopes', fontsize=16)
     axes.set_xlabel('Log odd of reward')
     axes.set_ylabel('Choice probability')
 #     plt.tight_layout()
@@ -201,3 +200,5 @@ def steady_state_choice_analysis(all_saved_states, task_mdprl):
     plt.show()
     # plt.close()
     return
+
+
