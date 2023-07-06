@@ -138,12 +138,12 @@ if __name__ == "__main__":
                    'rwd_input': args.rwd_input, 'action_input': args.action_input, 'plas_rule': args.plas_rule,
                    'sep_lr': args.sep_lr, 'num_choices': 2 if 'double' in args.task_type else 1,
                    'structured_conn': args.structured_conn, 'num_areas': args.num_areas, 
-                   'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (0.5, 0.5)}
+                   'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (0.8, 0.8)}
     
     model = HierarchicalRNN(**model_specs)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     print(model)
-    # lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    # lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=5)
     for n, p in model.named_parameters():
         print(n, p.numel())
     print(optimizer)
@@ -244,10 +244,10 @@ if __name__ == "__main__":
                     # print(hs.shape)
                     # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
 
-                reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
+                reg = args.l2r*hs.pow(2).mean() # + args.l1r*hs.abs().mean()
                 reg += args.l2w*ss['whs'].pow(2).sum(dim=(-2,-1)).mean()
                 if args.num_areas>1:
-                    reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
+                    reg += args.l1w*((model.conn_masks['rec_inter']*ss['whs']).abs()).sum(dim=(-2,-1)).mean()
 
                 loss += reg*len(pop_s['pre_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
                 
@@ -288,10 +288,10 @@ if __name__ == "__main__":
                 # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
                 # plt.show()
 
-                reg = args.l2r*hs.pow(2).mean() + args.l1r*hs.abs().mean()
+                reg = args.l2r*hs.pow(2).mean() # + args.l1r*hs.abs().mean()
                 reg += args.l2w*ss['whs'].pow(2).sum(dim=(-2, -1)).mean()
                 if args.num_areas>1:
-                    reg += args.l1w*(model.conn_masks['rec_inter']*ss['whs'].abs()).sum(dim=(-2,-1)).mean()
+                    reg += args.l1w*((model.conn_masks['rec_inter']*ss['whs']).abs()).sum(dim=(-2,-1)).mean()
 
                 loss += reg*len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
             

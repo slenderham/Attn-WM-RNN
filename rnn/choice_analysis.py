@@ -38,7 +38,7 @@ def credit_assignment(all_saved_states, task_mdprl):
     # choose_better torch.Size([432, 1, 92])
 
     num_trials = all_saved_states['rewards'].shape[0]
-    num_trials_to_fit = np.arange(0, 150-1)
+    num_trials_to_fit = np.arange(0, 216-1)
     num_subj = all_saved_states['rewards'].shape[2]
     all_Xs = []
     all_Ys = []
@@ -100,8 +100,8 @@ def credit_assignment(all_saved_states, task_mdprl):
     axes[0].set_ylabel('Regression weights')
     axes[0].set_xlabel('Win-stay lose-switch')
     axes[1].set_xlabel('Choice autocorrelation')
-    axes[0].set_ylim([-0.25, 0.55])
-    axes[1].set_ylim([-0.25, 0.55])
+    axes[0].set_ylim([-0.3, 0.55])
+    axes[1].set_ylim([-0.3, 0.55])
     axes[0].set_xticks(np.arange(1, len(var_names)+1), labels=all_xlabels)
     axes[1].set_xticks(np.arange(1, len(var_names)+1), labels=all_xlabels)
     for i in range(6):
@@ -119,7 +119,7 @@ def credit_assignment(all_saved_states, task_mdprl):
 
 def steady_state_choice_analysis(all_saved_states, task_mdprl):
     num_trials = all_saved_states['rewards'].shape[0]
-    num_trials_to_fit = np.arange(282, num_trials)
+    num_trials_to_fit = np.arange(216, num_trials)
     num_subj = all_saved_states['rewards'].shape[2]
 
     all_Xs = []

@@ -33,7 +33,7 @@ def convert_pvalue_to_asterisks(pvalue):
     return ""
 
 def batch_cosine_similarity(a, b, dim=-1):
-    return (a/np.linalg.norm(a, axis=dim)[...,None]) @ (b/np.linalg.norm(b, axis=dim)[...,None]).T
+    return (a/(np.linalg.norm(a, axis=dim))[...,None]) @ (b/(np.linalg.norm(b, axis=dim))[...,None]).transpose(-1, -2)
 
 def run_pca(hs, rank=3):
     trials, timesteps, batch_size, hidden_dim = hs.shape

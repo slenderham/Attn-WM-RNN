@@ -745,7 +745,7 @@ def run_model(args, model, task_mdprl, n_samples=None):
                     _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=None, DAs=DAs, save_weights=False)
                 
                 all_saved_states['hs_post'][-1].append(hs) # [num_sessions, [num_trials, [time_post, num_batch_size, hidden_size]]]
-                all_saved_states['whs_final'][-1].append(hidden[3][None,...]) 
+                all_saved_states['whs_final'][-1].append(hidden[2][None,...]) 
                     # [num_sessions, [num_trials, [1, num_batch_size, hidden_size, hidden_size]]]
 
             # stack to create a trial dimension for each session

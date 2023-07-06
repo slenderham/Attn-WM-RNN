@@ -142,7 +142,7 @@ class EILinear(nn.Module):
             # nn.init.kaiming_uniform_(self.weight, a=1)
             self.weight.data = torch.from_numpy(
                 np.random.gamma(np.ones_like(self.mask.numpy()), 
-                                np.sqrt(1/(self.mask.sum(dim=1, keepdim=True).numpy()+1e-8)), 
+                                np.sqrt(1/(np.abs(self.mask).sum(dim=1, keepdim=True).numpy()+1e-8)), 
                                 size=self.weight.data.shape)).float()
             # Scale E weight by E-I ratio
             if balance_ei is not None and self.i_size!=0:
@@ -152,8 +152,7 @@ class EILinear(nn.Module):
             if init_gain is not None:
                 self.weight.data *= init_gain
             if init_spectral is not None:
-                print(torch.linalg.eigvals(self.effective_weight()).real.max())
-                self.weight.data *= init_spectral / torch.linalg.eigvals(self.effective_weight()).real.max()
+                self.weight.data *= init_spectral / np.abs(torch.linalg.eigvals(self.effective_weight())).max()
 
             if self.bias is not None:
                 nn.init.zeros_(self.bias)
@@ -232,8 +231,8 @@ class PlasticLeakyRNNCell(nn.Module):
 
         self.plastic = plastic
         if plastic:
-            # self.kappa_rec = nn.Parameter(torch.empty(self.hidden_size, self.hidden_size).exponential_(self.tau_w))
-            self.kappa_rec = nn.Parameter(self.h2h.effective_weight().abs().detach()/self.tau_w)
+            self.kappa_rec = nn.Parameter(torch.ones(self.hidden_size, self.hidden_size)/self.tau_w)
+            # self.kappa_rec = nn.Parameter(self.h2h.effective_weight().abs().detach()/self.tau_w)
 
     def plasticity_func(self, w, baseline, R, pre, post, kappa, lb, ub):
         if self.plas_rule=='add':
@@ -341,7 +340,11 @@ class HierarchicalRNN(nn.Module):
         self.rnn.h2h.weight.data[self.conn_masks['rec_inter_fb'].abs()>0.5] *= sparse_mask_fb*inter_regional_gain[1]
         self.rnn.h2h.weight.data[self.conn_masks['rec_inter_fb'].abs()>0.5] += 1e-8
         if init_spectral is not None:
-            self.rnn.h2h.weight.data *= init_spectral / torch.linalg.eigvals(self.rnn.h2h.effective_weight()).real.max()
+            temp_spectral, _ = torch.sort(torch.abs(torch.linalg.eigvals(self.rnn.h2h.effective_weight())), descending=True)
+            temp_spectral = temp_spectral[1]
+            print(round(temp_spectral.item(), 3))
+            self.rnn.h2h.weight.data *= init_spectral / temp_spectral
+            print(torch.sum(torch.abs(self.rnn.h2h.weight.data)>self.weight_bound).item())
 
         # choice and value output
         self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=False, init_gain=1)
