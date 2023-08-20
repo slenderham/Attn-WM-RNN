@@ -373,7 +373,7 @@ def plot_learning_curve(args, all_rewards, all_choose_betters):
                       all_rewards.std(axis=1)/np.sqrt(all_rewards.squeeze().shape[1]), 
                       label='Reward', color='black')
     
-    ax.vlines(x=args['N_s_min'], ymin=0.3, ymax=0.9, colors='black', linestyle='--')
+    ax.vlines(x=args['N_s'], ymin=0.3, ymax=0.9, colors='black', linestyle='--')
     ax.legend()
     ax.set_xlabel('Trials')
     ax.set_ylim([0.45, 0.85])
@@ -667,109 +667,121 @@ def run_model(args, model, task_mdprl, n_samples=None):
 #     all_dim_orders = list(itertools.permutations(range(1, 4)))
 #     all_dim_orders = [list(dim_order) for dim_order in all_dim_orders]
 
+    for p in model.parameters():
+        p.requires_grad = False # disable gradient calculation for parameters
+
     if n_samples is None:
         n_samples = task_mdprl.test_stim_order.shape[1]
-    with torch.no_grad():
-        for batch_idx in tqdm.tqdm(range(n_samples)):
-            # sample random order to permute reward schedule dimensions
+    for batch_idx in tqdm.tqdm(range(n_samples)):
+        # sample random order to permute reward schedule dimensions
 #             curr_dim_order = all_dim_orders[np.random.choice(len(all_dim_orders))]
-            pop_s, target_valid, output_mask, rwd_mask, ch_mask, index_s, prob_s = task_mdprl.generateinputfromexp(
-                batch_size=1, test_N_s=args['test_N_s'], num_choices=args['num_options'], participant_num=batch_idx)
-            
+        pop_s, target_valid, output_mask, rwd_mask, ch_mask, index_s, prob_s = task_mdprl.generateinputfromexp(
+            batch_size=1, test_N_s=args['test_N_s'], num_choices=args['num_options'], participant_num=batch_idx)
+        
 #             all_saved_states['dim_orders'].append(torch.from_numpy(np.expand_dims(np.array(curr_dim_order), axis=(0,1,2)))) # num trials (1) X time_steps(1) X batch_size(1) X num_dims
-            # add empty list for the current episode
-            all_saved_states['whs_final'].append([])
+        # add empty list for the current episode
+        all_saved_states['whs_final'].append([])
 
-            all_saved_states['stimuli'].append(torch.from_numpy(np.expand_dims(index_s, axis=(1,2)))) # num trials X time_steps(1) X batch_size(1) X num_choices
-            all_saved_states['reward_probs'].append(torch.from_numpy(np.expand_dims(prob_s, axis=(1,)))) # num_trials X time_steps(1) X batch_size X num_choices
+        all_saved_states['stimuli'].append(torch.from_numpy(np.expand_dims(index_s, axis=(1,2)))) # num trials X time_steps(1) X batch_size(1) X num_choices
+        all_saved_states['reward_probs'].append(torch.from_numpy(np.expand_dims(prob_s, axis=(1,)))) # num_trials X time_steps(1) X batch_size X num_choices
 
-            all_saved_states['choices'].append([])
-            all_saved_states['foregone'].append([])
-            all_saved_states['rewards'].append([])
-            all_saved_states['choose_better'].append([])
+        all_saved_states['choices'].append([])
+        all_saved_states['foregone'].append([])
+        all_saved_states['rewards'].append([])
+        all_saved_states['choose_better'].append([])
+        
+        all_saved_states['hs_pre'].append([])
+        all_saved_states['hs_post'].append([])
+
+        all_saved_states['sensitivity'].append([])
+
+        # reinitialize hidden layer activity
+        hidden = None
+
+        for i in range(len(pop_s['pre_choice'])):
+            # first phase, give stimuli and no feedback
+            output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
+                                            DAs=torch.zeros(1, args['batch_size'], 1)*rwd_mask['pre_choice'],
+                                            Rs=torch.zeros(1, args['batch_size'], 2)*rwd_mask['pre_choice'],
+                                            acts=torch.zeros(1, args['batch_size'], output_size)*ch_mask['pre_choice'],
+                                            save_weights=True)
+
+            # save activities before reward
+            all_saved_states['hs_pre'][-1].append(hs) # [num_sessions, [num_trials, [time_pre, num_batch_size, hidden_size]]]
+
+            if args['task_type']=='on_policy_double':
+                # use output to calculate action, reward, and record loss function
+                if args['decision_space']=='action':
+                    action = torch.argmax(output[-1,:,:], -1) # batch size
+                    rwd = (torch.rand(args['batch_size'])<prob_s[i][range(args['batch_size']), action]).float()
+                    all_saved_states['choose_better'][-1].append((action==torch.argmax(prob_s[i], -1)).float().squeeze())
+                elif args['decision_space']=='good':
+                    # action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # the object that can be chosen (0~1), (batch size, )
+                    action_valid = torch.multinomial(output[-1,:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
+                    # backpropagate from choice to previous reward
+                    (output[-1,:,index_s[i,1]]-output[-1,:,index_s[i,0]]).backward()
+                    if i>0:
+                        all_saved_states['sensitivity'][-1].append(rwd.grad)
+                    else:
+                        all_saved_states['sensitivity'][-1].append(torch.zeros_like(action_valid))
+                    
+                    action = index_s[i, action_valid] # (batch size, )
+                    nonaction = index_s[i, 1-action_valid] # (batch size, )
+                    rwd = (torch.rand(args['batch_size'])<prob_s[i][range(args['batch_size']), action_valid]).long()
+                    rwd.requires_gradient = True ### for sensitivity analysis!
+                    all_saved_states['choose_better'][-1].append((action_valid==torch.argmax(prob_s[i], -1)).float()[None,...]) 
+                all_saved_states['rewards'][-1].append(rwd.float()[None,...])
+                all_saved_states['choices'][-1].append(action[None,...])
+                all_saved_states['foregone'][-1].append(nonaction[None,...])
+            elif args['task_type'] == 'value':
+                raise NotImplementedError
+                rwd = (torch.rand(1)<prob_s[i]).float()
+                output = output.reshape(output_mask['target'].shape[0], 1, output_size)
+                acc.append(((output-target_valid['pre_choice'][i])*output_mask['target'].float().unsqueeze(-1)).pow(2).mean(0)/output_mask['target'].float().mean())
+                curr_rwd.append(rwd)
             
-            all_saved_states['hs_pre'].append([])
-            all_saved_states['hs_post'].append([])
+            if args['task_type']=='on_policy_double':
+                # use the action (optional) and reward as feedback
+                pop_post = pop_s['post_choice'][i]
+                action_enc = torch.eye(output_size)[action]
+                rwd_enc = torch.eye(2)[rwd]
+                action_enc = action_enc*ch_mask['post_choice']
+                rwd_enc = rwd_enc*rwd_mask['post_choice']
+                DAs = (2*rwd.float()-1)*rwd_mask['post_choice']
+                _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=action_enc, DAs=DAs, save_weights=False)
+            elif args['task_type'] == 'value':
+                raise NotImplementedError
+                pop_post = pop_s['post_choice'][i]
+                rwd_enc = torch.eye(2)[rwd]
+                DAs = (2*rwd.float()-1)*rwd_mask['post_choice']
+                _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=None, DAs=DAs, save_weights=False)
+            
+            all_saved_states['hs_post'][-1].append(hs) # [num_sessions, [num_trials, [time_post, num_batch_size, hidden_size]]]
+            all_saved_states['whs_final'][-1].append(hidden[2][None,...]) 
+                # [num_sessions, [num_trials, [1, num_batch_size, hidden_size, hidden_size]]]
 
-            # reinitialize hidden layer activity
-            hidden = None
-
-            for i in range(len(pop_s['pre_choice'])):
-                # first phase, give stimuli and no feedback
-                output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
-                                                DAs=torch.zeros(1, args['batch_size'], 1)*rwd_mask['pre_choice'],
-                                                Rs=torch.zeros(1, args['batch_size'], 2)*rwd_mask['pre_choice'],
-                                                acts=torch.zeros(1, args['batch_size'], output_size)*ch_mask['pre_choice'],
-                                                save_weights=True)
-
-                # save activities before reward
-                all_saved_states['hs_pre'][-1].append(hs) # [num_sessions, [num_trials, [time_pre, num_batch_size, hidden_size]]]
-
-                if args['task_type']=='on_policy_double':
-                    # use output to calculate action, reward, and record loss function
-                    if args['decision_space']=='action':
-                        action = torch.argmax(output[-1,:,:], -1) # batch size
-                        rwd = (torch.rand(args['batch_size'])<prob_s[i][range(args['batch_size']), action]).float()
-                        all_saved_states['choose_better'][-1].append((action==torch.argmax(prob_s[i], -1)).float().squeeze())
-                    elif args['decision_space']=='good':
-                        # action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # the object that can be chosen (0~1), (batch size, )
-                        action_valid = torch.multinomial(output[-1,:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
-                        action = index_s[i, action_valid] # (batch size, )
-                        nonaction = index_s[i, 1-action_valid] # (batch size, )
-                        rwd = (torch.rand(args['batch_size'])<prob_s[i][range(args['batch_size']), action_valid]).long()
-                        all_saved_states['choose_better'][-1].append((action_valid==torch.argmax(prob_s[i], -1)).float()[None,...]) 
-                    all_saved_states['rewards'][-1].append(rwd.float()[None,...])
-                    all_saved_states['choices'][-1].append(action[None,...])
-                    all_saved_states['foregone'][-1].append(nonaction[None,...])
-                elif args['task_type'] == 'value':
-                    raise NotImplementedError
-                    rwd = (torch.rand(1)<prob_s[i]).float()
-                    output = output.reshape(output_mask['target'].shape[0], 1, output_size)
-                    acc.append(((output-target_valid['pre_choice'][i])*output_mask['target'].float().unsqueeze(-1)).pow(2).mean(0)/output_mask['target'].float().mean())
-                    curr_rwd.append(rwd)
-                
-                if args['task_type']=='on_policy_double':
-                    # use the action (optional) and reward as feedback
-                    pop_post = pop_s['post_choice'][i]
-                    action_enc = torch.eye(output_size)[action]
-                    rwd_enc = torch.eye(2)[rwd]
-                    action_enc = action_enc*ch_mask['post_choice']
-                    rwd_enc = rwd_enc*rwd_mask['post_choice']
-                    DAs = (2*rwd.float()-1)*rwd_mask['post_choice']
-                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=action_enc, DAs=DAs, save_weights=False)
-                elif args['task_type'] == 'value':
-                    raise NotImplementedError
-                    pop_post = pop_s['post_choice'][i]
-                    rwd_enc = torch.eye(2)[rwd]
-                    DAs = (2*rwd.float()-1)*rwd_mask['post_choice']
-                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=None, DAs=DAs, save_weights=False)
-                
-                all_saved_states['hs_post'][-1].append(hs) # [num_sessions, [num_trials, [time_post, num_batch_size, hidden_size]]]
-                all_saved_states['whs_final'][-1].append(hidden[2][None,...]) 
-                    # [num_sessions, [num_trials, [1, num_batch_size, hidden_size, hidden_size]]]
-
-            # stack to create a trial dimension for each session
-            for k in all_saved_states.keys():
-                if isinstance(all_saved_states[k][-1], list):
-                    all_saved_states[k][-1] = torch.stack(all_saved_states[k][-1], axis=0)
-            # [num_sessions, [num_trials, time_steps, num_batch_size, ...]]
-
-        # concatenate all saved states along the batch dimension
+        # stack to create a trial dimension for each session
         for k in all_saved_states.keys():
-            all_saved_states[k] = torch.cat(all_saved_states[k], axis=2) # [num_trials, time_steps, num_sessions, ...]
-            
-        # all saved states of the form [num_trials, time_steps, num_sessions, ...]
+            if isinstance(all_saved_states[k][-1], list):
+                all_saved_states[k][-1] = torch.stack(all_saved_states[k][-1], axis=0)
+        # [num_sessions, [num_trials, time_steps, num_batch_size, ...]]
 
-        # concatenate activities pre- and post-feedback
-        all_saved_states['hs'] = torch.cat([all_saved_states['hs_pre'], all_saved_states['hs_post']], dim=1)
+    # concatenate all saved states along the batch dimension
+    for k in all_saved_states.keys():
+        all_saved_states[k] = torch.cat(all_saved_states[k], axis=2) # [num_trials, time_steps, num_sessions, ...]
+        
+    # all saved states of the form [num_trials, time_steps, num_sessions, ...]
 
-        # concatenate all accuracies and rewards
-        print(all_saved_states['rewards'].mean(), all_saved_states['choose_better'].mean())
-        
-        for k, v in all_saved_states.items():
-            print(k, v.shape)
-        
-        return all_saved_states
+    # concatenate activities pre- and post-feedback
+    all_saved_states['hs'] = torch.cat([all_saved_states['hs_pre'], all_saved_states['hs_post']], dim=1)
+
+    # concatenate all accuracies and rewards
+    print(all_saved_states['rewards'].mean(), all_saved_states['choose_better'].mean())
+    
+    for k, v in all_saved_states.items():
+        print(k, v.shape)
+    
+    return all_saved_states
 
 def run_model_all_pairs_with_hidden_init(args, model, task_mdprl, n_samples=60, hidden_init=None):
     model.eval()

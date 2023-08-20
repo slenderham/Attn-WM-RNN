@@ -4,7 +4,7 @@ from warnings import WarningMessage
 
 import numpy as np
 import tqdm
-import pingouin as pg
+# import pingouin as pg
 import scipy.cluster.hierarchy as sch
 from joblib import Parallel, delayed
 from joblib.parallel import delayed
@@ -18,9 +18,9 @@ from sklearn.metrics import silhouette_score
 from sklearn.model_selection import cross_val_score
 from sklearn.linear_model import LinearRegression, Ridge, RidgeCV
 from sklearn.svm import LinearSVC
-from tensorly.decomposition import parafac, non_negative_parafac
-import tensorly as tl
-from tensorly.tenalg import mode_dot
+# from tensorly.decomposition import parafac, non_negative_parafac
+# import tensorly as tl
+# from tensorly.tenalg import mode_dot
 from dPCA import dPCA
 
 def convert_pvalue_to_asterisks(pvalue):
@@ -41,15 +41,15 @@ def run_pca(hs, rank=3):
     low_x = pca.fit_transform(hs.reshape(trials*timesteps*batch_size, hidden_dim)).reshape(trials, timesteps, batch_size, 3)
     return low_x.reshape(trials, timesteps, batch_size, 3)
 
-def kronecker_mat_ten(matrices, X):
-    for k in range(len(matrices)):
-        M = matrices[k]
-        Y = mode_dot(X, M, k)
-        X = Y
-        X = tl.moveaxis(X, [0, 1, 2], [2, 1, 0])
-    return Y
+# def kronecker_mat_ten(matrices, X):
+#     for k in range(len(matrices)):
+#         M = matrices[k]
+#         Y = mode_dot(X, M, k)
+#         X = Y
+#         X = tl.moveaxis(X, [0, 1, 2], [2, 1, 0])
+#     return Y
 
-def corcondia(X, k):
+# def corcondia(X, k):
     # https://gist.github.com/willshiao/2c0d7cc1133d8fa31587e541fef480fb
 
     rank_X = len(X)
@@ -75,7 +75,7 @@ def corcondia(X, k):
 
     return (1 - ((G-T)**2).sum() / float(k))
 
-def run_tca(xs, ranks=[1, 27], num_reps=5):
+# def run_tca(xs, ranks=[1, 27], num_reps=5):
     results = {}
     for r in range(ranks[0], ranks[1]+1):
         print(f'fitting model of rank {r}')

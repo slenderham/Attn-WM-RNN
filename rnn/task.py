@@ -133,18 +133,55 @@ class MDPRL():
                      'AW', 'AX', 'AY']
         subjects += [f'inputs2/input_{s}' for s in subjects2]
         base_dir = '../MdPRL/Behavioral task/PRLexp/inputs_all'
+        
+        # order to stimuli, same as in human experiment
         self.test_stim_order = []
+        # randomly permute stim<->reward mapping, without changing the average feature and conjunction values 
         self.test_stim_dim_order = []
-        # self.test_rwd = []
+        self.test_stim_dim_order_reverse = []
+        self.test_stim_val_order = []
+        self.test_stim_val_order_reverse = []
+        self.test_stim_order_sensory = []
+        self.test_stim2sensory_idx = []
+        self.test_sensory2stim_idx = []
+        # actual sampled reward, same as in human experiment
+        self.test_rwd = []
+        
         for s in subjects:
             exp_inputs = sio.loadmat(os.path.join(base_dir, f'{s}.mat'))
             self.choiceMap = exp_inputs['expr']['choiceMap'][0,0]
-            self.test_stim_order.append(exp_inputs['input']['inputTarget'][0,0])
-            self.test_stim_dim_order.append(np.random.permutation(3))
-            # self.test_rwd.append(exp_inputs['input']['inputReward'][0,0])
-        self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1)-1
-        self.test_stim_dim_order = np.stack(self.test_stim_order, axis=0)
-        # self.test_rwd = torch.from_numpy(np.stack(self.test_rwd, axis=0).transpose(2,0,1))
+            self.test_stim_order.append(exp_inputs['input']['inputTarget'][0,0]-1)
+            # to test for the network's behavior without bias:
+            # randomly permute correspondence between stim dim and schedule dim
+            curr_stim_dim_order = np.random.permutation(3)
+            self.test_stim_dim_order.append(curr_stim_dim_order)
+            self.test_stim_dim_order_reverse.append(np.argsort(curr_stim_dim_order))
+            # randomly permute correspondence of feature values with stim dim
+            self.test_stim_val_order.append([])
+            self.test_stim_val_order_reverse.append([])
+            # for each dimension, randomly permute
+            for d in range(3):
+                curr_dim_val_order = np.random.permutation(3)
+                self.test_stim_val_order[-1].append(curr_dim_val_order)
+                self.test_stim_val_order_reverse[-1].append(np.argsort(curr_dim_val_order))
+            self.test_stim_val_order[-1] = np.stack(self.test_stim_val_order[-1], axis=0)
+            self.test_stim_val_order_reverse[-1] = np.stack(self.test_stim_val_order_reverse[-1], axis=0)
+            # using the above two permutations, permute the objects to get the 
+            curr_stim2sensory_idx, curr_sensory2stim_idx = self.stim_to_sensory(self.test_stim_dim_order[-1], \
+                                                                                self.test_stim_val_order[-1])
+            self.test_stim2sensory_idx.append(curr_stim2sensory_idx)
+            self.test_sensory2stim_idx.append(curr_sensory2stim_idx)
+            
+            self.test_rwd.append(exp_inputs['input']['inputReward'][0,0])
+        
+        self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1)
+        self.test_stim_dim_order = np.stack(self.test_stim_dim_order, axis=0)
+        self.test_stim_dim_order_reverse = np.stack(self.test_stim_dim_order_reverse, axis=0)
+        self.test_stim_val_order = np.stack(self.test_stim_val_order, axis=0)
+        self.test_stim_val_order_reverse = np.stack(self.test_stim_val_order_reverse, axis=0)
+        self.test_stim2sensory_idx = np.stack(self.test_stim2sensory_idx, axis=0)
+        self.test_sensory2stim_idx = np.stack(self.test_sensory2stim_idx, axis=0)
+        self.test_rwd = np.stack(self.test_rwd, axis=0).transpose(0,2,1)
 
     def _generate_generalizable_prob(self, gen_level, jitter=0.0, reward_mean_scale=[-1, 1], reward_range_scale=[2, 8]):
         # different level of gernalizability in terms of nonlinear terms: 0 (all linear), 1 (conjunction of two features), 2 (no regularity)
@@ -185,7 +222,7 @@ class MDPRL():
         # independently control the mean and std of reward
         probs = (probs-np.mean(probs))/np.ptp(probs)
         reward_mean = reward_mean_scale[0]+np.random.rand()*(reward_mean_scale[1]-reward_mean_scale[0]) # uniformly between about 0.3-0.7
-        reward_range = reward_range_scale[0]+np.random.rand()*(reward_range_scale[1]-reward_range_scale[0]) # uniformly between about 0.25-1.0
+        reward_range = reward_range_scale[0]+np.random.rand()*(reward_range_scale[1]-reward_range_scale[0]) # uniformly between about 0.5-1.0
         probs = probs*reward_range+reward_mean
         
         # add jitter to break draws
@@ -196,9 +233,14 @@ class MDPRL():
         probs = probs.reshape(1, 3, 3, 3)
         return probs
 
-    def generateinput(self, batch_size, N_s, num_choices, subsample_stims=27, gen_level=None, rwd_schedule=None, stim_order=None):
+    def generateinput(self, batch_size, N_s, num_choices, 
+                      gen_level=None, rwd_schedule=None, 
+                      stim_order=None, rwd_order=None, 
+                      stim2sensory_idx=None):
+        
         if batch_size>1:
             raise NotImplementedError
+        
         '''
         sample reward schedule for the current session
         '''
@@ -218,21 +260,35 @@ class MDPRL():
             len_seq = len(stim_order)
         else:
             len_seq = N_s
-
+        
+        # index_s_i is index in the reward schedule matrix, not the sensory space
         if stim_order is None:
             if num_choices==2:
                 index_s_i = self.pairs[np.random.choice(np.arange(len(self.pairs)), size=len_seq)] 
             elif num_choices==1:
-                index_s = np.repeat(np.random.permutation(27)[:subsample_stims], N_s)
-                index_s_i = np.random.permutation(index_s).reshape(len_seq,1)
+                index_s_i = np.repeat(np.random.permutation(27), N_s)
+                index_s_i = np.random.permutation(index_s_i).reshape(len_seq,1)
             else:
                 raise ValueError
         else:
             index_s_i = stim_order
         # index_s_i shape is (len_seq X num_choices)
-        prob_s = np.stack([rwd_schedule[:, index_s_i[:,i]] for i in range(num_choices)], axis=-1)
+
+        # true reward prob for each stim
+        # do this before changing to the sensory space
+        prob_s = np.stack([rwd_schedule[:, index_s_i[:,i]] for i in range(num_choices)], axis=-1) 
+
+        # mapping from the reward schedule matrix to the sensory space, only useful for testing
+        if stim2sensory_idx is not None:
+            index_s_i = self.permute_mapping(index_s_i, stim2sensory_idx)
+        
+        if rwd_order is None:
+            rwd_s = (np.random.rand(*prob_s.shape)<prob_s) # sampled reward for each stim
+        else:
+            raise NotImplementedError
         # assert(index_s_i.shape==(len_seq, num_choices)), f"{index_s_i.shape}"
         # assert(prob_s.shape==(batch_size, len_seq, num_choices)), f"{prob_s.shape}"
+        # assert(rwd_s.shape==(batch_size, len_seq, num_choices)), f"{prob_s.shape}"
         # prob_s += 1e-8*np.random.rand(*prob_s.shape)
 
         '''
@@ -279,15 +335,17 @@ class MDPRL():
             'post_choice': torch.from_numpy(target[:, self.T > self.times['choice_onset']*self.s])
         }
 
-        return pop_s, target, output_mask, rwd_mask, ch_mask, \
-               torch.from_numpy(index_s_i).long(), \
-               torch.from_numpy(prob_s).transpose(0, 1)
+        return pop_s, torch.from_numpy(rwd_s).long().transpose(0, 1), target, \
+              output_mask, rwd_mask, ch_mask, \
+              torch.from_numpy(index_s_i).long(), \
+              torch.from_numpy(prob_s).transpose(0, 1)
 
     def generateinputfromexp(self, batch_size, test_N_s, num_choices, participant_num):
         return self.generateinput(batch_size, test_N_s, 
                                  rwd_schedule=self.prob_mdprl, 
                                  num_choices=num_choices, 
-                                 stim_order=self.test_stim_order[:,participant_num])
+                                 stim_order=self.test_stim_order[:,participant_num],
+                                 stim2sensory_idx=self.test_stim2sensory_idx[participant_num])
 
     def value_est(self, probdata=None):
         if probdata is None:
@@ -335,15 +393,32 @@ class MDPRL():
             assert(encmat.sum()>0)
             return encmat
 
-    def generalizability(self, probdata=None):
-        raise NotImplementedError
-        return
-
     def reversal(self, probs):
         new_order = np.random.permutation(3)
         dim_to_flip = np.random.randint(0, 3)
         new_probs = np.take(probs, new_order, dim_to_flip)
         return new_probs
+    
+    def stim_to_sensory(self, stim_dim_order, stim_val_order):
+        # given a permutation of feature dimension permutation and feature value permutation,
+        # calculate the mapping from reward schedule matrix to sensory matrix and back
+        obj2sensory_idx = np.arange(3**3).reshape((3,3,3)).astype(int)
+        obj2sensory_idx = np.transpose(obj2sensory_idx, stim_dim_order)
+        for dim_idx in range(3):
+            obj2sensory_idx = np.take(obj2sensory_idx, indices=stim_val_order[dim_idx], axis=dim_idx)
+        obj2sensory_idx = obj2sensory_idx.reshape(3**3)
+        # each entry of the 
+        sensory2obj_idx = np.argsort(obj2sensory_idx)
+        return obj2sensory_idx.astype(int), sensory2obj_idx.astype(int)
+    
+    def permute_mapping(self, orig, mapping):
+        # apply the new mapping to the original sequence
+        # each entry mapping[i]->new obj index
+        new_order = np.ones_like(orig)*np.nan
+        for obj_idx in range(3**3):
+            new_order[orig==obj_idx] = mapping[obj_idx]
+        new_order = new_order.astype(int)
+        return new_order
 
     # def generate_test_schedule(self, gen_level, log_odds):
     #     rwd_schedule = np.zeros((1,3,3,3))

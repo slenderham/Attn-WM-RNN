@@ -10,6 +10,7 @@ from matplotlib import pyplot as plt
 from sklearn.metrics import accuracy_score
 from torch import optim
 from tqdm import tqdm
+import time
 
 from models import HierarchicalRNN
 from task import MDPRL
@@ -26,20 +27,18 @@ if __name__ == "__main__":
     parser.add_argument('--num_areas', type=int, default=6, help='Number of recurrent areas')
     parser.add_argument('--stim_dim', type=int, default=3, choices=[2, 3], help='Number of features')
     parser.add_argument('--stim_val', type=int, default=3, help='Possible values of features')
-    parser.add_argument('--N_s_min', type=int, default=135, help='Number of times to repeat the entire stim set')
-    parser.add_argument('--N_s_max', type=int, default=135, help='Number of times to repeat the entire stim set')
-    parser.add_argument('--N_stim_train', type=int, default=27, help='Number of stimuli to train the network on each episode')
+    parser.add_argument('--N_s', type=int, default=135, help='Number of times to repeat the entire stim set')
     parser.add_argument('--test_N_s', type=int, default=432, help='Number of times to repeat the entire stim set during eval')
     parser.add_argument('--e_prop', type=float, default=4/5, help='Proportion of E neurons')
     parser.add_argument('--batch_size', type=int, default=1, help='Batch size')
-    parser.add_argument('--grad_accumulation_steps', type=int, default=1, help='Steps of gradient accumulation.')
+    # parser.add_argument('--grad_accumulation_steps', type=int, default=1, help='Steps of gradient accumulation.')
     parser.add_argument('--eval_samples', type=int, default=21, help='Number of samples to use for evaluation.')
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
     parser.add_argument('--sigma_rec', type=float, default=0.1, help='Std for recurrent noise')
     parser.add_argument('--sigma_w', type=float, default=0.001, help='Std for weight noise')
-    parser.add_argument('--init_spectral', type=float, default=None, help='Initial spectral radius for the recurrent weights')
+    parser.add_argument('--init_spectral', type=float, default=1.0, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
     parser.add_argument('--tau_w', type=float, default=100, help='Time constant for weight modification')
@@ -80,14 +79,14 @@ if __name__ == "__main__":
         print(f"Parameters saved to {os.path.join(args.exp_dir, 'args.json')}")
         save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
-    ITI = 0.25
+    ITI = 0.2
     choice_start = 0.6
-    rwd_start = 0.75
-    stim_end = 0.9
+    rwd_start = 0.85
+    stim_end = 0.95
     mask_onset = 0.4
     # experiment timeline [0.75 fixation, 2.5 stimulus, 0.5 action presentation, 1.0 reward presentation]
     # 2021 paper          [0.5          , 0.7         , 0.3                    , 0.2                   ]
-    # here                [0.25         , 0.6         , 0.15                   , 0.15                  ]
+    # here                [0.2          , 0.6         , 0.2                    , 0.1                   ]
     
     exp_times = {
         'start_time': -ITI,
@@ -103,6 +102,7 @@ if __name__ == "__main__":
         'total_time': ITI+stim_end,
         'dt': args.dt}
     log_interval = 1
+    # args.exp_times = exp_times
 
     if args.seed is not None:
         torch.manual_seed(args.seed)
@@ -138,9 +138,9 @@ if __name__ == "__main__":
                    'rwd_input': args.rwd_input, 'action_input': args.action_input, 'plas_rule': args.plas_rule,
                    'sep_lr': args.sep_lr, 'num_choices': 2 if 'double' in args.task_type else 1,
                    'structured_conn': args.structured_conn, 'num_areas': args.num_areas, 
-                   'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (0.8, 0.8)}
+                   'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (1, 1)}
     
-    model = HierarchicalRNN(**model_specs)
+    model = HierarchicalRNN(**model_specs).to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     print(model)
     # lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=5)
@@ -152,15 +152,27 @@ if __name__ == "__main__":
         load_checkpoint(model, optimizer, device, folder=args.exp_dir, filename='checkpoint.pth.tar')
         print('Model loaded successfully')
 
-    def train(iters):
+    def train(model, iters):
         model.train()
+        optimizer.zero_grad()
         pbar = tqdm(total=iters)
-        optimizer.zero_grad(set_to_none=True)
         total_acc = 0
         total_loss = 0
         for batch_idx in range(iters):
-            pop_s, target_valid, output_mask, rwd_mask, ch_mask, index_s, prob_s = task_mdprl.generateinput(
-                batch_size=args.batch_size, N_s=np.random.randint(args.N_s_min, args.N_s_max+1), num_choices=num_options, subsample_stims=args.N_stim_train)    
+            pop_s, rwd_s, target_valid, output_mask, rwd_mask, ch_mask, index_s, prob_s = task_mdprl.generateinput(
+                batch_size=args.batch_size, N_s=args.N_s, num_choices=num_options)    
+            index_s = index_s.to(device)
+            prob_s = prob_s.to(device)
+            rwd_s = rwd_s.to(device)
+            pop_s['pre_choice'] = pop_s['pre_choice'].to(device)
+            pop_s['post_choice'] = pop_s['post_choice'].to(device)
+            target_valid['pre_choice'] = target_valid['pre_choice'].to(device)
+            output_mask['target'] = output_mask['target'].to(device)
+            rwd_mask['pre_choice'] = rwd_mask['pre_choice'].to(device)
+            rwd_mask['post_choice'] = rwd_mask['post_choice'].to(device)
+            ch_mask['pre_choice'] = ch_mask['pre_choice'].to(device)
+            ch_mask['post_choice'] = ch_mask['post_choice'].to(device)
+
             loss = 0
             hidden = None
             if args.debug:
@@ -190,9 +202,9 @@ if __name__ == "__main__":
                     probs = task_mdprl.reversal(probs)
                 # first phase, give stimuli and no feedback
                 output, hs, hidden, ss = model(pop_s['pre_choice'][i], hidden=hidden, 
-                                                DAs=torch.zeros(1, args.batch_size, 1)*rwd_mask['pre_choice'],
-                                                Rs=torch.zeros(1, args.batch_size, 2)*rwd_mask['pre_choice'],
-                                                acts=torch.zeros(1, args.batch_size, output_size)*ch_mask['pre_choice'],
+                                                DAs=(torch.zeros(1, args.batch_size, 1, device=device)*rwd_mask['pre_choice']),
+                                                Rs=(torch.zeros(1, args.batch_size, 2, device=device)*rwd_mask['pre_choice']),
+                                                acts=(torch.zeros(1, args.batch_size, output_size, device=device)*ch_mask['pre_choice']),
                                                 save_weights=True)
 
                 if args.debug:
@@ -205,28 +217,22 @@ if __name__ == "__main__":
                 # use output to calculate action, reward, and record loss function
                 if args.task_type=='on_policy_double':
                     if args.decision_space=='action':
-                        # action = torch.argmax(output[-1,:,:], -1) # batch size
                         action = torch.multinomial(output[-1,:,:], 1)
-                        rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).long()
+                        rwd = (torch.rand(args.batch_size, device=device)<prob_s[i][range(args.batch_size), action]).long()
                     elif args.decision_space=='good':
-                        # action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # size = (batch_size)
                         action_valid = torch.multinomial(output[-1,:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
                         action = index_s[i, action_valid] # (batch size)
                         # assert(action.shape==(args.batch_size,))
-                        # valid_mask = torch.zeros_like(output)
-                        # valid_mask[:,:,index_s[i]] = 1
-                        # output = torch.masked_fill(output, valid_mask<0.5, float('-inf'))
-                        # output = output[:,:,index_s[i]]
-                        # target = target_valid['pre_choice'][i].long()
                         target = index_s[i, target_valid['pre_choice'][i].long()] # (batch size)
                         # assert(target.shape==(output.shape[0],args.batch_size))
-                        rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action_valid]).long() #(batch_size)
+                        # rwd = (torch.rand(args.batch_size, device=device)<prob_s[i][range(args.batch_size), action_valid]).long() #(batch_size)
+                        rwd = rwd_s[i][range(args.batch_size), action_valid]
                         # assert(rwd.shape==(args.batch_size,))
                     output = output[output_mask['target'].squeeze()>0.5,:,:].flatten(1)
                     # output_masked = output_masked[output_mask['target'].squeeze()>0.5,:,:].flatten(1)
                     target = target[output_mask['target'].squeeze()>0.5,:].flatten()
                     loss += F.cross_entropy(output, target)
-                    total_loss += F.cross_entropy(output, target).detach().item()/len(pop_s['pre_choice'])
+                    total_loss += F.cross_entropy(output.detach(), target).detach().item()/len(pop_s['pre_choice'])
                     total_acc += (action_valid==target_valid['pre_choice'][i,-1]).float().item()/len(pop_s['pre_choice'])
                 elif args.task_type == 'value':
                     rwd = (torch.rand(args.batch_size)<prob_s[i]).float()
@@ -247,28 +253,24 @@ if __name__ == "__main__":
                 reg = args.l2r*hs.pow(2).mean() # + args.l1r*hs.abs().mean()
                 reg += args.l2w*ss['whs'].pow(2).sum(dim=(-2,-1)).mean()
                 if args.num_areas>1:
-                    reg += args.l1w*((model.conn_masks['rec_inter']*ss['whs']).abs()).sum(dim=(-2,-1)).mean()
+                    reg += args.l1w*((model.mask_rec_inter*ss['whs']).abs()).sum(dim=(-2,-1)).mean()
 
                 loss += reg*len(pop_s['pre_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
                 
                 if args.task_type=='on_policy_double':
                     # use the action (optional) and reward as feedback
                     pop_post = pop_s['post_choice'][i]
-                    action_enc = torch.eye(output_size)[action]
-                    # action_enc = torch.from_numpy(task_mdprl.stim_encoding('all_onehot'))[action,:].float()
-                    rwd_enc = torch.eye(2)[rwd]
-                    # if args.decision_space=='good':
-                    #     action_valid_enc = torch.eye(num_options)[action_valid]
-                    #     pop_post = pop_post*action_valid_enc.reshape(1,1,num_options,1)
-                    # elif args.decision_space=='action':
-                    #     pop_post = pop_post*action_enc.reshape(1,1,output_size,1)
+                    action_enc = torch.eye(output_size, device=device)[action]
+                    rwd_enc = torch.eye(2, device=device)[rwd]
+
                     action_enc = action_enc*ch_mask['post_choice']
                     # assert(action_enc.shape==(pop_post.shape[0],args.batch_size,output_size))
                     rwd_enc = rwd_enc*rwd_mask['post_choice']
                     # assert(rwd_enc.shape==(pop_post.shape[0],args.batch_size,2))
                     DAs = (2*rwd.float()-1)*rwd_mask['post_choice']
                     # assert(DAs.shape==(pop_post.shape[0],args.batch_size,1))
-                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=action_enc, DAs=DAs, save_weights=True)
+                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=action_enc, 
+                                              DAs=DAs, save_weights=True)
                 elif args.task_type == 'value':
                     pop_post = pop_s['post_choice'][i]
                     rwd_enc = torch.eye(2)[rwd]
@@ -291,7 +293,7 @@ if __name__ == "__main__":
                 reg = args.l2r*hs.pow(2).mean() # + args.l1r*hs.abs().mean()
                 reg += args.l2w*ss['whs'].pow(2).sum(dim=(-2, -1)).mean()
                 if args.num_areas>1:
-                    reg += args.l1w*((model.conn_masks['rec_inter']*ss['whs']).abs()).sum(dim=(-2,-1)).mean()
+                    reg += args.l1w*((model.mask_rec_inter*ss['whs']).abs()).sum(dim=(-2,-1)).mean()
 
                 loss += reg*len(pop_s['post_choice'][i])/(len(pop_s['pre_choice'][i])+len(pop_s['post_choice'][i]))
             
@@ -301,17 +303,18 @@ if __name__ == "__main__":
                               model.rnn.aux2h.effective_weight().pow(2).sum()+
                               model.h2o.effective_weight().pow(2).sum())
 
-            (loss/args.grad_accumulation_steps).backward()
-            if (batch_idx+1) % args.grad_accumulation_steps == 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
+            (loss).backward()
+            # if (batch_idx+1) % args.grad_accumulation_steps == 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
                 # for n, p in model.named_parameters():
                 #     print(n, p.grad.pow(2).sum())
                 # plt.imshow(model.rnn.x2h.weight.grad)
                 # plt.colorbar()
                 # plt.show()
-                optimizer.step()
-                optimizer.zero_grad(set_to_none=True)
-                # clamp weight values to 
+            optimizer.step()
+            optimizer.zero_grad()
+            # clamp weight values to 
+            with torch.no_grad():
                 model.rnn.h2h.weight.data.clamp_(-model.rnn.weight_bound, model.rnn.weight_bound)
 
             if (batch_idx+1) % log_interval == 0:
@@ -327,7 +330,7 @@ if __name__ == "__main__":
         print(f'Training Loss: {total_loss:.4f}, Training Acc: {total_acc:.4f}')
         return loss.item()
 
-    def eval(epoch):
+    def eval(model, epoch):
         model.eval()
         losses_means_by_gen = {}
         losses_stds_by_gen = {}
@@ -335,16 +338,27 @@ if __name__ == "__main__":
             for curr_gen_level in task_mdprl.gen_levels:
                 losses = []
                 for batch_idx in range(args.eval_samples):
-                    pop_s, target_valid, output_mask, rwd_mask, ch_mask, index_s, prob_s = task_mdprl.generateinput(
+                    pop_s, rwd_s, target_valid, output_mask, rwd_mask, ch_mask, index_s, prob_s = task_mdprl.generateinput(
                         args.batch_size, args.test_N_s, num_choices=num_options, gen_level=curr_gen_level)
+                    index_s = index_s.to(device)
+                    rwd_s = rwd_s.to(device)
+                    prob_s = prob_s.to(device)
+                    pop_s['pre_choice'] = pop_s['pre_choice'].to(device)
+                    pop_s['post_choice'] = pop_s['post_choice'].to(device)
+                    target_valid['pre_choice'] = target_valid['pre_choice'].to(device)
+                    output_mask['target'] = output_mask['target'].to(device)
+                    rwd_mask['pre_choice'] = rwd_mask['pre_choice'].to(device)
+                    rwd_mask['post_choice'] = rwd_mask['post_choice'].to(device)
+                    ch_mask['pre_choice'] = ch_mask['pre_choice'].to(device)
+                    ch_mask['post_choice'] = ch_mask['post_choice'].to(device)
                     loss = []
                     hidden = None
                     for i in range(len(pop_s['pre_choice'])):
                         # first phase, give stimuli and no feedback
                         output, _, hidden, _ = model(pop_s['pre_choice'][i], hidden=hidden, 
-                                                        DAs=torch.zeros(1, args.batch_size, 1)*rwd_mask['pre_choice'],
-                                                        Rs=torch.zeros(1, args.batch_size, 2)*rwd_mask['pre_choice'],
-                                                        acts=torch.zeros(1, args.batch_size, output_size)*ch_mask['pre_choice'],
+                                                        DAs=torch.zeros(1, args.batch_size, 1, device=device)*rwd_mask['pre_choice'],
+                                                        Rs=torch.zeros(1, args.batch_size, 2, device=device)*rwd_mask['pre_choice'],
+                                                        acts=torch.zeros(1, args.batch_size, output_size, device=device)*ch_mask['pre_choice'],
                                                         save_weights=False)
 
                         if args.task_type=='on_policy_double':
@@ -357,7 +371,8 @@ if __name__ == "__main__":
                                 # action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # the object that can be chosen (0~1)
                                 action_valid = torch.multinomial(output[-1,:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
                                 action = index_s[i, action_valid] # the object chosen (0~26), but only the valid one
-                                rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action_valid]).long() #(batch_size)
+                                # rwd = (torch.rand(args.batch_size, device=device)<prob_s[i][range(args.batch_size), action_valid]).long() #(batch_size)
+                                rwd = rwd_s[i][range(args.batch_size), action_valid]
                                 loss.append((action_valid==target_valid['pre_choice'][i,-1]).float())
                         elif args.task_type == 'value':
                             rwd = (torch.rand(args.batch_size)<prob_s[i]).float()
@@ -367,14 +382,9 @@ if __name__ == "__main__":
                         if args.task_type=='on_policy_double':
                             # use the action (optional) and reward as feedback
                             pop_post = pop_s['post_choice'][i]
-                            action_enc = torch.eye(output_size)[action]
+                            action_enc = torch.eye(output_size, device=device)[action]
                             # action_enc = torch.from_numpy(task_mdprl.stim_encoding('all_onehot'))[action,:].float()
-                            rwd_enc = torch.eye(2)[rwd]
-                            # if args.decision_space=='good':
-                            #     action_valid_enc = torch.eye(num_options)[action_valid]
-                            #     pop_post = pop_post*action_valid_enc.reshape(1,1,num_options,1)
-                            # elif args.decision_space=='action':
-                            #     pop_post = pop_post*action_enc.reshape(1,1,output_size,1)
+                            rwd_enc = torch.eye(2, device=device)[rwd]
                             action_enc = action_enc*ch_mask['post_choice']
                             rwd_enc = rwd_enc*rwd_mask['post_choice']
                             DAs = (2*rwd.float()-1)*rwd_mask['post_choice']
@@ -396,8 +406,8 @@ if __name__ == "__main__":
     metrics = defaultdict(list)
     best_eval_loss = 0
     for i in range(args.epochs):
-        training_loss = train(args.iters)
-        eval_loss_means, eval_loss_stds = eval(i)
+        training_loss = train(model, args.iters)
+        eval_loss_means, eval_loss_stds = eval(model, i)
         # lr_scheduler.step()
         metrics['eval_losses_mean'].append(eval_loss_means)
         metrics['eval_losses_std'].append(eval_loss_stds)

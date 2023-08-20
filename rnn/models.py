@@ -8,8 +8,7 @@ import torch.nn.functional as F
 from matplotlib import pyplot as plt
 
 
-@torch.jit.script
-def fused_retanh(x):
+def retanh(x):
     return torch.tanh(F.relu(x))
 
 def _get_activation_function(func_name):
@@ -20,7 +19,7 @@ def _get_activation_function(func_name):
     elif func_name=='softplus2':
         return lambda x: x/(1-torch.exp(-x))
     elif func_name=='retanh':
-        return fused_retanh
+        return retanh
     elif func_name=='sigmoid':
         return lambda x: torch.tanh(x-1)+1
     else:
@@ -203,7 +202,9 @@ class PlasticLeakyRNNCell(nn.Module):
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
                             init_spectral=init_spectral, balance_ei=balance_ei,
                             conn_mask=conn_mask['rec'])
-        self.h2h.weight.data.clamp_(-self.weight_bound, self.weight_bound)
+        
+        with torch.no_grad():
+            self.h2h.weight.data.clamp_(-self.weight_bound, self.weight_bound)
 
         self.tau_x = tau_x
         self.tau_w = tau_w
@@ -317,6 +318,8 @@ class HierarchicalRNN(nn.Module):
         self.conn_masks = _get_connectivity_mask(in_mask=in_mask, aux_mask=aux_mask, rec_mask=rec_mask,
                                                  input_units=input_size, aux_input_units=self.aux_input_size, 
                                                  e_hidden_units_per_area=self.e_size, i_hidden_units_per_area=hidden_size-self.e_size)
+        
+        self.register_buffer('mask_rec_inter', self.conn_masks['rec_inter'], persistent=False)
 
         balance_ei = self.conn_masks['rec_intra']\
                     +inter_regional_gain[0]*inter_regional_sparsity[0]\
@@ -330,6 +333,11 @@ class HierarchicalRNN(nn.Module):
                                        activation=activation, dt=dt, tau_x=tau_x, tau_w=tau_w, weight_bound=weight_bound, train_init_state=train_init_state, 
                                        e_prop=e_prop, sigma_rec=sigma_rec, sigma_in=sigma_in, sigma_w=sigma_w, init_spectral=init_spectral,
                                        balance_ei=balance_ei, plas_rule=plas_rule, conn_mask=self.conn_masks, num_areas=num_areas)
+        
+        # if torch.cuda.is_available():
+        # self.compiled_rnn = torch.compile(self.rnn, mode='reduce-overhead', backend='aot_eager')
+        # else:
+        # self.compiled_rnn = self.rnn
 
         # sparsify inter-regional connectivity, but not enforeced
         sparse_mask_ff = (torch.rand((self.conn_masks['rec_inter_ff'].abs().sum().long(),))<inter_regional_sparsity[0])
@@ -348,17 +356,18 @@ class HierarchicalRNN(nn.Module):
 
         # choice and value output
         self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=False, init_gain=1)
-        # self.h2o = nn.Linear(self.e_size, self.output_size)
+        # self.compiled_h2o = torch.compile(self.h2o, mode='reduce-overhead', backend='aot_eager')
+        # self.compiled_h2o = self.h2o
 
         # init state
         if train_init_state:
             self.x0 = nn.Parameter(torch.zeros(1, hidden_size*self.num_areas))
         else:
-            self.x0 = torch.zeros(1, hidden_size*self.num_areas)
+            self.register_buffer("x0", torch.zeros(1, hidden_size*self.num_areas))
 
     def init_hidden(self, x):
         batch_size = x.shape[1]
-        h_init = self.x0.to(x.device) + self.rnn._sigma_rec * torch.randn(batch_size, self.hidden_size*self.num_areas)
+        h_init = self.x0 + self.rnn._sigma_rec * torch.randn(batch_size, self.hidden_size*self.num_areas, device=x.device)
         if self.plastic:
             return [h_init, h_init.relu(), 
                     self.rnn.h2h.pos_func(self.rnn.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1)]
