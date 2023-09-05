@@ -219,9 +219,9 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     # plt.tight_layout()
     plt.show()
     # plt.savefig(f'plots/{args["exp_dir"]}/connectivity.jpg')
-    with PdfPages(f'plots/{args["exp_dir"]}/connectivity.pdf') as pdf:
-        pdf.savefig(fig)
-        print(f'Figure saved at plots/{args["exp_dir"]}/connectivity.pdf')
+    # with PdfPages(f'plots/{args["exp_dir"]}/connectivity.pdf') as pdf:
+    #     pdf.savefig(fig)
+    #     print(f'Figure saved at plots/{args["exp_dir"]}/connectivity.pdf')
 
 
     fig = plt.figure('learning_rates', (10, 10))
@@ -263,9 +263,9 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     plt.suptitle('Model Learning Rates', y=0.85)
     # plt.tight_layout()
     plt.show()
-    with PdfPages(f'plots/{args["exp_dir"]}/learning_rates.pdf') as pdf:
-        pdf.savefig(fig)
-        print(f'Figure saved at plots/{args["exp_dir"]}/learning_rates.pdf')
+    # with PdfPages(f'plots/{args["exp_dir"]}/learning_rates.pdf') as pdf:
+    #     pdf.savefig(fig)
+    #     print(f'Figure saved at plots/{args["exp_dir"]}/learning_rates.pdf')
     
 def plot_weight_summary(args, ws, w_baseline):
     trials, timesteps, batch_size, post_dim, pre_dim = ws.shape
@@ -378,7 +378,7 @@ def plot_learning_curve(args, all_rewards, all_choose_betters):
     ax.set_xlabel('Trials')
     ax.set_ylim([0.45, 0.85])
     plt.tight_layout()
-    plt.savefig(f'plots/{args["exp_dir"]}/learning_curve.pdf')
+    # plt.savefig(f'plots/{args["exp_dir"]}/learning_curve.pdf')
     # plt.show()
 
 def plot_sorted_matrix(w, e_size, w_type, plot_args):

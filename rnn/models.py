@@ -350,9 +350,7 @@ class HierarchicalRNN(nn.Module):
         if init_spectral is not None:
             temp_spectral, _ = torch.sort(torch.abs(torch.linalg.eigvals(self.rnn.h2h.effective_weight())), descending=True)
             temp_spectral = temp_spectral[1]
-            print(round(temp_spectral.item(), 3))
             self.rnn.h2h.weight.data *= init_spectral / temp_spectral
-            print(torch.sum(torch.abs(self.rnn.h2h.weight.data)>self.weight_bound).item())
 
         # choice and value output
         self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=False, init_gain=1)
