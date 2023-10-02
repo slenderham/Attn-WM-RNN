@@ -31,13 +31,14 @@ if __name__ == "__main__":
     parser.add_argument('--test_N_s', type=int, default=432, help='Number of times to repeat the entire stim set during eval')
     parser.add_argument('--e_prop', type=float, default=4/5, help='Proportion of E neurons')
     parser.add_argument('--batch_size', type=int, default=1, help='Batch size')
+    parser.add_argument('--neumann_order', type=int, default=10, help='Timestep for unrolling for neumann approximation')
     # parser.add_argument('--grad_accumulation_steps', type=int, default=1, help='Steps of gradient accumulation.')
     parser.add_argument('--eval_samples', type=int, default=21, help='Number of samples to use for evaluation.')
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
-    parser.add_argument('--sigma_rec', type=float, default=0.1, help='Std for recurrent noise')
-    parser.add_argument('--sigma_w', type=float, default=0.001, help='Std for weight noise')
+    parser.add_argument('--sigma_in', type=float, default=0., help='Std for input noise')
+    parser.add_argument('--sigma_rec', type=float, default=0.0, help='Std for recurrent noise')
+    parser.add_argument('--sigma_w', type=float, default=0.00, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=1.0, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
@@ -60,7 +61,6 @@ if __name__ == "__main__":
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'softplus2', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
     parser.add_argument('--structured_conn', action='store_true', help='Whether to use restricted connectivity')
-    parser.add_argument('--reversal_every', type=int, default=100000, help='Number of trials between reversals')
     parser.add_argument('--seed', type=int, help='Random seed')
     parser.add_argument('--save_checkpoint', action='store_true', help='Whether to save the trained model')
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to load the trained model')
@@ -79,13 +79,13 @@ if __name__ == "__main__":
         print(f"Parameters saved to {os.path.join(args.exp_dir, 'args.json')}")
         save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
-    ITI = 0.2
+    ITI = 0.4
     choice_start = 0.8
-    rwd_start = 1.2
+    rwd_start = 1.3
     
     # experiment timeline [0.75 fixation, 2.5 stimulus, 0.5 action presentation, 1.0 reward presentation]
     # 2021 paper          [0.5          , 0.7         , 0.3                    , 0.2                   ]
-    # here                [0.2          , 0.8         , 0.4                    , 0.1                   ]
+    # here                [0.4          , 0.8         , 0.5                    , 0.02                  ]
     
     exp_times = {
         'start_time': -ITI,
@@ -98,7 +98,7 @@ if __name__ == "__main__":
         'rwd_end': rwd_start,
         'total_time': ITI+rwd_start,
         'dt': args.dt}
-    log_interval = 5
+    log_interval = 10
     # args.exp_times = exp_times
 
     if args.seed is not None:
@@ -191,22 +191,21 @@ if __name__ == "__main__":
                 plt.show()
             
             for i in range(len(pop_s)):
-                if (i+1)%args.reversal_every==0:
-                    probs = task_mdprl.reversal(probs)
                 ''' first phase, give nothing '''
-                output, hidden, w_hidden, _ = model(torch.zeros_like(pop_s[i].sum(1)), steps=task_mdprl.T_fixation,
-                                            hidden=hidden, w_hidden=w_hidden, DAs=None,
-                                            Rs=torch.zeros(args.batch_size, 2, device=device),
-                                            acts=torch.zeros(args.batch_size, output_size, device=device))
+                _, hidden, w_hidden, hs = model(torch.zeros_like(pop_s[i].sum(1)), steps=task_mdprl.T_fixation, 
+                                                neumann_order=args.neumann_order,
+                                                hidden=hidden, w_hidden=w_hidden, DAs=None,
+                                                Rs=torch.zeros(args.batch_size, 2, device=device),
+                                                acts=torch.zeros(args.batch_size, output_size, device=device))
                 # regularize firing rate
-                reg = args.l2r*model.rnn.activation(hidden).pow(2).mean()/3
-                loss += reg
+                loss += args.l2r*hs.pow(2).mean()/3
 
                 ''' second phase, give stimuli and no feedback '''
-                output, hidden, w_hidden, _ = model(pop_s[i].sum(1), steps=task_mdprl.T_stim,
-                                            hidden=hidden, w_hidden=w_hidden, DAs=None,
-                                            Rs=torch.zeros(args.batch_size, 2, device=device),
-                                            acts=torch.zeros(args.batch_size, output_size, device=device))
+                output, hidden, w_hidden, hs = model(pop_s[i].sum(1), steps=task_mdprl.T_stim, 
+                                                    neumann_order=args.neumann_order,
+                                                    hidden=hidden, w_hidden=w_hidden, DAs=None,
+                                                    Rs=torch.zeros(args.batch_size, 2, device=device),
+                                                    acts=torch.zeros(args.batch_size, output_size, device=device))
 
                 if args.debug:
                     plt.plot(output.softmax(-1)[:,:,index_s[i, torch.sort(prob_s[i])[1]]].squeeze().detach())
@@ -250,11 +249,7 @@ if __name__ == "__main__":
                     # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
 
                 # regularize firing rates
-                reg = args.l2r*model.rnn.activation(hidden).pow(2).mean()/3 # + args.l1r*hs.abs().mean()
-                # reg += args.l2w*w_hidden.pow(2).sum(dim=(-2,-1)).mean()
-                # if args.num_areas>1:
-                #     reg += args.l1w*((model.mask_rec_inter*w_hidden).abs()).sum(dim=(-2,-1)).mean()
-                loss += reg
+                loss += args.l2r*hs.pow(2).mean()/3  # + args.l1r*hs.abs().mean()
                 
                 if args.task_type=='on_policy_double':
                     # use the action (optional) and reward as feedback
@@ -270,9 +265,10 @@ if __name__ == "__main__":
                     # assert(DAs.shape==(pop_post.shape[0],args.batch_size,1))
 
                     '''third phase, give stimuli and choice, and update weights'''
-                    _, hidden, w_hidden, _ = model(pop_post, steps=task_mdprl.T_ch,
-                                                   hidden=hidden, w_hidden=w_hidden, 
-                                                   Rs=rwd_enc, acts=action_enc, DAs=DAs)
+                    _, hidden, w_hidden, hs = model(pop_post, steps=task_mdprl.T_ch, 
+                                                    neumann_order=args.neumann_order,
+                                                    hidden=hidden, w_hidden=w_hidden, 
+                                                    Rs=rwd_enc, acts=action_enc, DAs=DAs)
                 elif args.task_type == 'value':
                     pop_post = pop_s[i]
                     rwd_enc = torch.eye(2)[rwd]
@@ -292,10 +288,12 @@ if __name__ == "__main__":
                 # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
                 # plt.show()
 
-                reg = args.l2r*model.rnn.activation(hidden).pow(2).mean()/3 # + args.l1r*hs.abs().mean()
+                reg = args.l2r*hs.pow(2).mean()/3 # + args.l1r*hs.abs().mean()
                 reg += args.l2w*w_hidden.pow(2).sum(dim=(-2, -1)).mean()
                 if args.num_areas>1:
                     reg += args.l1w*((model.mask_rec_inter*w_hidden).abs()).sum(dim=(-2,-1)).mean()
+                    # reg += torch.nn.functional.huber_loss((model.mask_rec_inter*w_hidden), torch.zeros_like(w_hidden),
+                    #                                       reduction='none', delta=args.l1w).sum(dim=(-2,-1)).mean()
                 loss += reg
             
             # add weight decay for static weights
@@ -304,7 +302,7 @@ if __name__ == "__main__":
                               model.rnn.aux2h.effective_weight().pow(2).sum()+
                               model.h2o.effective_weight().pow(2).sum())
 
-            (loss).backward()
+            loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
             optimizer.step()
             optimizer.zero_grad()
@@ -345,7 +343,7 @@ if __name__ == "__main__":
                     w_hidden = None
                     for i in range(len(pop_s)):
                         # first phase, give nothing
-                        output, hidden, w_hidden, _ = model(torch.zeros_like(pop_s[i].sum(1)), steps=task_mdprl.T_fixation,
+                        _, hidden, w_hidden, _ = model(torch.zeros_like(pop_s[i].sum(1)), steps=task_mdprl.T_fixation,
                                                     hidden=hidden, w_hidden=w_hidden, DAs=None,
                                                     Rs=torch.zeros(args.batch_size, 2, device=device),
                                                     acts=torch.zeros(args.batch_size, output_size, device=device))

@@ -18,10 +18,7 @@ from torch.nn.functional import interpolate
 from torch.serialization import save
 import tqdm
 from analysis import *
-from models import HierarchicalRNN
-from analysis import targeted_dimensionality_reduction
 from analysis import participation_ratio, run_svd_time_varying_w, get_dpca
-from task import MDPRL
 from utils import load_checkpoint
 
 # plt.rcParams["figure.figsize"] = (16,10)
@@ -267,14 +264,11 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     #     pdf.savefig(fig)
     #     print(f'Figure saved at plots/{args["exp_dir"]}/learning_rates.pdf')
     
-def plot_weight_summary(args, ws, w_baseline):
+def plot_weight_summary(args, ws):
     trials, timesteps, batch_size, post_dim, pre_dim = ws.shape
     assert(timesteps==1)
 
     all_submats = get_sub_mats(ws, args['num_areas'], 
-                               round(args['hidden_size']*args['e_prop']), 
-                               round(args['hidden_size']*(1-args['e_prop'])))
-    all_submat_baselines = get_sub_mats(w_baseline[None,None,None,...], args['num_areas'],
                                round(args['hidden_size']*args['e_prop']), 
                                round(args['hidden_size']*(1-args['e_prop'])))
     
@@ -294,15 +288,13 @@ def plot_weight_summary(args, ws, w_baseline):
 
     for k in all_submats.keys():
         all_submats[k] = all_submats[k].squeeze()
-        all_submat_baselines[k] = all_submat_baselines[k].squeeze()
 
     # norm of update
     fig, axes = plt.subplots(4, 3)
     for i in range(4):
         for j in range(3):
             sub_w = all_submats[submat_keys[i][j]]
-            sub_w_baseline = all_submat_baselines[submat_keys[i][j]]
-            diff_ws = ((sub_w[1:]-sub_w[:-1])**2).sum([-1, -2])/(sub_w_baseline**2).sum([-1, -2])
+            diff_ws = ((sub_w[1:]-sub_w[:-1])**2).mean([-1, -2])
             plot_mean_and_std(axes[i][j], diff_ws.mean(1), diff_ws.std(1)/np.sqrt(batch_size), 
                               None, color='salmon' if j<=1 else 'skyblue')
             axes[i][j].set_title(submat_names[i][j], fontsize=11)
@@ -318,8 +310,7 @@ def plot_weight_summary(args, ws, w_baseline):
     for i in range(4):
         for j in range(3):
             sub_w = all_submats[submat_keys[i][j]]
-            sub_w_baseline = all_submat_baselines[submat_keys[i][j]]
-            norm_ws = (sub_w**2).sum([-1, -2])/(sub_w_baseline**2).sum([-1, -2])
+            norm_ws = (sub_w**2).mean([-1, -2])
             plot_mean_and_std(axes[i][j], norm_ws.mean(1), norm_ws.std(1)/np.sqrt(batch_size), 
                               None, color='salmon' if j<=1 else 'skyblue')
             axes[i][j].set_title(submat_names[i][j], fontsize=11)
@@ -335,9 +326,8 @@ def plot_weight_summary(args, ws, w_baseline):
     for i in range(4):
         for j in range(3):
             sub_w = all_submats[submat_keys[i][j]]
-            sub_w_baseline = all_submat_baselines[submat_keys[i][j]]
             mean_ws = sub_w.mean(1, keepdims=True)
-            std_ws = ((sub_w-mean_ws)**2).sum([-1, -2])/(sub_w_baseline**2).sum([-1, -2])
+            std_ws = ((sub_w-mean_ws)**2).mean([-1, -2])
             plot_mean_and_std(axes[i][j], std_ws.mean(1), std_ws.std(1)/np.sqrt(batch_size), 
                               None, color='salmon' if j<=1 else 'skyblue')
             axes[i][j].set_title(submat_names[i][j], fontsize=11)
@@ -348,7 +338,8 @@ def plot_weight_summary(args, ws, w_baseline):
     fig.show()
     print('Finished calculating variability')
 
-def plot_learning_curve(args, all_rewards, all_choose_betters):
+
+def plot_learning_curve(args, all_rewards, all_choose_betters, plot_save_dir):
     # fig_all = plt.figure('perf_all')
     # ax = fig_all.add_subplot()
     # ax.imshow(all_l[0].squeeze(-1).t(), interpolation='nearest')
@@ -378,8 +369,11 @@ def plot_learning_curve(args, all_rewards, all_choose_betters):
     ax.set_xlabel('Trials')
     ax.set_ylim([0.45, 0.85])
     plt.tight_layout()
-    # plt.savefig(f'plots/{args["exp_dir"]}/learning_curve.pdf')
-    # plt.show()
+    plt.show()
+    
+    with PdfPages(f'plots/{plot_save_dir}/learning_curve.pdf') as pdf:
+        pdf.savefig(fig_summ)
+        print(f'Figure saved at plots/{plot_save_dir}/learning_curve.pdf')
 
 def plot_sorted_matrix(w, e_size, w_type, plot_args):
     # from https://github.com/gyyang/nn-brain/blob/master/EI_RNN.ipynb

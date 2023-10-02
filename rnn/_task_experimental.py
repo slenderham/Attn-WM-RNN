@@ -199,14 +199,14 @@ class MDPRL():
             irrelevant_features = 3-int(gen_level[5])
             log_odds = np.random.randn(3,3)
             log_odds[:irrelevant_features] = 0 # make certain features irrelavant
-            probs = np.empty((3,3,3))
+            probs = np.empty((3,3,3))*np.nan
             for i in range(3):
                 for j in range(3):
                     for k in range(3):
                         probs[i,j,k] = (log_odds[0,i]+log_odds[1,j]+log_odds[2,k])/np.sqrt(int(gen_level[5]))
         elif gen_level=='conj':
             log_odds = np.random.randn(9)
-            probs = np.empty((3,3,3))
+            probs = np.empty((3,3,3))*np.nan
             for ipj in range(9):
                 i = ipj//3
                 j = ipj%3
@@ -214,7 +214,7 @@ class MDPRL():
         elif gen_level=='feat+conj':
             feat_log_odds = np.random.randn(3)
             conj_log_odds = np.random.randn(9)
-            probs = np.empty((3,3,3))
+            probs = np.empty((3,3,3))*np.nan
             for i in range(3):
                 for jpk in range(9):
                     j = jpk//3

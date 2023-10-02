@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
 
-
+@torch.jit.script
 def retanh(x):
     return torch.tanh(F.relu(x))
 
@@ -215,12 +215,11 @@ class LeakyRNNCell(nn.Module):
     def __init__(self, input_size, hidden_size, aux_input_size, num_areas, 
                 activation='retanh', dt_x=0.02, tau_x=0.1, train_init_state=False,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, init_spectral=None, 
-                balance_ei=False, plas_rule='mult', conn_mask={}, **kwargs):
+                balance_ei=False, conn_mask={}, **kwargs):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.aux_input_size = aux_input_size
-        self.plas_rule = plas_rule
 
         self.x2h = EILinear(input_size, hidden_size, remove_diag=False, pos_function='abs',
                             e_prop=1, zero_cols_prop=0, bias=False, 
@@ -275,7 +274,7 @@ class HierarchicalPlasticRNN(nn.Module):
                 plastic=True, activation='retanh', train_init_state=False,
                 dt_x=0.02, dt_w=1.0, tau_x=0.1, tau_w=100.0, weight_bound=1.0,
                 e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
-                action_input=True, rwd_input=True, balance_ei=False, plas_rule='add', **kwargs):
+                action_input=True, rwd_input=True, balance_ei=False, **kwargs):
         super().__init__()
 
         self.input_size = input_size
@@ -293,7 +292,6 @@ class HierarchicalPlasticRNN(nn.Module):
         
         self.plastic = plastic
         self.weight_bound = weight_bound
-        self.plas_rule = plas_rule
 
         # specify connectivity
         in_mask = torch.FloatTensor([1, *[0]*(self.num_areas-1)]).unsqueeze(-1)
@@ -363,16 +361,15 @@ class HierarchicalPlasticRNN(nn.Module):
         h_init = self.x0.to(x.device) + self.rnn._sigma_rec * torch.randn(batch_size, self.hidden_size*self.num_areas)
         return [h_init, h_init.relu()]
 
-    def forward(self, x, steps, DAs=None, Rs=None, acts=None, 
+    def forward(self, x, steps, neumann_order=5, 
+                DAs=None, Rs=None, acts=None, 
                 hidden=None, w_hidden=None,
-                save_rates=False, save_weights=False):
+                save_all_states=False):
         # initialize firing rate and fixed weight
         if hidden is None and w_hidden is None:
             hidden, w_hidden = self.init_hidden(x)
-
-        if save_weights:
-            whs = []
-        if save_rates: 
+        
+        if save_all_states: 
             hs = []
 
         # assemble choice and reward input, if any
@@ -386,32 +383,26 @@ class HierarchicalPlasticRNN(nn.Module):
         else:
             aux_x = None
 
-        # fixed point iterations
-        neurmann_order = 10
-        for _ in range(steps-neurmann_order):
+        # fixed point iterations, not keeping gradient
+        for _ in range(steps-neumann_order):
             with torch.no_grad():
                 hidden, output = self.rnn(x, hidden, w_hidden, aux_x)
-            if save_rates:
+            if save_all_states:
                 hs.append(output)
-        # fifth order neumann series approximation
-        for _ in range(min(steps, neurmann_order)):
+        # k-order neumann series approximation
+        for _ in range(min(steps, neumann_order)):
             hidden, output = self.rnn(x, hidden, w_hidden, aux_x)
-            if save_rates:
+            if save_all_states:
                 hs.append(output)
 
         # if dopamine is not None, update weight
         if DAs is not None:
             w_hidden = self.plasticity(w_hidden, self.rnn.h2h.pos_func(self.rnn.h2h.weight).unsqueeze(0), DAs, output, output)
-            if save_weights:
-                whs.append(w_hidden)
         
-        saved_states = {}
-        if save_rates:
+        if save_all_states:
             hs = torch.stack(hs, dim=0)
-            saved_states['hs'] = hs
-        if save_weights:
-            whs = torch.stack(whs, dim=0)
-            saved_states['whs'] = whs
+        else:
+            hs = output
 
         os = self.h2o(output[...,(self.num_areas-1)*self.e_size:self.num_areas*self.e_size])
-        return os, hidden, w_hidden, saved_states
+        return os, hidden, w_hidden, hs
