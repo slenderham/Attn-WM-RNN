@@ -151,6 +151,7 @@ class EILinear(nn.Module):
             if init_gain is not None:
                 self.weight.data *= init_gain
             if init_spectral is not None:
+                print(np.abs(torch.linalg.eigvals(self.effective_weight())))
                 self.weight.data *= init_spectral / np.abs(torch.linalg.eigvals(self.effective_weight())).max()
 
             if self.bias is not None:
@@ -332,10 +333,10 @@ class HierarchicalPlasticRNN(nn.Module):
         self.rnn.h2h.weight.data[self.conn_masks['rec_inter_ff'].abs()>0.5] += 1e-8
         self.rnn.h2h.weight.data[self.conn_masks['rec_inter_fb'].abs()>0.5] *= sparse_mask_fb*inter_regional_gain[1]
         self.rnn.h2h.weight.data[self.conn_masks['rec_inter_fb'].abs()>0.5] += 1e-8
-        if init_spectral is not None:
-            temp_spectral, _ = torch.sort(torch.abs(torch.linalg.eigvals(self.rnn.h2h.effective_weight())), descending=True)
-            temp_spectral = temp_spectral[1]
-            self.rnn.h2h.weight.data *= init_spectral / temp_spectral
+        # if init_spectral is not None:
+        #     temp_spectral, _ = torch.sort(torch.abs(torch.linalg.eigvals(self.rnn.h2h.effective_weight())), descending=True)
+        #     temp_spectral = temp_spectral[1]
+        #     self.rnn.h2h.weight.data *= init_spectral / temp_spectral
 
         # choice and value output
         self.h2o = EILinear(self.e_size, self.output_size, remove_diag=False, e_prop=1, zero_cols_prop=0, bias=False, init_gain=1)

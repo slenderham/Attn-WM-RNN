@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
-from sklearn.metrics import accuracy_score
 from torch import optim
 from tqdm import tqdm
 import time
@@ -37,8 +36,8 @@ if __name__ == "__main__":
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--sigma_in', type=float, default=0., help='Std for input noise')
-    parser.add_argument('--sigma_rec', type=float, default=0.0, help='Std for recurrent noise')
-    parser.add_argument('--sigma_w', type=float, default=0.00, help='Std for weight noise')
+    parser.add_argument('--sigma_rec', type=float, default=0.1, help='Std for recurrent noise')
+    parser.add_argument('--sigma_w', type=float, default=0.001, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=1.0, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
@@ -293,7 +292,7 @@ if __name__ == "__main__":
                 if args.num_areas>1:
                     reg += args.l1w*((model.mask_rec_inter*w_hidden).abs()).sum(dim=(-2,-1)).mean()
                     # reg += torch.nn.functional.huber_loss((model.mask_rec_inter*w_hidden), torch.zeros_like(w_hidden),
-                    #                                       reduction='none', delta=args.l1w).sum(dim=(-2,-1)).mean()
+                                                        #   reduction='none', delta=args.l1w).sum(dim=(-2,-1)).mean()
                 loss += reg
             
             # add weight decay for static weights
