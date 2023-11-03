@@ -202,8 +202,6 @@ class PlasticSynapse(nn.Module):
             pre: pre-synaptic firing rates
             post: post-synaptic firing rates
             kappa: learning rate
-            time_decay: number of timesteps where there were no updates
-            time_plas: number of timesteps where there were updates
         '''
         new_w = baseline*(self.alpha_w) + w*(1-self.alpha_w) \
             + R*self.kappa.abs()*(torch.bmm(post.unsqueeze(2), pre.unsqueeze(1))\
@@ -356,11 +354,6 @@ class HierarchicalPlasticRNN(nn.Module):
             return [h_init, self.rnn.h2h.pos_func(self.rnn.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1)]
         else:
             return [h_init]
-
-    def reinit_act(self, x):
-        batch_size = x.shape[0]
-        h_init = self.x0.to(x.device) + self.rnn._sigma_rec * torch.randn(batch_size, self.hidden_size*self.num_areas)
-        return [h_init, h_init.relu()]
 
     def forward(self, x, steps, neumann_order=5, 
                 DAs=None, Rs=None, acts=None, 
