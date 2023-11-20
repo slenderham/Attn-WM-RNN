@@ -121,8 +121,7 @@ class MDPRL():
         # -----------------------------------------------------------------------------------------
         # loading experimental conditions
         # -----------------------------------------------------------------------------------------
-        subjects = ['AA', 'AB',
-                    'AC', 'AD',
+        subjects = ['AA', 'AB', 'AC', 'AD',
                     'AE', 'AF', 'AG', 'AH', 'AI', 'AJ', 'AK', 'AL', 
                     'AM', 'AN', 'AO', 'AP', 'AQ', 'AR', 'AS', 'AT', 'AU', 
                     'AV', 'AW', 'AX', 'AY', 'AZ', 'BA', 'BB', 'BC', 'BD', 
@@ -132,8 +131,7 @@ class MDPRL():
                     'MM', 'NN', 'OO', 'PP', 'QQ', 'RR', 'SS', 'TT', 
                     'UU', 'VV', 'WW', 'XX', 'YY', 'ZZ']
         subjects = [f'inputs/input_{s.lower()}' for s in subjects]
-        subjects2 = ['AA', 'AB',
-                     'AC', 'AD', 
+        subjects2 = ['AA', 'AB', 'AC', 'AD', 
                      'AE', 'AG', 'AH', 'AI', 'AJ', 'AK', 'AL', 'AM', 
                      'AN', 'AO', 'AP', 'AQ', 'AR', 'AS', 'AT', 'AU', 'AV', 
                      'AW', 'AX', 'AY']
@@ -180,7 +178,7 @@ class MDPRL():
             
             self.test_rwd.append(exp_inputs['input']['inputReward'][0,0])
         
-        self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1)
+        self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1) # (num_trials, num_subj, num_options)
         self.test_stim_dim_order = np.stack(self.test_stim_dim_order, axis=0)
         self.test_stim_dim_order_reverse = np.stack(self.test_stim_dim_order_reverse, axis=0)
         self.test_stim_val_order = np.stack(self.test_stim_val_order, axis=0)
@@ -313,37 +311,7 @@ class MDPRL():
             else:
                 target[:,i] = np.argmax(prob_s[i,:,:], -1) # if more than one choice, find position of more rewarding target
 
-        # mask for which signals to supervise
-        # output_mask = {'fixation': torch.from_numpy((self.T<0.0*self.s)).reshape(1, len(self.T), 1), \
-                        # 'target': torch.from_numpy(self.T_mask).reshape(len(self.T))[self.T <= self.times['mask_end']*self.s]}
-        
-        # select input encoding dimensions (to include conj/obj input or not)
-        # pop_s = pop_s[:,:,:,:,self.input_indexes]
-        # pop_s = {
-            # 'pre_choice': torch.from_numpy(pop_s[:, self.T <= self.times['choice_onset']*self.s]).float(),
-            # 'post_choice': torch.from_numpy(pop_s[:, self.T > self.times['choice_onset']*self.s]).float()
-        # }
-
-        # mask for reward outcome presentation
-        # rwd_mask = self.filter_rwd.reshape((len(self.T),1,1)) 
-        # rwd_mask = {
-        #     'pre_choice': torch.from_numpy(rwd_mask[self.T <= self.times['choice_onset']*self.s]).float(),
-        #     'post_choice': torch.from_numpy(rwd_mask[self.T > self.times['choice_onset']*self.s]).float()
-        # }
-
-        # mask for choice presentation
-        # ch_mask = self.filter_ch.reshape((len(self.T),1,1)) 
-        # ch_mask = {
-        #     'pre_choice': torch.from_numpy(ch_mask[self.T <= self.times['choice_onset']*self.s]).float(),
-        #     'post_choice': torch.from_numpy(ch_mask[self.T > self.times['choice_onset']*self.s]).float()
-        # }
-
-        # target = {
-        #     'pre_choice': torch.from_numpy(target[:, self.T <= self.times['choice_onset']*self.s]),
-        #     'post_choice': torch.from_numpy(target[:, self.T > self.times['choice_onset']*self.s])
-        # }
-
-        return torch.from_numpy(pop_s).float(), torch.from_numpy(pop_c).float(), \
+            return torch.from_numpy(pop_s).float(), torch.from_numpy(pop_c).float(), \
                torch.from_numpy(rwd_s).long().transpose(0, 1), torch.from_numpy(target).long(), \
                torch.from_numpy(index_s_i).long(), \
                torch.from_numpy(prob_s).transpose(0, 1)
@@ -352,8 +320,8 @@ class MDPRL():
         return self.generateinput(batch_size, test_N_s, 
                                  rwd_schedule=self.prob_mdprl, 
                                  num_choices=num_choices, 
-                                 stim_order=self.test_stim_order[:,participant_num],
-                                 stim2sensory_idx=self.test_stim2sensory_idx[participant_num])
+                                 stim_order=self.test_stim_order[:,participant_num].copy(),
+                                 stim2sensory_idx=self.test_stim2sensory_idx[participant_num].copy())
 
     def value_est(self, probdata=None):
         if probdata is None:
@@ -425,33 +393,3 @@ class MDPRL():
             new_order[orig==obj_idx] = mapping[obj_idx]
         new_order = new_order.astype(int)
         return new_order
-
-    # def generate_test_schedule(self, gen_level, log_odds):
-    #     rwd_schedule = np.zeros((1,3,3,3))
-    #     if gen_level=="feat_1":
-    #         # if log_odds = 2.25, roughly (0.9, 0.5, 0.1)
-    #         # if log_odds = 1.5, roughly (0.8, 0.5, 0.2)
-    #         # if log_odds = 0.85, roughly (0.7, 0.5, 0.3)
-    #         rwd_schedule[:,0,...] = log_odds["feat_1"]
-    #         rwd_schedule[:,2,...] = -log_odds["feat_1"]
-    #     elif gen_level=="feat_2":
-    #         # for a [[0.9, 0.8, 0.65], 
-    #         #        [0.7, 0.5, 0.3],
-    #         #        [0.35, 0.2, 0.1]] 
-    #         # use log odds 1: 1.4, log_odds 2: 0.85
-    #         rwd_schedule[:,0,:,:] += log_odds["feat_1"]
-    #         rwd_schedule[:,2,:,:] += -log_odds["feat_1"]
-    #         rwd_schedule[:,:,0,:] += log_odds["feat_2"]
-    #         rwd_schedule[:,:,2,:] += -log_odds["feat_2"]
-    #     elif gen_level=="feat_3":
-    #         rwd_schedule[:,0,:,:] += log_odds["feat_1"]
-    #         rwd_schedule[:,2,:,:] += -log_odds["feat_1"]
-    #         rwd_schedule[:,:,0,:] += log_odds["feat_2"]
-    #         rwd_schedule[:,:,2,:] += -log_odds["feat_2"]
-    #         rwd_schedule[:,:,:,0] += log_odds["feat_3"]
-    #         rwd_schedule[:,:,:,2] += -log_odds["feat_3"]
-    #     if gen_level=="conj":
-    #         rwd_schedule[:,0,0,:] += log_odds["feat_1"]
-    #         rwd_schedule[:,0,2,:] += log_odds["feat_1"]
-    #         rwd_schedule[:,2,0,:] += log_odds["feat_2"]
-    #         rwd_schedule[:,2,2,:] += log_odds["feat_2"]

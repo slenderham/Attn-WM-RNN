@@ -48,7 +48,7 @@ if __name__ == "__main__":
     parser.add_argument('--l1r', type=float, default=0.0, help='Weight for L1 reg on firing rate')
     parser.add_argument('--l1w', type=float, default=0.0, help='Weight for L1 reg on weight')
     parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
-    parser.add_argument('--plas_rule', type=str, choices=['add', 'mult'], default='add', help='Plasticity rule')
+    # parser.add_argument('--plas_rule', type=str, choices=['add', 'mult'], default='add', help='Plasticity rule')
     # parser.add_argument('--input_plas_off', action='store_true', help='Disable input plasticity')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat+conj+obj', help='Input coding')
     parser.add_argument('--decision_space', type=str, choices=['good', 'good_feat', 'good_feat_conj_obj', 'action'], help='Supervise with good-based or action-based decision making')
@@ -78,13 +78,13 @@ if __name__ == "__main__":
         print(f"Parameters saved to {os.path.join(args.exp_dir, 'args.json')}")
         save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
-    ITI = 0.4
+    ITI = 0.2
     choice_start = 0.8
     rwd_start = 1.3
     
     # experiment timeline [0.75 fixation, 2.5 stimulus, 0.5 action presentation, 1.0 reward presentation]
     # 2021 paper          [0.5          , 0.7         , 0.3                    , 0.2                   ]
-    # here                [0.4          , 0.8         , 0.5                    , 0.02                  ]
+    # here                [0.2          , 0.8         , 0.5                    , 0.02                  ]
     
     exp_times = {
         'start_time': -ITI,
@@ -131,7 +131,7 @@ if __name__ == "__main__":
                    'dt_x': args.dt, 'dt_w': exp_times['total_time'], 'tau_x': args.tau_x, 'tau_w': args.tau_w, 
                    'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
                    'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 
-                   'rwd_input': args.rwd_input, 'action_input': args.action_input, 'plas_rule': args.plas_rule,
+                   'rwd_input': args.rwd_input, 'action_input': args.action_input, 
                    'sep_lr': args.sep_lr, 'num_choices': 2 if 'double' in args.task_type else 1,
                    'structured_conn': args.structured_conn, 'num_areas': args.num_areas, 
                    'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (1, 1)}
@@ -342,12 +342,12 @@ if __name__ == "__main__":
                     w_hidden = None
                     for i in range(len(pop_s)):
                         # first phase, give nothing
-                        _, hidden, w_hidden, _ = model(torch.zeros_like(pop_s[i].sum(1)), steps=task_mdprl.T_fixation,
+                        _, hidden, w_hidden, _ = model(torch.zeros_like(pop_s[i].sum(1)), steps=task_mdprl.T_fixation, neumann_order = 0,
                                                     hidden=hidden, w_hidden=w_hidden, DAs=None,
                                                     Rs=torch.zeros(args.batch_size, 2, device=device),
                                                     acts=torch.zeros(args.batch_size, output_size, device=device))
                         # second phase, give stimuli and no feedback
-                        output, hidden, w_hidden, _ = model(pop_s[i].sum(1), steps=task_mdprl.T_stim,
+                        output, hidden, w_hidden, _ = model(pop_s[i].sum(1), steps=task_mdprl.T_stim, neumann_order = 0,
                                                     hidden=hidden, w_hidden=w_hidden, DAs=None,
                                                     Rs=torch.zeros(args.batch_size, 2, device=device),
                                                     acts=torch.zeros(args.batch_size, output_size, device=device))
@@ -378,7 +378,7 @@ if __name__ == "__main__":
                             # assert(DAs.shape==(pop_post.shape[0],args.batch_size,1))
 
                             # third phase, give stimuli and choice, and update weights
-                            _, hidden, w_hidden, _ = model(pop_post, steps=task_mdprl.T_ch,
+                            _, hidden, w_hidden, _ = model(pop_post, steps=task_mdprl.T_ch, neumann_order = 0,
                                                         hidden=hidden, w_hidden=w_hidden, 
                                                         Rs=rwd_enc, acts=action_enc, DAs=DAs)
                         elif args.task_type == 'value':

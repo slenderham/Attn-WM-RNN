@@ -384,7 +384,7 @@ class HierarchicalPlasticRNN(nn.Module):
             if save_all_states:
                 hs.append(output)
         # k-order neumann series approximation
-        for _ in range(min(steps, neumann_order)):
+        for _ in range(neumann_order):
             hidden, output = self.rnn(x, hidden, w_hidden, aux_x)
             if save_all_states:
                 hs.append(output)
