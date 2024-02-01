@@ -10,25 +10,17 @@ import os
 class MDPRL():
     def __init__(self, times, input_type):
         self.prob_mdprl = np.zeros((1, 3, 3, 3))
-        self.prob_mdprl[:, :, :, 0] = ([0.92, 0.75, 0.43], [0.50, 0.50, 0.50], [0.57, 0.25, 0.08])
-        self.prob_mdprl[:, :, :, 1] = ([0.16, 0.75, 0.98], [0.50, 0.50, 0.50], [0.02, 0.25, 0.84])
-        self.prob_mdprl[:, :, :, 2] = ([0.92, 0.75, 0.43], [0.50, 0.50, 0.50], [0.57, 0.25, 0.08])
+        self.prob_mdprl[:, :, :, 0] = [[0.92, 0.75, 0.43], [0.50, 0.50, 0.50], [0.57, 0.25, 0.08]]
+        self.prob_mdprl[:, :, :, 1] = [[0.16, 0.75, 0.98], [0.50, 0.50, 0.50], [0.02, 0.25, 0.84]]
+        self.prob_mdprl[:, :, :, 2] = [[0.92, 0.75, 0.43], [0.50, 0.50, 0.50], [0.57, 0.25, 0.08]]
 
         s = 1
-        # T = np.linspace(times['start_time']*s, times['end_time']*s, 1+int(times['total_time']*s/times['dt']))
         # first phase, fixation, nothing on screen
         self.T_fixation = int((times['stim_onset']-times['start_time'])/times['dt'])
         # second phase, stimuli, only, no choice
-        # self.T_stim = (T > times['stim_onset']*s) & (T <= times['stim_end']*s)
         self.T_stim = int((times['choice_onset']-times['stim_onset'])/times['dt'])
         # third phase, choice is made
-        # self.T_ch = (T > times['choice_onset']*s) & (T <= times['choice_end']*s)
         self.T_ch = int((times['rwd_onset']-times['choice_onset'])/times['dt'])
-        # fourth phase, when dopamine is released
-        # self.T_rwd = (T > times['rwd_onset']*s) & (T <= times['rwd_end']*s)
-        # self.T_rwd = int((times['rwd_end']-times['rwd_onset'])/times['dt'])
-        # when choice is read (used for training the network)
-        # self.T_mask = (T > times['mask_onset']*s) & (T <= times['mask_end']*s)
 
         # self.T = T
         self.s = s
@@ -268,27 +260,27 @@ class MDPRL():
         # index_s_i is index in the reward schedule matrix, not the sensory space
         if stim_order is None:
             if num_choices==2:
-                index_s_i = self.pairs[np.random.choice(np.arange(len(self.pairs)), size=len_seq)] 
+                index_s_i_rwd = self.pairs[np.random.choice(np.arange(len(self.pairs)), size=len_seq)] 
             elif num_choices==1:
-                index_s_i = np.repeat(np.random.permutation(27), N_s)
-                index_s_i = np.random.permutation(index_s_i).reshape(len_seq,1)
+                index_s_i_rwd = np.repeat(np.random.permutation(27), N_s)
+                index_s_i_rwd = np.random.permutation(index_s_i_rwd).reshape(len_seq,1)
             else:
                 raise ValueError
         else:
-            index_s_i = stim_order
+            index_s_i_rwd = stim_order.copy()
         # index_s_i shape is (len_seq X num_choices)
 
         # true reward prob for each stim
         # do this before changing to the sensory space
-        prob_s = np.stack([rwd_schedule[:, index_s_i[:,i]] for i in range(num_choices)], axis=-1) 
+        prob_s = np.stack([rwd_schedule[:, index_s_i_rwd[:,i]] for i in range(num_choices)], axis=-1) 
 
         # mapping from the reward schedule matrix to the sensory space, only useful for testing
         if stim2sensory_idx is not None:
-            index_s_i = self.permute_mapping(index_s_i, stim2sensory_idx)
-        
-        if rwd_order is None:
-            rwd_s = (np.random.rand(*prob_s.shape)<prob_s) # sampled reward for each stim
+            index_s_i_perceptual = self.permute_mapping(index_s_i_rwd, stim2sensory_idx)
         else:
+            index_s_i_perceptual = index_s_i_rwd.copy()
+        
+        if rwd_order is not None:
             raise NotImplementedError
         # assert(index_s_i.shape==(len_seq, num_choices)), f"{index_s_i.shape}"
         # assert(prob_s.shape==(batch_size, len_seq, num_choices)), f"{prob_s.shape}"
@@ -301,19 +293,28 @@ class MDPRL():
         pop_s = np.zeros((len_seq, batch_size, num_choices, 63)) # input population activity
         pop_c = np.zeros((len_seq, batch_size, num_choices, 27)) # choice population activity
         target = np.zeros((len_seq, batch_size))*np.nan # initialize target array
+        rwd_s = np.zeros((len_seq, batch_size, num_choices))*np.nan
+        # rwd_s = (np.random.rand(*prob_s.shape)<prob_s) # sampled reward for each stim
 
         for i in range(batch_size):
             for j in range(num_choices):
-                pop_s[:,i,j,:] = self.pop_stim[index_s_i[:,j],:] # size is num_trials X input size
-                pop_c[:,i,j,:] = self.pop_ch[index_s_i[:,j],:] # size is num_trials X input size
+                pop_s[:,i,j,:] = self.pop_stim[index_s_i_perceptual[:,j],:] # size is num_trials X input size
+                pop_c[:,i,j,:] = self.pop_ch[index_s_i_perceptual[:,j],:] # size is num_trials X input size
+            
             if num_choices==1:
                 target[:,i] = prob_s[i,:].squeeze(-1) # if only one choice, the target is the reward prob
             else:
                 target[:,i] = np.argmax(prob_s[i,:,:], -1) # if more than one choice, find position of more rewarding target
+            
+            for j in range(27):
+                stim_count = np.sum(index_s_i_rwd==j)
+                pseudorandom_rwd_num = int(rwd_schedule[0,j]*(stim_count))
+                pseudorandom_rwd_s = np.concatenate([np.ones(pseudorandom_rwd_num), np.zeros(stim_count-pseudorandom_rwd_num)])
+                rwd_s[:,i][index_s_i_rwd==j] = np.random.permutation(pseudorandom_rwd_s)
 
-            return torch.from_numpy(pop_s).float(), torch.from_numpy(pop_c).float(), \
-               torch.from_numpy(rwd_s).long().transpose(0, 1), torch.from_numpy(target).long(), \
-               torch.from_numpy(index_s_i).long(), \
+        return torch.from_numpy(pop_s).float(), torch.from_numpy(pop_c).float(), \
+               torch.from_numpy(rwd_s).long(), torch.from_numpy(target).long(), \
+               torch.from_numpy(index_s_i_perceptual).long(), \
                torch.from_numpy(prob_s).transpose(0, 1)
 
     def generateinputfromexp(self, batch_size, test_N_s, num_choices, participant_num):
@@ -356,8 +357,8 @@ class MDPRL():
         est_shppttrnclr = probdata
 
         return [est_shp, est_pttrn, est_clr,
-                est_pttrnclr, est_shpclr, est_shppttrn, 
-                est_shppttrnclr]
+               est_pttrnclr, est_shpclr, est_shppttrn, 
+               est_shppttrnclr]
 
     def stim_encoding(self, encoding_type='feature_idx'):
         if encoding_type=='feature_idx':

@@ -78,13 +78,13 @@ if __name__ == "__main__":
         print(f"Parameters saved to {os.path.join(args.exp_dir, 'args.json')}")
         save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
 
-    ITI = 0.2
+    ITI = 0.4
     choice_start = 0.8
     rwd_start = 1.3
     
     # experiment timeline [0.75 fixation, 2.5 stimulus, 0.5 action presentation, 1.0 reward presentation]
     # 2021 paper          [0.5          , 0.7         , 0.3                    , 0.2                   ]
-    # here                [0.2          , 0.8         , 0.5                    , 0.02                  ]
+    # here                [0.4          , 0.8         , 0.5                    , 0.02                  ]
     
     exp_times = {
         'start_time': -ITI,
@@ -256,9 +256,7 @@ if __name__ == "__main__":
                     action_enc = pop_c[i][range(args.batch_size), action_valid]
                     rwd_enc = torch.eye(2, device=device)[rwd]
 
-                    action_enc = action_enc
                     # assert(action_enc.shape==(pop_post.shape[0],args.batch_size,output_size))
-                    rwd_enc = rwd_enc
                     # assert(rwd_enc.shape==(pop_post.shape[0],args.batch_size,2))
                     DAs = (2*rwd.float()-1)
                     # assert(DAs.shape==(pop_post.shape[0],args.batch_size,1))
@@ -291,15 +289,14 @@ if __name__ == "__main__":
                 reg += args.l2w*w_hidden.pow(2).sum(dim=(-2, -1)).mean()
                 if args.num_areas>1:
                     reg += args.l1w*((model.mask_rec_inter*w_hidden).abs()).sum(dim=(-2,-1)).mean()
-                    # reg += torch.nn.functional.huber_loss((model.mask_rec_inter*w_hidden), torch.zeros_like(w_hidden),
-                                                        #   reduction='none', delta=args.l1w).sum(dim=(-2,-1)).mean()
                 loss += reg
             
             # add weight decay for static weights
             loss /= len(pop_s)
             loss += args.l2w*(model.rnn.x2h.effective_weight().pow(2).sum()+
-                              model.rnn.aux2h.effective_weight().pow(2).sum()+
                               model.h2o.effective_weight().pow(2).sum())
+            if model.rnn.aux2h is not None:
+                loss += args.l2w*model.rnn.aux2h.effective_weight().pow(2).sum()
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)

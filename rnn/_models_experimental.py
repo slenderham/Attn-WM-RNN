@@ -151,7 +151,6 @@ class EILinear(nn.Module):
             if init_gain is not None:
                 self.weight.data *= init_gain
             if init_spectral is not None:
-                print(np.abs(torch.linalg.eigvals(self.effective_weight())))
                 self.weight.data *= init_spectral / np.abs(torch.linalg.eigvals(self.effective_weight())).max()
 
             if self.bias is not None:
@@ -189,7 +188,6 @@ class PlasticSynapse(nn.Module):
         self.tau_w = tau_w
         
         self.alpha_w = dt_w / self.tau_w
-
         self._sigma_w = np.sqrt(2/self.alpha_w) * sigma_w
 
         self.kappa = nn.Parameter(torch.ones(self.output_size, self.input_size)*self.alpha_w)
@@ -204,8 +202,7 @@ class PlasticSynapse(nn.Module):
             kappa: learning rate
         '''
         new_w = baseline*(self.alpha_w) + w*(1-self.alpha_w) \
-            + R*self.kappa.abs()*(torch.bmm(post.unsqueeze(2), pre.unsqueeze(1))\
-                                         +self._sigma_w*torch.randn_like(w))
+            + R*self.kappa.abs()*(torch.bmm(post.unsqueeze(2), pre.unsqueeze(1))+self._sigma_w*torch.randn_like(w))
         new_w = torch.clamp(new_w, self.lb, self.ub)
         return new_w
     
@@ -230,6 +227,9 @@ class LeakyRNNCell(nn.Module):
                                   e_prop=1, zero_cols_prop=0, bias=False,
                                   init_gain=math.sqrt(self.aux_input_size/(input_size+aux_input_size)/hidden_size*num_areas),
                                   conn_mask=conn_mask.get('aux', None))
+        else:
+            self.aux2h = None
+
         self.h2h = EILinear(hidden_size, hidden_size, remove_diag=True, pos_function='abs',
                             e_prop=e_prop, zero_cols_prop=0, bias=True, init_gain=1,
                             init_spectral=init_spectral, balance_ei=balance_ei,
@@ -321,7 +321,7 @@ class HierarchicalPlasticRNN(nn.Module):
                                 balance_ei=balance_ei, conn_mask=self.conn_masks, num_areas=num_areas)
         
         self.plasticity = PlasticSynapse(input_size=self.hidden_size*self.num_areas, output_size=self.hidden_size*self.num_areas, 
-                                   dt_w=dt_w, tau_w=tau_w, weight_bound=weight_bound, sigma_w=sigma_w)
+                                         dt_w=dt_w, tau_w=tau_w, weight_bound=weight_bound, sigma_w=sigma_w)
         
         # sparsify inter-regional connectivity, but not enforeced
         sparse_mask_ff = (torch.rand((self.conn_masks['rec_inter_ff'].abs().sum().long(),))<inter_regional_sparsity[0])
@@ -384,7 +384,7 @@ class HierarchicalPlasticRNN(nn.Module):
             if save_all_states:
                 hs.append(output)
         # k-order neumann series approximation
-        for _ in range(neumann_order):
+        for _ in range(min(steps, neumann_order)):
             hidden, output = self.rnn(x, hidden, w_hidden, aux_x)
             if save_all_states:
                 hs.append(output)
