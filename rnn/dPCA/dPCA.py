@@ -961,7 +961,6 @@ class dPCA(BaseEstimator):
 
         """
         X = self._zero_mean(X)
-        print(X.shape)
         total_variance = np.sum(X**2)
         non_unit_dims = tuple(range(1,len(X.shape)))
         unitwise_variance = np.sum(X**2, axis=non_unit_dims)
@@ -978,7 +977,7 @@ class dPCA(BaseEstimator):
                 within a marginalization for each unit individually
             '''
             D, P, Xr = self.D[marginal], self.P[marginal], X.reshape((X.shape[0],-1))
-            return [1 - np.sum((Xr - P[:,k:k+1]@(D[:,k:k+1].T@Xr))**2, -1) / (unitwise_variance+1e-8) for k in range(D.shape[1])]        
+            return [1 - np.sum((Xr - P[:,k:k+1]@(D[:,k:k+1].T@Xr))**2, -1) / (unitwise_variance) for k in range(D.shape[1])]        
 
         if marginalization is not None:
             D, Xr         = self.D[marginalization], X.reshape((X.shape[0],-1))
