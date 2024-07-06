@@ -35,7 +35,7 @@ if __name__ == "__main__":
     parser.add_argument('--eval_samples', type=int, default=21, help='Number of samples to use for evaluation.')
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
+    parser.add_argument('--sigma_in', type=float, default=0.0, help='Std for input noise')
     parser.add_argument('--sigma_rec', type=float, default=0.1, help='Std for recurrent noise')
     parser.add_argument('--sigma_w', type=float, default=0.001, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=1.0, help='Initial spectral radius for the recurrent weights')
@@ -97,7 +97,7 @@ if __name__ == "__main__":
         'rwd_end': rwd_start,
         'total_time': ITI+rwd_start,
         'dt': args.dt}
-    log_interval = 10
+    log_interval = 20
     # args.exp_times = exp_times
 
     if args.seed is not None:
@@ -155,7 +155,7 @@ if __name__ == "__main__":
         total_acc = 0
         total_loss = 0
         for batch_idx in range(iters):
-            pop_s, pop_c, rwd_s, target_valid, index_s, prob_s = task_mdprl.generateinput(
+            pop_s, pop_c, rwd_s, target_valid, index_s, prob_s, gen_level = task_mdprl.generateinput(
                 batch_size=args.batch_size, N_s=args.N_s, num_choices=num_options)    
             index_s = index_s.to(device)
             prob_s = prob_s.to(device)
@@ -228,7 +228,9 @@ if __name__ == "__main__":
                         # assert(rwd.shape==(args.batch_size,))
                     output = output.flatten(end_dim=-2)
                     target = target.flatten()
+                    # loss += task_mdprl.calculate_loss(output, target)
                     loss += F.cross_entropy(output, target)
+                    # total_loss += task_mdprl.calculate_loss(output, target).detach().item()/len(pop_s)
                     total_loss += F.cross_entropy(output.detach(), target).detach().item()/len(pop_s)
                     total_acc += (action_valid==target_valid[i]).float().item()/len(pop_s)
                 elif args.task_type == 'value':
@@ -320,13 +322,13 @@ if __name__ == "__main__":
 
     def eval(model, epoch):
         model.eval()
-        losses_means_by_gen = {}
-        losses_stds_by_gen = {}
+        losses_means_by_gen = []
+        losses_stds_by_gen = []
         with torch.no_grad():
             for curr_gen_level in task_mdprl.gen_levels:
                 losses = []
                 for batch_idx in range(args.eval_samples):
-                    pop_s, pop_c, rwd_s, target_valid, index_s, prob_s = task_mdprl.generateinput(
+                    pop_s, pop_c, rwd_s, target_valid, index_s, prob_s, _ = task_mdprl.generateinput(
                          batch_size=args.batch_size, N_s=args.test_N_s, num_choices=num_options, gen_level=curr_gen_level)
                     index_s = index_s.to(device)
                     prob_s = prob_s.to(device)
@@ -387,9 +389,9 @@ if __name__ == "__main__":
                     losses.append(loss)
                 losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
                 losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
-                losses_means_by_gen[curr_gen_level] = losses_means.tolist()
-                losses_stds_by_gen[curr_gen_level] = losses_stds.tolist()
-                print('====> Epoch {} Gen Level: {} Eval Loss: {:.4f}'.format(epoch+1, curr_gen_level, losses_means.mean()))
+                losses_means_by_gen.append(losses_means.tolist())
+                losses_stds_by_gen.append(losses_stds.tolist())
+                print('====> Epoch {} Gen Level: {} Eval Loss: {:.4f}'.format(epoch+1, curr_gen_level[0], losses_means.mean()))
             return losses_means_by_gen, losses_stds_by_gen
 
     metrics = defaultdict(list)
@@ -403,9 +405,9 @@ if __name__ == "__main__":
         metrics = dict(metrics)
         save_defaultdict_to_fs(metrics, os.path.join(args.exp_dir, 'metrics.json'))
         if args.save_checkpoint:
-            if sum([np.mean(v) for v in eval_loss_means.values()]) > best_eval_loss:
+            if sum([np.mean(v) for v in eval_loss_means]) > best_eval_loss:
                 is_best_epoch = True
-                best_eval_loss = sum([np.mean(v).item() for v in eval_loss_means.values()])
+                best_eval_loss = sum([np.mean(v).item() for v in eval_loss_means])
                 metrics['best_epoch'] = i
                 metrics['best_eval_loss'] = best_eval_loss
             else:

@@ -3,6 +3,7 @@ import torch
 from matplotlib import pyplot as plt
 import scipy.io as sio
 import os
+import torch.nn.functional as F
 
 # TODO: Add reversal functionality
 # TODO: support different dimensions and stim values
@@ -27,18 +28,14 @@ class MDPRL():
         self.times = times
 
         assert(input_type in ['feat', 'feat+conj', 'feat+obj', 'feat+conj+obj']), 'invalid input type'
-        if input_type=='feat':
-            self.input_indexes = np.arange(0, 9)
-        elif input_type=='feat+conj':
-            self.input_indexes = np.arange(0, 36)
-        elif input_type=='feat+conj+obj':
-            self.input_indexes = np.arange(0, 63)
-        elif input_type=='feat+obj':
-            self.input_indexes = np.concatenate([np.arange(0, 9), np.arange(36, 63)])
-        else:
-            raise RuntimeError
 
-        self.gen_levels = ['feat_1', 'feat_2', 'feat_3', 'conj', 'feat+conj', 'obj']
+        self.gen_levels = [['f', i] for i in [[0],[1],[2],[0,1],[0,2],[1,2],[0,1,2]]]+\
+                          [['c', i] for i in [[0],[1],[2]]]+\
+                          [['fc', i] for i in [[0],[1],[2]]]+\
+                          [['o',[0]]]
+        self.gen_level_probs = np.array([1]*7+[1]*3+[1]*3+[1])
+
+        self.gen_level_probs = self.gen_level_probs/np.sum(self.gen_level_probs)
 
         # -----------------------------------------------------------------------------------------
         # initialization
@@ -94,6 +91,25 @@ class MDPRL():
         self.pop_stim = pop_stim # objects, input_size
         self.pop_ch = torch.eye(27) # objects, input_size, for choice encoding
 
+        self.pop_fco = [
+            [torch.from_numpy(self.pop_stim[:, 0:3]/9).float(), 
+             torch.from_numpy(self.pop_stim[:, 3:6]/9).float(), 
+             torch.from_numpy(self.pop_stim[:, 6:9]/9).float()],
+            [torch.from_numpy(self.pop_stim[:, 9:18]/3).float(), 
+             torch.from_numpy(self.pop_stim[:, 18:27]/3).float(), 
+             torch.from_numpy(self.pop_stim[:, 27:36]/3).float()],
+            [torch.from_numpy(self.pop_stim[:, 36:63]).float()]]
+        
+        # objects, feature/conjunction/object
+
+        self.index_fco = [[torch.from_numpy(self.index_shp).long(), 
+                           torch.from_numpy(self.index_pttrn).long(), 
+                           torch.from_numpy(self.index_clr).long()],
+                          [torch.from_numpy(self.index_pttrnclr).long(), 
+                           torch.from_numpy(self.index_shpclr).long(), 
+                           torch.from_numpy(self.index_shppttrn).long()], 
+                          [torch.from_numpy(index_s).long()]]
+
         # -----------------------------------------------------------------------------------------
         # generate feasible pairs
         # -----------------------------------------------------------------------------------------
@@ -137,7 +153,6 @@ class MDPRL():
         self.test_stim_dim_order_reverse = []
         self.test_stim_val_order = []
         self.test_stim_val_order_reverse = []
-        self.test_stim_order_sensory = []
         self.test_stim2sensory_idx = []
         self.test_sensory2stim_idx = []
         # actual sampled reward, same as in human experiment
@@ -179,29 +194,39 @@ class MDPRL():
         self.test_sensory2stim_idx = np.stack(self.test_sensory2stim_idx, axis=0)
         self.test_rwd = np.stack(self.test_rwd, axis=0).transpose(0,2,1)
 
-    def _generate_generalizable_prob(self, gen_level, jitter=0.0, reward_mean_scale=[-1, 1], reward_range_scale=[2, 8]):
+    def _generate_generalizable_prob(self, gen_level, reward_mean_scale=[-1, 1], reward_range_scale=[2, 8]):
         # different level of gernalizability in terms of nonlinear terms: 0 (all linear), 1 (conjunction of two features), 2 (no regularity)
         # feat_1,2,3: all linear terms, with 2,1,0 irrelevant features
         # conj, feat+conj: a conj of two features, with a relevant or irrelevant feature
         # obj: a conj of all features
         # assert gen_level in self.gen_levels
-        if gen_level in ['feat_1', 'feat_2', 'feat_3']:
-            irrelevant_features = 3-int(gen_level[5])
-            log_odds = np.random.randn(3,3)
-            log_odds[:irrelevant_features] = 0 # make certain features irrelavant
+        if gen_level[0]=='f':
+            log_odds_all = np.random.randn(3,3)
+            log_odds = np.zeros((3,3))
+            for d in gen_level[1]:
+                log_odds[d] = log_odds_all[d] # make certain features irrelavant
             probs = np.empty((3,3,3))*np.nan
             for i in range(3):
                 for j in range(3):
                     for k in range(3):
-                        probs[i,j,k] = (log_odds[0,i]+log_odds[1,j]+log_odds[2,k])/np.sqrt(int(gen_level[5]))
-        elif gen_level=='conj':
+                        probs[i,j,k] = (log_odds[0,i]+log_odds[1,j]+log_odds[2,k])/np.sqrt(len(gen_level[1]))
+        
+        elif gen_level[0]=='c':
             log_odds = np.random.randn(9)
             probs = np.empty((3,3,3))*np.nan
             for ipj in range(9):
                 i = ipj//3
                 j = ipj%3
-                probs[i,j,:] = log_odds[ipj]
-        elif gen_level=='feat+conj':
+                if gen_level[1][0]==0:
+                    probs[:,i,j] = log_odds[ipj]
+                elif gen_level[1][0]==1:
+                    probs[i,:,j] = log_odds[ipj]
+                elif gen_level[1][0]==2:
+                    probs[i,j,:] = log_odds[ipj]
+                else:
+                    raise ValueError
+
+        elif gen_level[0]=='fc':
             feat_log_odds = np.random.randn(3)
             conj_log_odds = np.random.randn(9)
             probs = np.empty((3,3,3))*np.nan
@@ -209,9 +234,18 @@ class MDPRL():
                 for jpk in range(9):
                     j = jpk//3
                     k = jpk%3
-                    probs[i,j,k] = (feat_log_odds[i]+conj_log_odds[jpk])/np.sqrt(2)
-        elif gen_level=='obj':
+                    if gen_level[1][0]==0:
+                        probs[i,j,k] = (feat_log_odds[i]+conj_log_odds[jpk])/np.sqrt(2)
+                    elif gen_level[1][0]==1:
+                        probs[j,i,k] = (feat_log_odds[i]+conj_log_odds[jpk])/np.sqrt(2)
+                    elif gen_level[1][0]==2:
+                        probs[j,k,i] = (feat_log_odds[i]+conj_log_odds[jpk])/np.sqrt(2)
+                    else:
+                        raise ValueError
+        
+        elif gen_level[0]=='o':
             probs = np.random.randn(3,3,3)
+        
         else:
             raise RuntimeError
 
@@ -222,10 +256,7 @@ class MDPRL():
         probs = probs*reward_range+reward_mean
         
         # add jitter to break draws
-        probs = 1/(1+np.exp(-(probs+jitter*np.random.randn(*probs.shape))))
-        
-        # permute axis to change the order of dimensoins with different levels of information
-        probs = probs.transpose(np.random.permutation(3))
+        probs = 1/(1+np.exp(-(probs)))
         probs = probs.reshape(1, 3, 3, 3)
         return probs
 
@@ -244,7 +275,7 @@ class MDPRL():
             assert(len(rwd_schedule.shape)==4 and rwd_schedule.shape[1:] == (3, 3, 3))
         else:
             if gen_level is None:
-                gen_level = np.random.choice(self.gen_levels) # sample generalization level
+                gen_level = self.gen_levels[np.random.choice(np.arange(len(self.gen_levels)), p=self.gen_level_probs)] # sample generalization level
             rwd_schedule = self._generate_generalizable_prob(gen_level)
         batch_size = rwd_schedule.shape[0]
         rwd_schedule = np.reshape(rwd_schedule, (batch_size, 27))
@@ -308,14 +339,14 @@ class MDPRL():
             
             for j in range(27):
                 stim_count = np.sum(index_s_i_rwd==j)
-                pseudorandom_rwd_num = int(rwd_schedule[0,j]*(stim_count))
+                pseudorandom_rwd_num = int(rwd_schedule[i,j]*(stim_count))
                 pseudorandom_rwd_s = np.concatenate([np.ones(pseudorandom_rwd_num), np.zeros(stim_count-pseudorandom_rwd_num)])
                 rwd_s[:,i][index_s_i_rwd==j] = np.random.permutation(pseudorandom_rwd_s)
 
         return torch.from_numpy(pop_s).float(), torch.from_numpy(pop_c).float(), \
                torch.from_numpy(rwd_s).long(), torch.from_numpy(target).long(), \
                torch.from_numpy(index_s_i_perceptual).long(), \
-               torch.from_numpy(prob_s).transpose(0, 1)
+               torch.from_numpy(prob_s).transpose(0, 1), gen_level
 
     def generateinputfromexp(self, batch_size, test_N_s, num_choices, participant_num):
         return self.generateinput(batch_size, test_N_s, 
@@ -368,11 +399,11 @@ class MDPRL():
             assert(encmat.shape==(27,63))
             return encmat
 
-    def reversal(self, probs):
-        new_order = np.random.permutation(3)
-        dim_to_flip = np.random.randint(0, 3)
-        new_probs = np.take(probs, new_order, dim_to_flip)
-        return new_probs
+    # def reversal(self, probs):
+    #     new_order = np.random.permutation(3)
+    #     dim_to_flip = np.random.randint(0, 3)
+    #     new_probs = np.take(probs, new_order, dim_to_flip)
+    #     return new_probs
     
     def stim_to_sensory(self, stim_dim_order, stim_val_order):
         # given a permutation of feature dimension permutation and feature value permutation,
@@ -394,3 +425,38 @@ class MDPRL():
             new_order[orig==obj_idx] = mapping[obj_idx]
         new_order = new_order.astype(int)
         return new_order
+    
+    def calculate_loss(self, output, target):
+        loss = 0
+        for d in range(3):
+            loss += F.cross_entropy(output@self.pop_fco[0][d], self.index_fco[0][d][target])/3+\
+                    F.cross_entropy(output@self.pop_fco[1][d], self.index_fco[1][d][target])/3
+        loss += F.cross_entropy(output, target)
+        loss /= 3
+        return loss
+
+
+    # def calculate_loss(self, output, target, gen_level):
+    #     if gen_level[0]=='f':
+    #         loss = 0
+    #         for d in gen_level[1]:
+    #             loss += F.cross_entropy(output@self.pop_fco[0][d], self.index_fco[0][d][target])
+    #         loss /= len(gen_level[1])
+        
+    #     elif gen_level[0]=='c':
+    #         d = gen_level[1][0]
+    #         loss = F.cross_entropy(output@self.pop_fco[1][d], self.index_fco[1][d][target])
+
+    #     elif gen_level[0]=='fc':
+    #         d = gen_level[1][0]
+    #         loss = F.cross_entropy(output@self.pop_fco[0][d], self.index_fco[0][d][target])/2+\
+    #                F.cross_entropy(output@self.pop_fco[1][d], self.index_fco[1][d][target])/2
+        
+    #     elif gen_level[0]=='o':
+    #         loss = F.cross_entropy(output, target)
+        
+    #     else:
+    #         print(gen_level)
+    #         raise ValueError
+        
+    #     return loss

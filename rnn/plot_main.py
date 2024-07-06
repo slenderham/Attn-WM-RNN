@@ -349,7 +349,7 @@ def plot_learning_curve(args, all_rewards, all_choose_betters, plot_save_dir):
     all_choose_betters = convolve2d(all_choose_betters.squeeze(), np.ones((window_size, 1))/window_size, mode='valid')
     all_rewards = convolve2d(all_rewards.squeeze(), np.ones((window_size, 1))/window_size, mode='valid')
 
-    fig_summ = plt.figure('perf_summary')
+    fig_summ = plt.figure('perf_summary', figsize=(6.4,4.8))
     ax = fig_summ.add_subplot()
     plot_mean_and_std(ax, 
                       all_choose_betters.mean(axis=1), 

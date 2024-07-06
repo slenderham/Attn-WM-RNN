@@ -266,6 +266,7 @@ class dPCA(BaseEstimator):
             # efficient precomputation of means
             pre_mean = {}
 
+            # the mean is taken over the key dimension, and the key without phi dimensions remain
             for key, phi in pcombs.items():
                 if len(key) == 1:
                     pre_mean[key] = mmean(Xres,np.array(list(phi))+1,expand=True)
@@ -288,6 +289,7 @@ class dPCA(BaseEstimator):
 
                     Xmargs[key] = ne.evaluate('X - ' + ' - '.join(subsets),local_dict=local_dict)
                 else:
+                    # if key is one dimensional, simply use the pre-mean, since the grand mean has been subtracted
                     Xmargs[key] = X
 
         # condense dict if not None

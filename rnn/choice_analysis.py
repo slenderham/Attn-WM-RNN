@@ -62,7 +62,7 @@ def steady_state_choice_analysis(all_saved_states, task_mdprl, plot_save_dir, st
     data_group_by_C_se = all_data.groupby('pCinf').sem().apply(np.array).loc[:,'choice']
 
     fig, axes = plt.subplots()
-    fig.set_size_inches((7, 5))
+    fig.set_size_inches((6.4, 4.8))
     axes.errorbar(data_group_by_F_m.index.values, 
                  data_group_by_F_m.values, 
                  data_group_by_F_se.values,
@@ -85,12 +85,12 @@ def steady_state_choice_analysis(all_saved_states, task_mdprl, plot_save_dir, st
     all_ses = np.stack(all_ses)
     all_ps = np.stack(all_ps)
 
-    var_names = ['F0', 'C0', 'O']
+    var_names = [r'$F_{I}$', r'$C_{I}$', 'O']
     
     xs = np.linspace(-1., 1., 100)
     
-    axes.plot(xs, 1/(1+np.exp(-all_coeffs[0]*xs)), color=mpl.colormaps['tab10']([0]), label='F0')
-    axes.plot(xs, 1/(1+np.exp(-all_coeffs[1]*xs)), color=mpl.colormaps['tab10']([3]), label='C0')
+    axes.plot(xs, 1/(1+np.exp(-all_coeffs[0]*xs)), color=mpl.colormaps['tab10']([0]), label=r'$F_{I}$')
+    axes.plot(xs, 1/(1+np.exp(-all_coeffs[1]*xs)), color=mpl.colormaps['tab10']([3]), label=r'$C_{I}$')
     axes.legend()
     
     axin = axes.inset_axes([0.65, 0.1, 0.3, 0.3])
@@ -157,6 +157,7 @@ def credit_assignment(all_saved_states, task_mdprl, plot_save_dir, end_trial=216
     all_Ys = np.concatenate(all_Ys, axis=0)[:,None]
     
     var_names = ['F0', 'F1', 'F2', 'C0', 'C1', 'C2', 'O']
+
     rw_ch = ['R', 'C']
 
     all_var_names = ['_'.join([s, 'R']) for s in var_names] + ['_'.join([s, 'C']) for s in var_names]
@@ -170,10 +171,9 @@ def credit_assignment(all_saved_states, task_mdprl, plot_save_dir, end_trial=216
     all_ses = mdlf.bse[1:].to_numpy()
     all_ps = mdlf.pvalues[1:].to_numpy()
 
-    all_xlabels = var_names
+    all_xlabels = [r'$F_{I}$', r'$F_{N1}$', r'$F_{N2}$', r'$C_{I}$', r'$C_{N1}$', r'$C_{N2}$', 'O']
 
-    fig, axes = plt.subplots(1, 2, sharey=True)
-    fig.set_size_inches((10, 5))
+    fig, axes = plt.subplots(1, 2, sharey=True, figsize=(10, 4))
     
     bar_rw = axes[0].bar(x=np.arange(1,len(var_names)+1), \
                 height=all_coeffs[:len(var_names)], \
@@ -209,6 +209,7 @@ def credit_assignment(all_saved_states, task_mdprl, plot_save_dir, end_trial=216
     plt.show()
     plt.close()
     return
+
 
 def steady_state_choice_logit_analysis(all_saved_states, task_mdprl, plot_save_dir, start_trial=216):
     num_trials = all_saved_states['rewards'].shape[0]
@@ -255,12 +256,12 @@ def steady_state_choice_logit_analysis(all_saved_states, task_mdprl, plot_save_d
     all_ses = np.stack(all_ses)
     all_ps = np.stack(all_ps)
 
-    var_names = ['F0', 'C0', 'O']
+    var_names = [r'$F_{I}$', r'$C_{I}$', 'O']
     
     xs = np.linspace(-1., 1., 100)
     
-    axes.plot(xs, all_coeffs[0]*xs, color=mpl.colormaps['tab10']([0]), label='F0')
-    axes.plot(xs, all_coeffs[1]*xs, color=mpl.colormaps['tab10']([3]), label='C0')
+    axes.plot(xs, all_coeffs[0]*xs, color=mpl.colormaps['tab10']([0]), label=r'$F_{I}$')
+    axes.plot(xs, all_coeffs[1]*xs, color=mpl.colormaps['tab10']([3]), label=r'$C_{I}$')
     axes.legend()
     axes.set_ylim(np.array(axes.get_ylim())+[0, 2])
     axes.set_xlim([-1.1, 1.1])
@@ -335,7 +336,7 @@ def credit_assignment_logit(all_saved_states, task_mdprl, plot_save_dir, end_tri
     all_ses = mdlf.bse[1:].to_numpy()
     all_ps = mdlf.pvalues[1:].to_numpy()
 
-    all_xlabels = var_names
+    all_xlabels = [r'$F_{I}$', r'$F_{N1}$', r'$F_{N2}$', r'$C_{I}$', r'$C_{N1}$', r'$C_{N2}$', 'O']
 
     fig, axes = plt.subplots(1, 2, sharey=True)
     fig.set_size_inches((10, 5))
