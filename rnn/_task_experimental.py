@@ -419,7 +419,7 @@ class MDPRL():
     
     def permute_mapping(self, orig, mapping):
         # apply the new mapping to the original sequence
-        # each entry mapping[i]->new obj index
+        # each entry of mapping represents [i]->new obj index
         new_order = np.ones_like(orig)*np.nan
         for obj_idx in range(3**3):
             new_order[orig==obj_idx] = mapping[obj_idx]
