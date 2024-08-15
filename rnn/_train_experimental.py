@@ -41,7 +41,7 @@ if __name__ == "__main__":
     parser.add_argument('--init_spectral', type=float, default=1.0, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')
-    parser.add_argument('--tau_w', type=float, default=170, help='Time constant for weight modification')
+    parser.add_argument('--tau_w', type=float, default=180, help='Time constant for weight modification')
     parser.add_argument('--dt', type=float, default=0.02, help='Discretization time step (ms)')
     parser.add_argument('--l2r', type=float, default=0.0, help='Weight for L2 reg on firing rate')
     parser.add_argument('--l2w', type=float, default=0.0, help='Weight for L2 reg on weight')
@@ -80,11 +80,11 @@ if __name__ == "__main__":
 
     ITI = 0.4
     choice_start = 0.8
-    rwd_start = 1.3
+    rwd_start = 1.4
     
     # experiment timeline [0.75 fixation, 2.5 stimulus, 0.5 action presentation, 1.0 reward presentation]
     # 2021 paper          [0.5          , 0.7         , 0.3                    , 0.2                   ]
-    # here                [0.4          , 0.8         , 0.5                    , 0.02                  ]
+    # here                [0.4          , 0.8         , 0.6                    , 0.02                  ]
     
     exp_times = {
         'start_time': -ITI,

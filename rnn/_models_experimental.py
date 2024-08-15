@@ -373,6 +373,7 @@ class HierarchicalPlasticRNN(nn.Module):
         else:
             aux_x = None
 
+        neumann_order = min(steps//2, neumann_order)
         # fixed point iterations, not keeping gradient
         for _ in range(steps-neumann_order):
             with torch.no_grad():

@@ -62,7 +62,7 @@ def steady_state_choice_analysis(all_saved_states, task_mdprl, plot_save_dir, st
     data_group_by_C_se = all_data.groupby('pCinf').sem().apply(np.array).loc[:,'choice']
 
     fig, axes = plt.subplots()
-    fig.set_size_inches((6.4, 4.8))
+    fig.set_size_inches((6.4, 4))
     axes.errorbar(data_group_by_F_m.index.values, 
                  data_group_by_F_m.values, 
                  data_group_by_F_se.values,

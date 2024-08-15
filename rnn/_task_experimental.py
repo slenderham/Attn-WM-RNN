@@ -4,6 +4,7 @@ from matplotlib import pyplot as plt
 import scipy.io as sio
 import os
 import torch.nn.functional as F
+from scipy.stats import norm
 
 # TODO: Add reversal functionality
 # TODO: support different dimensions and stim values
@@ -194,7 +195,7 @@ class MDPRL():
         self.test_sensory2stim_idx = np.stack(self.test_sensory2stim_idx, axis=0)
         self.test_rwd = np.stack(self.test_rwd, axis=0).transpose(0,2,1)
 
-    def _generate_generalizable_prob(self, gen_level, reward_mean_scale=[-1, 1], reward_range_scale=[2, 8]):
+    def _generate_generalizable_prob(self, gen_level, reward_median_scale=[-1, 1], reward_range_scale=[2, 8]):
         # different level of gernalizability in terms of nonlinear terms: 0 (all linear), 1 (conjunction of two features), 2 (no regularity)
         # feat_1,2,3: all linear terms, with 2,1,0 irrelevant features
         # conj, feat+conj: a conj of two features, with a relevant or irrelevant feature
@@ -250,13 +251,13 @@ class MDPRL():
             raise RuntimeError
 
         # independently control the mean and std of reward
-        probs = (probs-np.mean(probs))/np.ptp(probs)
-        reward_mean = reward_mean_scale[0]+np.random.rand()*(reward_mean_scale[1]-reward_mean_scale[0]) # uniformly between about 0.3-0.7
+        probs = (probs-np.median(probs))/np.ptp(probs)
+        reward_median = reward_median_scale[0]+np.random.rand()*(reward_median_scale[1]-reward_median_scale[0]) # uniformly between about 0.3-0.7
         reward_range = reward_range_scale[0]+np.random.rand()*(reward_range_scale[1]-reward_range_scale[0]) # uniformly between about 0.5-1.0
-        probs = probs*reward_range+reward_mean
+        probs = probs*reward_range+reward_median
         
         # add jitter to break draws
-        probs = 1/(1+np.exp(-(probs)))
+        probs = 1/(1+np.exp(-probs))
         probs = probs.reshape(1, 3, 3, 3)
         return probs
 
