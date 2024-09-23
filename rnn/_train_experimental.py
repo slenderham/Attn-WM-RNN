@@ -35,7 +35,7 @@ if __name__ == "__main__":
     parser.add_argument('--eval_samples', type=int, default=21, help='Number of samples to use for evaluation.')
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
-    parser.add_argument('--sigma_in', type=float, default=0.0, help='Std for input noise')
+    parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
     parser.add_argument('--sigma_rec', type=float, default=0.1, help='Std for recurrent noise')
     parser.add_argument('--sigma_w', type=float, default=0.001, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=1.0, help='Initial spectral radius for the recurrent weights')
@@ -52,14 +52,12 @@ if __name__ == "__main__":
     # parser.add_argument('--input_plas_off', action='store_true', help='Disable input plasticity')
     parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat+conj+obj', help='Input coding')
     parser.add_argument('--decision_space', type=str, choices=['good', 'good_feat', 'good_feat_conj_obj', 'action'], help='Supervise with good-based or action-based decision making')
-    parser.add_argument('--sep_lr', action='store_true', help='Use different lr between diff type of units')
     parser.add_argument('--task_type', type=str, choices=['value', 'off_policy_single', 'on_policy_double'],
                         help='Learn reward prob or RL. On policy if decision determines. On policy if decision determines rwd. Off policy if rwd sampled from random policy.')
     parser.add_argument('--rwd_input', action='store_true', help='Whether to use reward as input')
     parser.add_argument('--action_input', action='store_true', help='Whether to use action as input')
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'softplus2', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
-    parser.add_argument('--structured_conn', action='store_true', help='Whether to use restricted connectivity')
     parser.add_argument('--seed', type=int, help='Random seed')
     parser.add_argument('--save_checkpoint', action='store_true', help='Whether to save the trained model')
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to load the trained model')
@@ -97,7 +95,7 @@ if __name__ == "__main__":
         'rwd_end': rwd_start,
         'total_time': ITI+rwd_start,
         'dt': args.dt}
-    log_interval = 20
+    log_interval = 50
     # args.exp_times = exp_times
 
     if args.seed is not None:
@@ -126,15 +124,13 @@ if __name__ == "__main__":
     else:
         raise ValueError('Invalid decision space')
 
-    model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': output_size, 'num_options': num_options,
+    model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': output_size,
                    'plastic': args.plas_type=='all', 'activation': args.activ_func,
                    'dt_x': args.dt, 'dt_w': exp_times['total_time'], 'tau_x': args.tau_x, 'tau_w': args.tau_w, 
                    'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
                    'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 
                    'rwd_input': args.rwd_input, 'action_input': args.action_input, 
-                   'sep_lr': args.sep_lr, 'num_choices': 2 if 'double' in args.task_type else 1,
-                   'structured_conn': args.structured_conn, 'num_areas': args.num_areas, 
-                   'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (1, 1)}
+                   'num_areas': args.num_areas, 'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (1, 1)}
     
     model = HierarchicalPlasticRNN(**model_specs).to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)

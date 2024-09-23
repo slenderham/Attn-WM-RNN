@@ -33,6 +33,17 @@ def _get_pos_function(func_name):
     else:
         raise RuntimeError(F"{func_name} is an invalid function enforcing positive weight.")
 
+def _get_plasticity_mask_rec(rec_mask, num_areas, e_hidden_units_per_area, i_hidden_units_per_area):
+    plas_mask = {}
+    plas_mask_ee = torch.kron(rec_mask, torch.ones(e_hidden_units_per_area, e_hidden_units_per_area))
+    plas_mask_ie = torch.kron(rec_mask, torch.ones(i_hidden_units_per_area, e_hidden_units_per_area))
+    plas_mask_ei = torch.zeros(num_areas*e_hidden_units_per_area, num_areas*i_hidden_units_per_area)
+    plas_mask_ii = torch.zeros(num_areas*i_hidden_units_per_area, num_areas*i_hidden_units_per_area)
+    plas_mask = torch.cat([
+                    torch.cat([plas_mask_ee, plas_mask_ei], dim=1),
+                    torch.cat([plas_mask_ie, plas_mask_ii], dim=1)], dim=0)
+    return plas_mask
+
 def _get_connectivity_mask_rec(rec_mask, num_areas, e_hidden_units_per_area, i_hidden_units_per_area):
     conn_mask = {}
     # recurrent connection mask
@@ -103,8 +114,8 @@ def _get_connectivity_mask(in_mask, aux_mask, rec_mask, input_units, aux_input_u
 
 class EILinear(nn.Module):
     def __init__(self, input_size, output_size, remove_diag, zero_cols_prop, 
-                 conn_mask=None, e_prop=0.8, bias=True, pos_function='abs', 
-                 init_spectral=None, init_gain=None, balance_ei=False):
+                 e_prop, bias, pos_function='abs', conn_mask=None, 
+                 init_spectral=None, init_gain=None, balance_ei=True):
         super().__init__()
         self.input_size = input_size
         self.output_size = output_size
@@ -173,7 +184,7 @@ class EILinear(nn.Module):
             return result
 
 class PlasticSynapse(nn.Module):
-    def __init__(self, input_size, output_size, dt_w=1.0, tau_w=100.0, weight_bound=1.0, sigma_w=0.001, **kwargs):
+    def __init__(self, input_size, output_size, dt_w, tau_w, weight_bound, sigma_w, plas_mask):
         '''
         w(t+1)(rwd, post, pre) = w(t)+kappa*rwd*(hebb(post, pre)+noise)
         '''
@@ -190,7 +201,14 @@ class PlasticSynapse(nn.Module):
         self.alpha_w = dt_w / self.tau_w
         self._sigma_w = np.sqrt(2/self.alpha_w) * sigma_w
 
-        self.kappa = nn.Parameter(torch.ones(self.output_size, self.input_size)*self.alpha_w)
+        self.kappa = nn.Parameter(torch.ones(self.output_size, self.input_size)*self.alpha_w)        
+        self.plas_mask = plas_mask
+
+    def effective_lr(self):
+        if self.plas_mask is not None:
+            return self.plas_mask*self.kappa.abs()
+        else:
+            return self.kappa.abs()
 
     def forward(self, w, baseline, R, pre, post):
         '''
@@ -202,16 +220,16 @@ class PlasticSynapse(nn.Module):
             kappa: learning rate
         '''
         new_w = baseline*(self.alpha_w) + w*(1-self.alpha_w) \
-            + R*self.kappa.abs()*(torch.bmm(post.unsqueeze(2), pre.unsqueeze(1))+self._sigma_w*torch.randn_like(w))
+            + R*self.effective_lr()*(torch.bmm(post.unsqueeze(2), pre.unsqueeze(1))+self._sigma_w*torch.randn_like(w))
         new_w = torch.clamp(new_w, self.lb, self.ub)
         return new_w
     
 
 class LeakyRNNCell(nn.Module):
     def __init__(self, input_size, hidden_size, aux_input_size, num_areas, 
-                activation='retanh', dt_x=0.02, tau_x=0.1, train_init_state=False,
-                e_prop=0.8, sigma_rec=0, sigma_in=0, init_spectral=None, 
-                balance_ei=False, conn_mask={}, **kwargs):
+                activation, dt_x, tau_x, train_init_state,
+                e_prop, sigma_rec, sigma_in, init_spectral, 
+                balance_ei, conn_mask):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
@@ -268,18 +286,18 @@ class LeakyRNNCell(nn.Module):
         return new_state, new_output
 
 class HierarchicalPlasticRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, num_areas, num_options,
+    def __init__(self, input_size, hidden_size, output_size, num_areas,
                 inter_regional_sparsity, inter_regional_gain,
-                plastic=True, activation='retanh', train_init_state=False,
-                dt_x=0.02, dt_w=1.0, tau_x=0.1, tau_w=100.0, weight_bound=1.0,
-                e_prop=0.8, sigma_rec=0, sigma_in=0, sigma_w=0, init_spectral=None, 
-                action_input=True, rwd_input=True, balance_ei=False, **kwargs):
+                plastic, activation,
+                dt_x, dt_w, tau_x, tau_w, 
+                e_prop, sigma_rec, sigma_in, sigma_w, 
+                action_input, rwd_input, 
+                balance_ei=True, init_spectral=None, train_init_state=False, weight_bound=1.0):
         super().__init__()
 
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.output_size =  output_size
-        self.num_options = num_options
         self.action_input = action_input
         self.rwd_input = rwd_input
         self.num_areas = num_areas
@@ -303,7 +321,11 @@ class HierarchicalPlasticRNN(nn.Module):
 
         self.conn_masks = _get_connectivity_mask(in_mask=in_mask, aux_mask=aux_mask, rec_mask=rec_mask,
                                                  input_units=input_size, aux_input_units=self.aux_input_size, 
-                                                 e_hidden_units_per_area=self.e_size, i_hidden_units_per_area=hidden_size-self.e_size)
+                                                 e_hidden_units_per_area=self.e_size, 
+                                                 i_hidden_units_per_area=hidden_size-self.e_size)
+        self.plas_mask = _get_plasticity_mask_rec(rec_mask=rec_mask, num_areas=self.num_areas, 
+                                                  e_hidden_units_per_area=self.e_size, 
+                                                  i_hidden_units_per_area=hidden_size-self.e_size)
         
         self.register_buffer('mask_rec_inter', self.conn_masks['rec_inter'], persistent=False)
 
@@ -315,13 +337,13 @@ class HierarchicalPlasticRNN(nn.Module):
                     -torch.eye(self.hidden_size*self.num_areas)
         balance_ei = balance_ei[:,:self.e_size*self.num_areas].sum(1, keepdim=True)/balance_ei[:,self.e_size*self.num_areas:].sum(1, keepdim=True)
 
-        self.rnn = LeakyRNNCell(input_size=self.input_size, hidden_size=hidden_size*self.num_areas, aux_input_size=sum(self.aux_input_size), plastic=plastic, 
+        self.rnn = LeakyRNNCell(input_size=self.input_size, hidden_size=hidden_size*self.num_areas, aux_input_size=sum(self.aux_input_size),
                                 activation=activation, dt_x=dt_x, tau_x=tau_x, train_init_state=train_init_state, 
                                 e_prop=e_prop, sigma_rec=sigma_rec, sigma_in=sigma_in, init_spectral=init_spectral,
                                 balance_ei=balance_ei, conn_mask=self.conn_masks, num_areas=num_areas)
         
         self.plasticity = PlasticSynapse(input_size=self.hidden_size*self.num_areas, output_size=self.hidden_size*self.num_areas, 
-                                         dt_w=dt_w, tau_w=tau_w, weight_bound=weight_bound, sigma_w=sigma_w)
+                                         dt_w=dt_w, tau_w=tau_w, weight_bound=weight_bound, sigma_w=sigma_w, plas_mask=self.plas_mask)
         
         # sparsify inter-regional connectivity, but not enforeced
         sparse_mask_ff = (torch.rand((self.conn_masks['rec_inter_ff'].abs().sum().long(),))<inter_regional_sparsity[0])
