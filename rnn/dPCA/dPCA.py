@@ -217,13 +217,13 @@ class dPCA(BaseEstimator):
             ''' Takes mean along several axis (given as list). If expand the averaged dimensions will be filled with
                 new axis to retain the dimension.
             '''
-            Z = X.copy()
+            Z = np.mean(X, axis=tuple(axes), keepdims=expand)
 
-            for ax in np.sort(axes)[::-1]:
-                Z = np.mean(Z,ax)
+            # for ax in np.sort(axes)[::-1]:
+            #     Z = np.mean(Z,ax)
 
-                if expand == True:
-                    Z = np.expand_dims(Z,ax)
+            #     if expand == True:
+            #         Z = np.expand_dims(Z,ax)
 
             return Z
 
@@ -567,6 +567,7 @@ class dPCA(BaseEstimator):
         # X = check_array(X)
 
         n_features = X.shape[0]
+        X = X.copy()
 
         # center data
         if center:
@@ -962,6 +963,7 @@ class dPCA(BaseEstimator):
             latent component. If specific marginalization is given, returns only array
 
         """
+        X = X.copy()
         X = self._zero_mean(X)
         total_variance = np.sum(X**2)
         non_unit_dims = tuple(range(1,len(X.shape)))
