@@ -34,7 +34,7 @@ class MDPRL():
                           [['c', i] for i in [[0],[1],[2]]]+\
                           [['fc', i] for i in [[0],[1],[2]]]+\
                           [['o',[0]]]
-        self.gen_level_probs = np.array([1]*7+[1]*3+[1]*3+[1])
+        self.gen_level_probs = np.array([1]*3+[1]*3+[1]+[1]*3+[1]*3+[1])
 
         self.gen_level_probs = self.gen_level_probs/np.sum(self.gen_level_probs)
 

@@ -95,7 +95,7 @@ if __name__ == "__main__":
         'rwd_end': rwd_start,
         'total_time': ITI+rwd_start,
         'dt': args.dt}
-    log_interval = 50
+    log_interval = 100
     # args.exp_times = exp_times
 
     if args.seed is not None:

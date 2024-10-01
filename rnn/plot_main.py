@@ -274,74 +274,74 @@ def plot_weight_summary(args, ws):
                                round(args['hidden_size']*(1-args['e_prop'])))
     
     submat_keys = [
-        ["rec_intra_ee_0", "rec_inter_fb_ee_1_0", "rec_intra_ei_0"],
-        ["rec_inter_ff_ee_0_1", "rec_intra_ee_1", "rec_intra_ei_1"],
-        ["rec_intra_ie_0", "rec_inter_fb_ie_1_0", "rec_intra_ii_0"],
-        ["rec_inter_ff_ie_0_1", "rec_intra_ie_1", "rec_intra_ii_1"],
+        ["rec_intra_ee_0", "rec_inter_fb_ee_1_0",],
+        ["rec_inter_ff_ee_0_1", "rec_intra_ee_1"],
+        ["rec_intra_ie_0", "rec_inter_fb_ie_1_0"],
+        ["rec_inter_ff_ie_0_1", "rec_intra_ie_1"],
     ]
 
     submat_names = [
-        [r"EE 0 $\to$ 0", r"EE 1 $\to$ 0", r"EI 0 $\to$ 0"],
-        [r"EE 0 $\to$ 1", r"EE 1 $\to$ 1", r"EI 1 $\to$ 1"],
-        [r"IE 0 $\to$ 0", r"IE 1 $\to$ 0", r"II 0 $\to$ 0"],
-        [r"IE 0 $\to$ 1", r"IE 1 $\to$ 1", r"II 1 $\to$ 1"],
+        [r"EE 0 $\to$ 0", r"EE 1 $\to$ 0"],
+        [r"EE 0 $\to$ 1", r"EE 1 $\to$ 1"],
+        [r"IE 0 $\to$ 0", r"IE 1 $\to$ 0"],
+        [r"IE 0 $\to$ 1", r"IE 1 $\to$ 1"],
     ]
 
     for k in all_submats.keys():
         all_submats[k] = all_submats[k].squeeze()
 
     # norm of update
-    fig, axes = plt.subplots(4, 3)
+    fig, axes = plt.subplots(4, 2, figsize=(12, 8))
     for i in range(4):
-        for j in range(3):
+        for j in range(2):
             sub_w = all_submats[submat_keys[i][j]]
             diff_ws = ((sub_w[1:]-sub_w[:-1])**2).mean([-1, -2])
             plot_mean_and_std(axes[i][j], diff_ws.mean(1), diff_ws.std(1)/np.sqrt(batch_size), 
                               None, color='salmon' if j<=1 else 'skyblue')
-            axes[i][j].set_title(submat_names[i][j], fontsize=11)
-            axes[i][j].tick_params(labelsize=11)
-    fig.supxlabel('Trial', fontsize=11)
-    fig.supylabel(r'$|\Delta W|_2$', fontsize=11)
+            axes[i][j].set_title(submat_names[i][j])
+            axes[i][j].tick_params()
+    fig.supxlabel('Trial')
+    fig.supylabel(r'$|\Delta W|_2$')
     plt.tight_layout()
     sns.despine()
     fig.show()
     print('Finished calculating norm of update')
 
     # norm of weights
-    fig, axes = plt.subplots(4, 3)
+    fig, axes = plt.subplots(4, 2, figsize=(12, 8))
     for i in range(4):
-        for j in range(3):
+        for j in range(2):
             sub_w = all_submats[submat_keys[i][j]]
             norm_ws = (sub_w**2).mean([-1, -2])
             plot_mean_and_std(axes[i][j], norm_ws.mean(1), norm_ws.std(1)/np.sqrt(batch_size), 
                               None, color='salmon' if j<=1 else 'skyblue')
-            axes[i][j].set_title(submat_names[i][j], fontsize=11)
-            axes[i][j].tick_params(labelsize=11)
-    fig.supxlabel('Trial', fontsize=11)
-    fig.supylabel(r'$|W|_2$', fontsize=11)
+            axes[i][j].set_title(submat_names[i][j])
+            axes[i][j].tick_params()
+    fig.supxlabel('Trial')
+    fig.supylabel(r'$|W|_2$')
     plt.tight_layout()
     sns.despine()
     fig.show()
     print('Finished calculating weight norms')
 
     # variance of entries across trials
-    fig, axes = plt.subplots(4, 3)
+    fig, axes = plt.subplots(4, 2, figsize=(12, 8))
     for i in range(4):
-        for j in range(3):
+        for j in range(2):
             sub_w = all_submats[submat_keys[i][j]]
             mean_ws = sub_w.mean(1, keepdims=True)
             std_ws = ((sub_w-mean_ws)**2).mean([-1, -2])
             plot_mean_and_std(axes[i][j], std_ws.mean(1), std_ws.std(1)/np.sqrt(batch_size), 
                               None, color='salmon' if j<=1 else 'skyblue')
-            axes[i][j].set_title(submat_names[i][j], fontsize=11)
-            axes[i][j].tick_params(labelsize=11)
-    fig.supxlabel('Trial', fontsize=11)
-    fig.supylabel('Cross session variability', fontsize=11)
+            axes[i][j].set_title(submat_names[i][j])
+            axes[i][j].tick_params()
+    fig.supxlabel('Trial')
+    fig.supylabel('Cross session variability')
     plt.tight_layout()
     sns.despine()
     fig.show()
     print('Finished calculating variability')
-
+    
 def plot_learning_curve(args, all_rewards, all_choose_betters, plot_save_dir):
 
     

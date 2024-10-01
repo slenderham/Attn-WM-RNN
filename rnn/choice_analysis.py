@@ -210,8 +210,7 @@ def credit_assignment(all_saved_states, task_mdprl, plot_save_dir, end_trial=216
     plt.close()
     return
 
-
-def steady_state_choice_logit_analysis(all_saved_states, task_mdprl, plot_save_dir, start_trial=216):
+def steady_state_choice_logit_analysis(all_saved_states, task_mdprl, plot_save_dir, start_trial=432):
     num_trials = all_saved_states['rewards'].shape[0]
     num_trials_to_fit = np.arange(432-start_trial, num_trials)
     num_subj = all_saved_states['rewards'].shape[2]
@@ -230,23 +229,27 @@ def steady_state_choice_logit_analysis(all_saved_states, task_mdprl, plot_save_d
 
         all_Xs.append(np.stack([np.log(pF1[:,1]/pF1[:,0]), 
                                 np.log(pC1[:,1]/pC1[:,0]),
-                                np.log(pO[:,1]/pO[:,0]),], axis=1))
+                                np.log(pO[:,1]/pO[:,0]),
+                                np.ones_like(logits)*idx_subj], axis=1))
         all_Ys.append(logits)
         
     all_Xs = np.concatenate(all_Xs, 0)
     all_Ys = np.concatenate(all_Ys, 0)[:, None]
     
-    all_data = pd.DataFrame(np.concatenate([all_Xs, all_Ys], axis=1), columns=['pFinf', 'pCinf', 'pO', 'logits']).fillna(0)
+    all_data = pd.DataFrame(np.concatenate([all_Xs, all_Ys], axis=1), columns=['pFinf', 'pCinf', 'pO', 'idx_subj', 'logits']).fillna(0)
 
     fig, axes = plt.subplots(figsize=(7,5))
     
     sns.stripplot(data=all_data, x='pFinf', y='logits', jitter=True, native_scale=True,
-                  color=mpl.colormaps['tab10']([0]), alpha=0.1)
+                  color=mpl.colormaps['tab10']([0]), alpha=0.02)
     sns.stripplot(data=all_data, x='pCinf', y='logits', jitter=True, native_scale=True,
-                  color=mpl.colormaps['tab10']([3]), alpha=0.1)
+                  color=mpl.colormaps['tab10']([3]), alpha=0.02)
 
-    mdl = smf.ols('logits~pFinf+pCinf+pO', all_data, missing='drop')
-    mdlf = mdl.fit()
+    mdl = smf.mixedlm('logits~pFinf+pCinf+pO', all_data, missing='drop', groups=all_data['idx_subj'],
+                      re_formula='~pFinf+pCinf+pO')
+    free = sm.regression.mixed_linear_model.MixedLMParams.from_components(np.ones(4), np.eye(4))
+    
+    mdlf = mdl.fit(free=free, method=['lbfgs'])
     print(mdlf.summary())
     all_coeffs = mdlf.params[1:]
     all_ses = mdlf.bse[1:]
@@ -282,9 +285,9 @@ def steady_state_choice_logit_analysis(all_saved_states, task_mdprl, plot_save_d
     print(f'Figure saved at plots/{plot_save_dir}/choice_logit_curves_slopes.pdf')
     plt.show()
     plt.close()
-    return
+    return mdlf
 
-def credit_assignment_logit(all_saved_states, task_mdprl, plot_save_dir, end_trial=216):
+def credit_assignment_logit(all_saved_states, task_mdprl, plot_save_dir, end_trial=432//2):
     # find chosen feedback, unchosen feedback
     # stimuli torch.Size([432, 1, 92, 2])
     # reward_probs torch.Size([432, 1, 92, 2])
@@ -314,7 +317,8 @@ def credit_assignment_logit(all_saved_states, task_mdprl, plot_save_dir, end_tri
         subj_Xs = np.concatenate([rwd_pre[:,None]*(stimsFCO_pre_chosen==stimsFCO_post[:,1,:])-
                                   rwd_pre[:,None]*(stimsFCO_pre_chosen==stimsFCO_post[:,0,:]),\
                                   1.0*(stimsFCO_pre_chosen==stimsFCO_post[:,1,:])-
-                                  1.0*(stimsFCO_pre_chosen==stimsFCO_post[:,0,:])], axis=-1)
+                                  1.0*(stimsFCO_pre_chosen==stimsFCO_post[:,0,:]),
+                                  np.ones_like(logits)[:,None]*idx_subj], axis=-1)
         
         all_Xs.append(subj_Xs)
         all_Ys.append(logits)
@@ -327,14 +331,17 @@ def credit_assignment_logit(all_saved_states, task_mdprl, plot_save_dir, end_tri
 
     all_var_names = ['_'.join([s, 'R']) for s in var_names] + ['_'.join([s, 'C']) for s in var_names]
 
-    all_data = pd.DataFrame(np.concatenate([all_Xs, all_Ys], axis=1), columns=[*all_var_names, 'logits'])
+    all_data = pd.DataFrame(np.concatenate([all_Xs, all_Ys], axis=1), columns=[*all_var_names, 'idx_subj', 'logits'])
 
-    mdl = smf.ols('logits~'+'+'.join(all_var_names), data=all_data)
-    mdlf = mdl.fit()
+    mdl = smf.mixedlm('logits~'+'+'.join(all_var_names), data=all_data, groups=all_data['idx_subj'],
+                     re_formula='~'+'+'.join(all_var_names))
+    free = sm.regression.mixed_linear_model.MixedLMParams.from_components(np.ones(15), np.eye(15))
+    
+    mdlf = mdl.fit(free=free, method=['lbfgs'])
     print(mdlf.summary())
-    all_coeffs = mdlf.params[1:].to_numpy()
-    all_ses = mdlf.bse[1:].to_numpy()
-    all_ps = mdlf.pvalues[1:].to_numpy()
+    all_coeffs = mdlf.params[1:15].to_numpy()
+    all_ses = mdlf.bse[1:15].to_numpy()
+    all_ps = mdlf.pvalues[1:15].to_numpy()
 
     all_xlabels = [r'$F_{I}$', r'$F_{N1}$', r'$F_{N2}$', r'$C_{I}$', r'$C_{N1}$', r'$C_{N2}$', 'O']
 
@@ -374,5 +381,5 @@ def credit_assignment_logit(all_saved_states, task_mdprl, plot_save_dir, end_tri
         print(f'Figure saved at plots/{plot_save_dir}/credit_assignment_logit.pdf')
     plt.show()
     plt.close()
-    return
-
+        
+    return mdlf
