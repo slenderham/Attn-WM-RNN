@@ -210,7 +210,7 @@ def credit_assignment(all_saved_states, task_mdprl, plot_save_dir, end_trial=216
     plt.close()
     return
 
-def steady_state_choice_logit_analysis(all_saved_states, task_mdprl, plot_save_dir, start_trial=432):
+def steady_state_choice_logit_analysis(all_saved_states, task_mdprl, plot_save_dir, start_trial=432//2):
     num_trials = all_saved_states['rewards'].shape[0]
     num_trials_to_fit = np.arange(432-start_trial, num_trials)
     num_subj = all_saved_states['rewards'].shape[2]

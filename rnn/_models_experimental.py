@@ -36,7 +36,7 @@ def _get_pos_function(func_name):
 def _get_plasticity_mask_rec(rec_mask, num_areas, e_hidden_units_per_area, i_hidden_units_per_area):
     plas_mask = {}
     plas_mask_ee = torch.kron(rec_mask, torch.ones(e_hidden_units_per_area, e_hidden_units_per_area))
-    plas_mask_ie = torch.zeros(num_areas*i_hidden_units_per_area, num_areas*e_hidden_units_per_area)
+    plas_mask_ie = torch.kron(rec_mask, torch.ones(i_hidden_units_per_area, e_hidden_units_per_area))
     plas_mask_ei = torch.zeros(num_areas*e_hidden_units_per_area, num_areas*i_hidden_units_per_area)
     plas_mask_ii = torch.zeros(num_areas*i_hidden_units_per_area, num_areas*i_hidden_units_per_area)
     plas_mask = torch.cat([

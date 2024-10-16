@@ -195,14 +195,24 @@ class MDPRL():
         self.test_sensory2stim_idx = np.stack(self.test_sensory2stim_idx, axis=0)
         self.test_rwd = np.stack(self.test_rwd, axis=0).transpose(0,2,1)
 
-    def _generate_generalizable_prob(self, gen_level, reward_median_scale=[-1, 1], reward_range_scale=[2, 8]):
+    def _generate_generalizable_prob(self, gen_level, reward_mean_scale=[-1, 1], reward_range_scale=[2, 8]):
         # different level of gernalizability in terms of nonlinear terms: 0 (all linear), 1 (conjunction of two features), 2 (no regularity)
         # feat_1,2,3: all linear terms, with 2,1,0 irrelevant features
         # conj, feat+conj: a conj of two features, with a relevant or irrelevant feature
         # obj: a conj of all features
         # assert gen_level in self.gen_levels
+
+        ft_contrasts = np.array([[1,0],[0,1],[-1,-1]]) # 3X2
+        ft_contrasts = ft_contrasts[np.random.permutation(3)]
+        conj_contrasts = np.stack([
+            (ft_contrasts[i:i+1].T@ft_contrasts[j:j+1]).reshape(-1) for i in range(3) for j in range(3)
+        ]) #9X4
+        obj_contrasts = np.stack([
+            (ft_contrasts[i:i+1].T@conj_contrasts[j:j+1]).reshape(-1) for i in range(3) for j in range(9)
+        ]) # 27X8
+
         if gen_level[0]=='f':
-            log_odds_all = np.random.randn(3,3)
+            log_odds_all = np.random.randn(3,2)@ft_contrasts.T
             log_odds = np.zeros((3,3))
             for d in gen_level[1]:
                 log_odds[d] = log_odds_all[d] # make certain features irrelavant
@@ -210,10 +220,10 @@ class MDPRL():
             for i in range(3):
                 for j in range(3):
                     for k in range(3):
-                        probs[i,j,k] = (log_odds[0,i]+log_odds[1,j]+log_odds[2,k])/np.sqrt(len(gen_level[1]))
+                        probs[i,j,k] = (log_odds[0,i]+log_odds[1,j]+log_odds[2,k])
         
         elif gen_level[0]=='c':
-            log_odds = np.random.randn(9)
+            log_odds = (np.random.randn(4)[None]@conj_contrasts.T).squeeze()
             probs = np.empty((3,3,3))*np.nan
             for ipj in range(9):
                 i = ipj//3
@@ -228,33 +238,33 @@ class MDPRL():
                     raise ValueError
 
         elif gen_level[0]=='fc':
-            feat_log_odds = np.random.randn(3)
-            conj_log_odds = np.random.randn(9)
+            feat_log_odds = (np.random.randn(2)[None]@ft_contrasts.T).squeeze()
+            conj_log_odds = (np.random.randn(4)[None]@conj_contrasts.T).squeeze()
             probs = np.empty((3,3,3))*np.nan
             for i in range(3):
                 for jpk in range(9):
                     j = jpk//3
                     k = jpk%3
                     if gen_level[1][0]==0:
-                        probs[i,j,k] = (feat_log_odds[i]+conj_log_odds[jpk])/np.sqrt(2)
+                        probs[i,j,k] = (feat_log_odds[i]+conj_log_odds[jpk])
                     elif gen_level[1][0]==1:
-                        probs[j,i,k] = (feat_log_odds[i]+conj_log_odds[jpk])/np.sqrt(2)
+                        probs[j,i,k] = (feat_log_odds[i]+conj_log_odds[jpk])
                     elif gen_level[1][0]==2:
-                        probs[j,k,i] = (feat_log_odds[i]+conj_log_odds[jpk])/np.sqrt(2)
+                        probs[j,k,i] = (feat_log_odds[i]+conj_log_odds[jpk])
                     else:
                         raise ValueError
         
         elif gen_level[0]=='o':
-            probs = np.random.randn(3,3,3)
+            probs = (np.random.randn(8)[None]@obj_contrasts.T).squeeze()
         
         else:
             raise RuntimeError
 
         # independently control the mean and std of reward
-        probs = (probs-np.median(probs))/np.ptp(probs)
-        reward_median = reward_median_scale[0]+np.random.rand()*(reward_median_scale[1]-reward_median_scale[0]) # uniformly between about 0.3-0.7
+        probs = (probs-np.mean(probs))/np.ptp(probs)
+        reward_mean = reward_mean_scale[0]+np.random.rand()*(reward_mean_scale[1]-reward_mean_scale[0]) # uniformly between about 0.3-0.7
         reward_range = reward_range_scale[0]+np.random.rand()*(reward_range_scale[1]-reward_range_scale[0]) # uniformly between about 0.5-1.0
-        probs = probs*reward_range+reward_median
+        probs = probs*reward_range+reward_mean
         
         # add jitter to break draws
         probs = 1/(1+np.exp(-probs))
