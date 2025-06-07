@@ -16,23 +16,207 @@ from _task_experimental import MDPRL
 from utils import (AverageMeter, load_checkpoint, load_list_from_fs,
                    save_checkpoint, save_defaultdict_to_fs, save_list_to_fs)
 
+import wandb
+
+def train(model, iters):
+    model.train()
+    optimizer.zero_grad()
+    pbar = tqdm(total=iters)
+    total_acc = 0
+    total_loss = 0
+    for batch_idx in range(iters):
+        pop_s, rwd_s, target_s, index_s, prob_s, _ = task_mdprl.generateinput(
+            batch_size=args.batch_size, N_s=args.N_s, num_choices=num_options)    
+        index_s = index_s.to(device)
+        prob_s = prob_s.to(device)
+        rwd_s = rwd_s.to(device)
+        pop_s = pop_s.to(device)
+        target_s = target_s.to(device)
+        
+        loss = 0
+        hidden = None
+        w_hidden = None
+
+        for i in range(len(pop_s)):
+            ''' first phase, give nothing '''
+            all_x = {
+                'stim': torch.zeros_like(pop_s[i].sum(1)),
+                'action': torch.zeros(args.batch_size, output_size, device=device),
+            }
+            _, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_fixation, 
+                                            neumann_order=args.neumann_order,
+                                            hidden=hidden, w_hidden=w_hidden, 
+                                            DA=None)
+            loss += args.l2r*hs.pow(2).mean()/3
+
+            ''' second phase, give stimuli and no feedback '''
+            all_x = {
+                'stim': pop_s[i].sum(1),
+                'action': torch.zeros(args.batch_size, output_size, device=device),
+            }
+            output, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_stim, 
+                                                neumann_order=args.neumann_order,
+                                                hidden=hidden, w_hidden=w_hidden, 
+                                                DAs=None)
+            loss += args.l2r*hs.pow(2).mean()/3
+
+            ''' use output to calculate action, reward, and record loss function '''
+            if args.task_type=='on_policy_double':
+                if args.decision_space=='action':
+                    raise NotImplementedError
+                elif args.decision_space=='good':
+                    action_valid = torch.multinomial(output['action'][:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
+                    action = index_s[i][torch.arange(args.batch_size), action_valid] # (batch size)
+                    rwd = rwd_s[i][torch.arange(args.batch_size), action_valid]
+                    # assert(action.shape==(args.batch_size,))
+                    # assert(target.shape==(output.shape[0],args.batch_size))
+                    # assert(rwd.shape==(args.batch_size,))
+                action_logits = output['action'].flatten(end_dim=-2)
+                target = target_s[i].flatten()
+                loss += F.cross_entropy(action_logits, target)
+                total_loss += F.cross_entropy(action_logits.detach(), target).detach().item()/len(pop_s)
+                total_acc += (action==target).float().item()/len(pop_s)
+            elif args.task_type == 'value':
+                raise NotImplementedError
+            
+            if args.task_type=='on_policy_double':
+                '''third phase, give stimuli and choice, and update weights'''
+                all_x = {
+                    'stim': pop_s[i].sum(1),
+                    'action': torch.eye(output_size, device=device)[None][torch.arange(args.batch_size), action],
+                }
+                DAs = (2*rwd.float()-1)
+                _, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_ch, 
+                                                neumann_order=args.neumann_order,
+                                                hidden=hidden, w_hidden=w_hidden, 
+                                                DAs=DAs)
+                loss += args.l2r*hs.pow(2).mean()/3
+
+            elif args.task_type == 'value':
+                raise NotImplementedError
+
+        
+        # add weight decay for static weights
+        loss /= len(pop_s)
+        loss += args.l2w*(model.rnn.h2h.effective_weight().pow(2).sum())
+        loss += args.l2w*(model.plasticity.effective_lr().pow(2).sum())
+        for input_w in model.rnn.x2h.values():
+            loss += args.l2w*(input_w.effective_weight().pow(2).sum())
+        for output_w in model.h2o.values():
+            loss += args.l2w*(output_w.effective_weight().pow(2).sum())
+        if args.num_areas>1:
+            loss += args.l1w*(model.mask_rec_inter*model.rnn.h2h.effective_weight()).abs().sum()
+            loss += args.l1w*(model.mask_rec_inter*model.plasticity.effective_lr()).abs().sum()
+
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
+        optimizer.step()
+        optimizer.zero_grad()
+        # clamp weight values
+        with torch.no_grad():
+            model.rnn.h2h.weight.data.clamp_(-model.plasticity.weight_bound, model.plasticity.weight_bound)
+
+        if (batch_idx+1) % log_interval == 0:
+            if torch.isnan(loss):
+                quit()
+            pbar.set_description('Iteration {} Loss: {:.4f} Acc: {:.4f}'.format(batch_idx+1, total_loss/(batch_idx+1), total_acc/(batch_idx+1)))
+            # pbar.refresh()
+            pbar.update(log_interval)
+    pbar.close()
+    total_acc = total_acc/iters
+    total_loss = total_loss/iters
+    print(f'Training Loss: {total_loss:.4f}, Training Acc: {total_acc:.4f}')
+    wandb.log({'Training Loss': total_loss, 'Training Acc': total_acc})
+    return total_loss.item()
+
+
+def eval(model, epoch):
+    model.eval()
+    losses_means_by_gen = []
+    losses_stds_by_gen = []
+    with torch.no_grad():
+        for curr_gen_level in task_mdprl.gen_levels:
+            losses = []
+            for batch_idx in range(args.eval_samples):
+                pop_s, rwd_s, target_s, index_s, prob_s, _ = task_mdprl.generateinput(
+                        batch_size=args.batch_size, N_s=args.test_N_s, num_choices=num_options, gen_level=curr_gen_level)
+                index_s = index_s.to(device)
+                prob_s = prob_s.to(device)
+                rwd_s = rwd_s.to(device)
+                pop_s = pop_s.to(device)
+                target_s = target_s.to(device)
+                
+                loss = []
+                hidden = None
+                w_hidden = None
+                for i in range(len(pop_s)):
+                    # first phase, give nothing
+                    all_x = {
+                        'stim': torch.zeros_like(pop_s[i].sum(1)),
+                        'action': torch.zeros(args.batch_size, output_size, device=device),
+                    }
+                    _, hidden, w_hidden, _ = model(all_x, steps=task_mdprl.T_fixation, neumann_order = 0,
+                                                hidden=hidden, w_hidden=w_hidden, DAs=None)
+                    # second phase, give stimuli and no feedback
+                    all_x = {
+                        'stim': pop_s[i].sum(1),
+                        'action': torch.zeros(args.batch_size, output_size, device=device),
+                    }
+                    output, hidden, w_hidden, _ = model(all_x, steps=task_mdprl.T_stim, neumann_order = 0,
+                                                hidden=hidden, w_hidden=w_hidden, DAs=None)
+                    if args.task_type=='on_policy_double':
+                        # use output to calculate action, reward, and record loss function
+                        if args.decision_space=='action':
+                            raise NotImplementedError
+                        elif args.decision_space=='good':
+                            action_valid = torch.multinomial(output['action'][:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
+                            action = index_s[i][torch.arange(args.batch_size), action_valid] # (batch size)
+                            # assert(action.shape==(args.batch_size,))
+                            rwd = rwd_s[i][range(args.batch_size), action_valid]
+                            # assert(rwd.shape==(args.batch_size,))
+                            loss.append((action==target_s[i]).float())
+                    elif args.task_type == 'value':
+                        raise NotImplementedError
+                    
+                    if args.task_type=='on_policy_double':
+                        '''third phase, give stimuli and choice, and update weights'''
+                        all_x = {
+                            'stim': pop_s[i].sum(1),
+                            'action': torch.eye(output_size, device=device)[None][torch.arange(args.batch_size), action],
+                        }
+                        DAs = (2*rwd.float()-1)
+                        _, hidden, w_hidden, _ = model(all_x, steps=task_mdprl.T_ch, neumann_order = 0,
+                                                    hidden=hidden, w_hidden=w_hidden, DAs=DAs)
+
+                    elif args.task_type == 'value':
+                        raise NotImplementedError
+
+                loss = torch.stack(loss, dim=0)
+                losses.append(loss)
+            losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
+            losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
+            losses_means_by_gen.append(losses_means.tolist())
+            losses_stds_by_gen.append(losses_stds.tolist())
+            print('====> Epoch {} Gen Level: {} Eval Loss: {:.4f}'.format(epoch+1, curr_gen_level, losses_means.mean()))
+            wandb.log({'Eval loss': losses_means.mean()}, step=epoch)
+        return losses_means_by_gen, losses_stds_by_gen
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--exp_dir', type=str, help='Output directory')
     parser.add_argument('--iters', type=int, help='Training iterations')
     parser.add_argument('--epochs', type=int, default=1, help='Training epochs')
-    parser.add_argument('--hidden_size', type=int, default=80, help='Size of recurrent layer')
-    parser.add_argument('--num_areas', type=int, default=6, help='Number of recurrent areas')
-    parser.add_argument('--stim_dim', type=int, default=3, choices=[2, 3], help='Number of features')
+    parser.add_argument('--hidden_size', type=int, default=40, help='Size of recurrent layer')
+    parser.add_argument('--num_areas', type=int, default=4, help='Number of recurrent areas')
+    parser.add_argument('--stim_dim', type=int, default=2, choices=[2, 3], help='Number of features')
     parser.add_argument('--stim_val', type=int, default=3, help='Possible values of features')
-    parser.add_argument('--N_s', type=int, default=135, help='Number of times to repeat the entire stim set')
-    parser.add_argument('--test_N_s', type=int, default=432, help='Number of times to repeat the entire stim set during eval')
+    parser.add_argument('--N_s', type=int, default=45, help='Number of times to repeat the entire stim set')
+    parser.add_argument('--test_N_s', type=int, default=144, help='Number of times to repeat the entire stim set during eval')
     parser.add_argument('--e_prop', type=float, default=4/5, help='Proportion of E neurons')
     parser.add_argument('--batch_size', type=int, default=1, help='Batch size')
     parser.add_argument('--neumann_order', type=int, default=10, help='Timestep for unrolling for neumann approximation')
-    # parser.add_argument('--grad_accumulation_steps', type=int, default=1, help='Steps of gradient accumulation.')
-    parser.add_argument('--eval_samples', type=int, default=21, help='Number of samples to use for evaluation.')
+    parser.add_argument('--eval_samples', type=int, default=10, help='Number of samples to use for evaluation.')
     parser.add_argument('--max_norm', type=float, default=1.0, help='Max norm for gradient clipping')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
@@ -47,12 +231,10 @@ if __name__ == "__main__":
     parser.add_argument('--l2w', type=float, default=0.0, help='Weight for L2 reg on weight')
     parser.add_argument('--l1r', type=float, default=0.0, help='Weight for L1 reg on firing rate')
     parser.add_argument('--l1w', type=float, default=0.0, help='Weight for L1 reg on weight')
-    parser.add_argument('--plas_type', type=str, choices=['all', 'half', 'none'], default='all', help='How much plasticity')
-    # parser.add_argument('--plas_rule', type=str, choices=['add', 'mult'], default='add', help='Plasticity rule')
-    # parser.add_argument('--input_plas_off', action='store_true', help='Disable input plasticity')
-    parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj', 'feat+conj+obj'], default='feat+conj+obj', help='Input coding')
+    parser.add_argument('--plas_type', type=str, choices=['all', 'none'], default='all', help='How much plasticity')
+    parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj'], default='feat+obj', help='Input coding')
     parser.add_argument('--decision_space', type=str, choices=['good', 'good_feat', 'good_feat_conj_obj', 'action'], help='Supervise with good-based or action-based decision making')
-    parser.add_argument('--task_type', type=str, choices=['value', 'off_policy_single', 'on_policy_double'],
+    parser.add_argument('--task_type', type=str, choices=['value', 'on_policy_double'],
                         help='Learn reward prob or RL. On policy if decision determines. On policy if decision determines rwd. Off policy if rwd sampled from random policy.')
     parser.add_argument('--rwd_input', action='store_true', help='Whether to use reward as input')
     parser.add_argument('--action_input', action='store_true', help='Whether to use action as input')
@@ -61,39 +243,23 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, help='Random seed')
     parser.add_argument('--save_checkpoint', action='store_true', help='Whether to save the trained model')
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to load the trained model')
-    parser.add_argument('--debug', action='store_true', help='Debug mode for plotting')
     parser.add_argument('--cuda', action='store_true', help='Enables CUDA training')
 
     args = parser.parse_args()
 
-    # TODO: add all plasticity
-    if args.plas_type=='half':
-        raise NotImplementedError
-    if args.task_type=='on_policy':
-        raise NotImplementedError
-
     if args.save_checkpoint:
         print(f"Parameters saved to {os.path.join(args.exp_dir, 'args.json')}")
         save_defaultdict_to_fs(vars(args), os.path.join(args.exp_dir, 'args.json'))
-
-    ITI = 0.4
-    choice_start = 0.8
-    rwd_start = 1.4
     
-    # experiment timeline [0.75 fixation, 2.5 stimulus, 0.5 action presentation, 1.0 reward presentation]
-    # 2021 paper          [0.5          , 0.7         , 0.3                    , 0.2                   ]
-    # here                [0.4          , 0.8         , 0.6                    , 0.02                  ]
+    # experiment timeline [0.75 fixation, 2.5 stimulus, 0.5 action presentation]
+    # 2021 paper          [0.5          , 0.7         , 0.3                    ]
+    # here                [0.4          , 0.8         , 0.6                    ]
     
     exp_times = {
-        'start_time': -ITI,
-        'end_time': rwd_start,
-        'stim_onset': 0.0,
-        'stim_end': rwd_start,
-        'choice_onset': choice_start,
-        'choice_end': rwd_start,
-        'rwd_onset': rwd_start,
-        'rwd_end': rwd_start,
-        'total_time': ITI+rwd_start,
+        'fixation': 0.4,
+        'stimulus_presentation': 0.8,
+        'choice_presentation': 0.6,
+        'total_time': 1.8,
         'dt': args.dt}
     log_interval = 100
     # args.exp_times = exp_times
@@ -115,27 +281,29 @@ if __name__ == "__main__":
         'feat+obj': args.stim_dim*args.stim_val+args.stim_val**args.stim_dim, 
         'feat+conj+obj': args.stim_dim*args.stim_val+args.stim_dim*args.stim_val*args.stim_val+args.stim_val**args.stim_dim,
     }[args.input_type]
+    output_size = args.stim_val**args.stim_dim
+
+    input_config = {
+        'stim': (input_size, [0]),
+        'action': (output_size, [1]),
+    }
+
+    output_config = {
+        'action': (output_size, [1]),
+    }
 
     num_options = 1 if args.task_type=='value' else 2
-    if args.decision_space=='action':
-        output_size = num_options
-    elif args.decision_space=='good':
-        output_size = args.stim_val**args.stim_dim
-    else:
-        raise ValueError('Invalid decision space')
 
-    model_specs = {'input_size': input_size, 'hidden_size': args.hidden_size, 'output_size': output_size,
-                   'plastic': args.plas_type=='all', 'activation': args.activ_func,
+    model_specs = {'input_config': input_config, 'hidden_size': args.hidden_size, 'output_config': output_config,
+                   'num_areas': args.num_areas, 'plastic': args.plas_type=='all', 'activation': args.activ_func,
                    'dt_x': args.dt, 'dt_w': exp_times['total_time'], 'tau_x': args.tau_x, 'tau_w': args.tau_w, 
                    'e_prop': args.e_prop, 'init_spectral': args.init_spectral, 'balance_ei': args.balance_ei,
                    'sigma_rec': args.sigma_rec, 'sigma_in': args.sigma_in, 'sigma_w': args.sigma_w, 
-                   'rwd_input': args.rwd_input, 'action_input': args.action_input, 
-                   'num_areas': args.num_areas, 'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (1, 1)}
+                   'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (1, 1)}
     
     model = HierarchicalPlasticRNN(**model_specs).to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     print(model)
-    # lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=5)
     for n, p in model.named_parameters():
         print(n, p.numel())
     print(optimizer)
@@ -144,251 +312,7 @@ if __name__ == "__main__":
         load_checkpoint(model, optimizer, device, folder=args.exp_dir, filename='checkpoint.pth.tar')
         print('Model loaded successfully')
 
-    def train(model, iters):
-        model.train()
-        optimizer.zero_grad()
-        pbar = tqdm(total=iters)
-        total_acc = 0
-        total_loss = 0
-        for batch_idx in range(iters):
-            pop_s, pop_c, rwd_s, target_valid, index_s, prob_s, gen_level = task_mdprl.generateinput(
-                batch_size=args.batch_size, N_s=args.N_s, num_choices=num_options)    
-            index_s = index_s.to(device)
-            prob_s = prob_s.to(device)
-            rwd_s = rwd_s.to(device)
-            pop_s = pop_s.to(device)
-            pop_c = pop_c.to(device)
-            target_valid = target_valid.to(device)
-            
-            loss = 0
-            hidden = None
-            w_hidden = None
-            if args.debug:
-                plt.imshow(model.rnn.x2h.effective_weight().detach())
-                plt.colorbar()
-                plt.show()
-                # plt.imshow(model.rnn.kappa_in.abs().detach())
-                # plt.colorbar()
-                # plt.show()
-                plt.imshow(model.rnn.aux2h.effective_weight().detach())
-                plt.colorbar()
-                plt.show()                
-                wlim = np.percentile(model.rnn.h2h.effective_weight().detach().abs(), 90)
-                plt.imshow(model.rnn.h2h.effective_weight().detach(), vmax=wlim, vmin=-wlim, cmap='RdBu_r')
-                plt.colorbar()
-                plt.show()
-                wlim = np.percentile(model.rnn.kappa_rec.abs().detach(), 90)
-                plt.imshow(model.rnn.h2h.effective_weight(model.rnn.kappa_rec.abs()).detach().squeeze(), vmax=wlim, vmin=-wlim, cmap='RdBu_r')
-                plt.colorbar()
-                plt.show()
-                v = torch.linalg.eigvals(model.rnn.h2h.effective_weight()).detach()
-                plt.scatter(v.real,v.imag)
-                plt.show()
-            
-            for i in range(len(pop_s)):
-                ''' first phase, give nothing '''
-                _, hidden, w_hidden, hs = model(torch.zeros_like(pop_s[i].sum(1)), steps=task_mdprl.T_fixation, 
-                                                neumann_order=args.neumann_order,
-                                                hidden=hidden, w_hidden=w_hidden, DAs=None,
-                                                Rs=torch.zeros(args.batch_size, 2, device=device),
-                                                acts=torch.zeros(args.batch_size, output_size, device=device))
-                # regularize firing rate
-                loss += args.l2r*hs.pow(2).mean()/3
-
-                ''' second phase, give stimuli and no feedback '''
-                output, hidden, w_hidden, hs = model(pop_s[i].sum(1), steps=task_mdprl.T_stim, 
-                                                    neumann_order=args.neumann_order,
-                                                    hidden=hidden, w_hidden=w_hidden, DAs=None,
-                                                    Rs=torch.zeros(args.batch_size, 2, device=device),
-                                                    acts=torch.zeros(args.batch_size, output_size, device=device))
-
-                if args.debug:
-                    plt.plot(output.softmax(-1)[:,:,index_s[i, torch.sort(prob_s[i])[1]]].squeeze().detach())
-                    plt.plot(output.softmax(-1).squeeze().detach(), c='k', alpha=0.1)
-                    # plt.plot(ch_s['pre_choice'][i].squeeze())
-                    plt.ylim([-0.1, 1.1])
-                    plt.show()
-    
-                ''' use output to calculate action, reward, and record loss function '''
-                if args.task_type=='on_policy_double':
-                    if args.decision_space=='action':
-                        action = torch.multinomial(output[-1,:,:], 1)
-                        rwd = (torch.rand(args.batch_size, device=device)<prob_s[i][range(args.batch_size), action]).long()
-                    elif args.decision_space=='good':
-                        action_valid = torch.multinomial(output[:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
-                        action = index_s[i, action_valid] # (batch size)
-                        # assert(action.shape==(args.batch_size,))
-                        target = index_s[i, target_valid[i]] # (batch size)
-                        # assert(target.shape==(output.shape[0],args.batch_size))
-                        rwd = rwd_s[i][range(args.batch_size), action_valid]
-                        # assert(rwd.shape==(args.batch_size,))
-                    output = output.flatten(end_dim=-2)
-                    target = target.flatten()
-                    # loss += task_mdprl.calculate_loss(output, target)
-                    loss += F.cross_entropy(output, target)
-                    # total_loss += task_mdprl.calculate_loss(output, target).detach().item()/len(pop_s)
-                    total_loss += F.cross_entropy(output.detach(), target).detach().item()/len(pop_s)
-                    total_acc += (action_valid==target_valid[i]).float().item()/len(pop_s)
-                elif args.task_type == 'value':
-                    rwd = (torch.rand(args.batch_size)<prob_s[i]).float()
-                    output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)
-                    loss += ((output-target['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean()/output_mask['target'].float().mean()
-                    total_acc += ((output-target['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean().item()/output_mask['target'].float().mean()
-                
-                if args.debug:
-                    # plt.imshow(model.rnn.h2h.effective_weight(ss['whs'][-1,0]).detach().squeeze(), aspect='auto', interpolation='nearest', cmap='seismic', vmin=-0.1, vmax=0.1)
-                    # plt.imshow(hs.squeeze().detach().t(), aspect='auto', cmap='hot', interpolation='nearest')
-                    # plt.colorbar()
-                    # plt.show()
-                    hs_pre = hs
-                    # plt.ylabel('choice prob')
-                    # print(hs.shape)
-                    # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
-
-                # regularize firing rates
-                loss += args.l2r*hs.pow(2).mean()/3  # + args.l1r*hs.abs().mean()
-                
-                if args.task_type=='on_policy_double':
-                    # use the action (optional) and reward as feedback
-                    pop_post = pop_s[i].sum(1)
-                    action_enc = pop_c[i][range(args.batch_size), action_valid]
-                    rwd_enc = torch.eye(2, device=device)[rwd]
-
-                    # assert(action_enc.shape==(pop_post.shape[0],args.batch_size,output_size))
-                    # assert(rwd_enc.shape==(pop_post.shape[0],args.batch_size,2))
-                    DAs = (2*rwd.float()-1)
-                    # assert(DAs.shape==(pop_post.shape[0],args.batch_size,1))
-
-                    '''third phase, give stimuli and choice, and update weights'''
-                    _, hidden, w_hidden, hs = model(pop_post, steps=task_mdprl.T_ch, 
-                                                    neumann_order=args.neumann_order,
-                                                    hidden=hidden, w_hidden=w_hidden, 
-                                                    Rs=rwd_enc, acts=action_enc, DAs=DAs)
-                elif args.task_type == 'value':
-                    pop_post = pop_s[i]
-                    rwd_enc = torch.eye(2)[rwd]
-                    DAs = (2*rwd.float()-1)
-                    _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=None, DAs=DAs, save_weights=True)
-
-                if args.debug:
-                    plt.imshow(torch.cat([hs_pre, hs], dim=0).squeeze().detach().t(), aspect='auto', cmap='hot', interpolation='nearest')
-                    plt.colorbar()
-                    plt.show()
-                    v = torch.linalg.eigvals(model.rnn.h2h.effective_weight(hidden[3])).detach()
-                    plt.scatter(v.real,v.imag)
-                    plt.show()
-                # plt.plot(ss['sas'].squeeze().detach().softmax(-1))
-                # plt.plot(ss['fas'].squeeze().detach().softmax(-1))
-                # plt.show()
-                # plt.plot((hs[1:]-hs[:-1]).pow(2).sum([-1,-2]).detach())
-                # plt.show()
-
-                reg = args.l2r*hs.pow(2).mean()/3 # + args.l1r*hs.abs().mean()
-                reg += args.l2w*w_hidden.pow(2).sum(dim=(-2, -1)).mean()
-                if args.num_areas>1:
-                    reg += args.l1w*((model.mask_rec_inter*w_hidden).abs()).sum(dim=(-2,-1)).mean()
-                loss += reg
-            
-            # add weight decay for static weights
-            loss /= len(pop_s)
-            loss += args.l2w*(model.rnn.x2h.effective_weight().pow(2).sum()+
-                              model.h2o.effective_weight().pow(2).sum())
-            if model.rnn.aux2h is not None:
-                loss += args.l2w*model.rnn.aux2h.effective_weight().pow(2).sum()
-
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
-            optimizer.step()
-            optimizer.zero_grad()
-            # clamp weight values to 
-            with torch.no_grad():
-                model.rnn.h2h.weight.data.clamp_(-model.plasticity.weight_bound, model.plasticity.weight_bound)
-
-            if (batch_idx+1) % log_interval == 0:
-                if torch.isnan(loss):
-                    quit()
-                pbar.set_description('Iteration {} Loss: {:.4f} Acc: {:.4f}'.format(batch_idx+1, total_loss/(batch_idx+1), total_acc/(batch_idx+1)))
-                # pbar.refresh()
-                pbar.update(log_interval)
-        pbar.close()
-        total_acc = total_acc/iters
-        total_loss = total_loss/iters
-        print(f'Training Loss: {total_loss:.4f}, Training Acc: {total_acc:.4f}')
-        return loss.item()
-
-    def eval(model, epoch):
-        model.eval()
-        losses_means_by_gen = []
-        losses_stds_by_gen = []
-        with torch.no_grad():
-            for curr_gen_level in task_mdprl.gen_levels:
-                losses = []
-                for batch_idx in range(args.eval_samples):
-                    pop_s, pop_c, rwd_s, target_valid, index_s, prob_s, _ = task_mdprl.generateinput(
-                         batch_size=args.batch_size, N_s=args.test_N_s, num_choices=num_options, gen_level=curr_gen_level)
-                    index_s = index_s.to(device)
-                    prob_s = prob_s.to(device)
-                    rwd_s = rwd_s.to(device)
-                    pop_s = pop_s.to(device)
-                    pop_c = pop_c.to(device)
-                    target_valid = target_valid.to(device)
-                    loss = []
-                    hidden = None
-                    w_hidden = None
-                    for i in range(len(pop_s)):
-                        # first phase, give nothing
-                        _, hidden, w_hidden, _ = model(torch.zeros_like(pop_s[i].sum(1)), steps=task_mdprl.T_fixation, neumann_order = 0,
-                                                    hidden=hidden, w_hidden=w_hidden, DAs=None,
-                                                    Rs=torch.zeros(args.batch_size, 2, device=device),
-                                                    acts=torch.zeros(args.batch_size, output_size, device=device))
-                        # second phase, give stimuli and no feedback
-                        output, hidden, w_hidden, _ = model(pop_s[i].sum(1), steps=task_mdprl.T_stim, neumann_order = 0,
-                                                    hidden=hidden, w_hidden=w_hidden, DAs=None,
-                                                    Rs=torch.zeros(args.batch_size, 2, device=device),
-                                                    acts=torch.zeros(args.batch_size, output_size, device=device))
-                        if args.task_type=='on_policy_double':
-                            # use output to calculate action, reward, and record loss function
-                            if args.decision_space=='action':
-                                action = torch.argmax(output[-1,:,:], -1)
-                                rwd = (torch.rand(args.batch_size)<prob_s[i][range(args.batch_size), action]).float()
-                                loss.append((action==torch.argmax(prob_s[i], -1)).float())
-                            elif args.decision_space=='good':
-                                action_valid = torch.multinomial(output[:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
-                                action = index_s[i, action_valid] # (batch size)
-                                # assert(action.shape==(args.batch_size,))
-                                rwd = rwd_s[i][range(args.batch_size), action_valid]
-                                # assert(rwd.shape==(args.batch_size,))
-                                loss.append((action_valid==target_valid[i]).float())
-                        elif args.task_type == 'value':
-                            rwd = (torch.rand(args.batch_size)<prob_s[i]).float()
-                            output = output.reshape(output_mask['target'].shape[0], args.batch_size, output_size)
-                            loss.append(((output-target_valid['pre_choice'][i])*output_mask['target'].unsqueeze(-1)).pow(2).mean(0)/output_mask['target'].float().mean())
-                        
-                        if args.task_type=='on_policy_double':
-                            # use the action (optional) and reward as feedback
-                            pop_post = pop_s[i].sum(1)
-                            action_enc = pop_c[i][range(args.batch_size), action_valid]
-                            rwd_enc = torch.eye(2, device=device)[rwd]
-                            DAs = (2*rwd.float()-1)
-                            # assert(DAs.shape==(pop_post.shape[0],args.batch_size,1))
-
-                            # third phase, give stimuli and choice, and update weights
-                            _, hidden, w_hidden, _ = model(pop_post, steps=task_mdprl.T_ch, neumann_order = 0,
-                                                        hidden=hidden, w_hidden=w_hidden, 
-                                                        Rs=rwd_enc, acts=action_enc, DAs=DAs)
-                        elif args.task_type == 'value':
-                            pop_post = pop_s['post_choice'][i]
-                            rwd_enc = torch.eye(2)[rwd]
-                            DAs = (2*rwd.float()-1)*rwd_mask['post_choice']
-                            _, _, hidden, _ = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=None, DAs=DAs, save_weights=False)
-                    loss = torch.stack(loss, dim=0)
-                    losses.append(loss)
-                losses_means = torch.cat(losses, dim=1).mean(1) # loss per trial
-                losses_stds = torch.cat(losses, dim=1).std(1) # loss per trial
-                losses_means_by_gen.append(losses_means.tolist())
-                losses_stds_by_gen.append(losses_stds.tolist())
-                print('====> Epoch {} Gen Level: {} Eval Loss: {:.4f}'.format(epoch+1, curr_gen_level[0], losses_means.mean()))
-            return losses_means_by_gen, losses_stds_by_gen
+    wandb.init(project="attn-rnn_3x3", config=args)
 
     metrics = defaultdict(list)
     best_eval_loss = 0
@@ -399,7 +323,7 @@ if __name__ == "__main__":
         metrics['eval_losses_mean'].append(eval_loss_means)
         metrics['eval_losses_std'].append(eval_loss_stds)
         metrics = dict(metrics)
-        save_defaultdict_to_fs(metrics, os.path.join(args.exp_dir, 'metrics.json'))
+        # save_defaultdict_to_fs(metrics, os.path.join(args.exp_dir, 'metrics.json'))
         if args.save_checkpoint:
             if sum([np.mean(v) for v in eval_loss_means]) > best_eval_loss:
                 is_best_epoch = True

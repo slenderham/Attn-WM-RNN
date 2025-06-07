@@ -18,11 +18,11 @@ class MDPRL():
 
         s = 1
         # first phase, fixation, nothing on screen
-        self.T_fixation = int((times['stim_onset']-times['start_time'])/times['dt'])
+        self.T_fixation = int((times['fixation'])/times['dt'])
         # second phase, stimuli, only, no choice
-        self.T_stim = int((times['choice_onset']-times['stim_onset'])/times['dt'])
+        self.T_stim = int((times['stimulus_presentation'])/times['dt'])
         # third phase, choice is made
-        self.T_ch = int((times['rwd_onset']-times['choice_onset'])/times['dt'])
+        self.T_ch = int((times['choice_presentation'])/times['dt'])
 
         # self.T = T
         self.s = s
@@ -30,11 +30,12 @@ class MDPRL():
 
         assert(input_type in ['feat', 'feat+conj', 'feat+obj', 'feat+conj+obj']), 'invalid input type'
 
-        self.gen_levels = [['f', i] for i in [[0],[1],[2],[0,1],[0,2],[1,2],[0,1,2]]]+\
-                          [['c', i] for i in [[0],[1],[2]]]+\
-                          [['fc', i] for i in [[0],[1],[2]]]+\
-                          [['o',[0]]]
-        self.gen_level_probs = np.array([1]*3+[1]*3+[1]+[1]*3+[1]*3+[1])
+        # self.gen_levels = [['f', i] for i in [[0],[1],[2],[0,1],[0,2],[1,2],[0,1,2]]]+\
+        #                   [['c', i] for i in [[0],[1],[2]]]+\
+        #                   [['fc', i] for i in [[0],[1],[2]]]+\
+        #                   [['o',[0]]]
+        self.gen_levels = ['f', 'fc', 'o']
+        self.gen_level_probs = np.array([1]*3)
 
         self.gen_level_probs = self.gen_level_probs/np.sum(self.gen_level_probs)
 
@@ -90,26 +91,6 @@ class MDPRL():
             pop_stim[n, 36+index_s[n]] = 1
 
         self.pop_stim = pop_stim # objects, input_size
-        self.pop_ch = torch.eye(27) # objects, input_size, for choice encoding
-
-        self.pop_fco = [
-            [torch.from_numpy(self.pop_stim[:, 0:3]/9).float(), 
-             torch.from_numpy(self.pop_stim[:, 3:6]/9).float(), 
-             torch.from_numpy(self.pop_stim[:, 6:9]/9).float()],
-            [torch.from_numpy(self.pop_stim[:, 9:18]/3).float(), 
-             torch.from_numpy(self.pop_stim[:, 18:27]/3).float(), 
-             torch.from_numpy(self.pop_stim[:, 27:36]/3).float()],
-            [torch.from_numpy(self.pop_stim[:, 36:63]).float()]]
-        
-        # objects, feature/conjunction/object
-
-        self.index_fco = [[torch.from_numpy(self.index_shp).long(), 
-                           torch.from_numpy(self.index_pttrn).long(), 
-                           torch.from_numpy(self.index_clr).long()],
-                          [torch.from_numpy(self.index_pttrnclr).long(), 
-                           torch.from_numpy(self.index_shpclr).long(), 
-                           torch.from_numpy(self.index_shppttrn).long()], 
-                          [torch.from_numpy(index_s).long()]]
 
         # -----------------------------------------------------------------------------------------
         # generate feasible pairs
@@ -119,12 +100,12 @@ class MDPRL():
             for j in range(len(index_s)):
                 if i==j:
                     continue
-                if self.index_shp[i]==self.index_shp[j] or \
-                   self.index_clr[i]==self.index_clr[j] or \
-                   self.index_pttrn[i]==self.index_pttrn[j]:
-                    continue
+                # if self.index_shp[i]==self.index_shp[j] or \
+                #    self.index_clr[i]==self.index_clr[j] or \
+                #    self.index_pttrn[i]==self.index_pttrn[j]:
+                #     continue
                 pairs.append([i,j])
-        assert(len(pairs)==27*8)
+        assert(len(pairs)==27*26)
         self.pairs = np.array(pairs)
 
         # -----------------------------------------------------------------------------------------
@@ -195,76 +176,51 @@ class MDPRL():
         self.test_sensory2stim_idx = np.stack(self.test_sensory2stim_idx, axis=0)
         self.test_rwd = np.stack(self.test_rwd, axis=0).transpose(0,2,1)
 
-    def _generate_generalizable_prob(self, gen_level, reward_mean_scale=[-1, 1], reward_range_scale=[2, 8]):
+    def _generate_generalizable_prob(self, gen_level, reward_median_scale=[-1, 1], reward_range_scale=[2, 6]):
         # different level of gernalizability in terms of nonlinear terms: 0 (all linear), 1 (conjunction of two features), 2 (no regularity)
         # feat_1,2,3: all linear terms, with 2,1,0 irrelevant features
         # conj, feat+conj: a conj of two features, with a relevant or irrelevant feature
         # obj: a conj of all features
         # assert gen_level in self.gen_levels
 
-        ft_contrasts = np.array([[1,0],[0,1],[-1,-1]]) # 3X2
-        ft_contrasts = ft_contrasts[np.random.permutation(3)]
-        conj_contrasts = np.stack([
-            (ft_contrasts[i:i+1].T@ft_contrasts[j:j+1]).reshape(-1) for i in range(3) for j in range(3)
-        ]) #9X4
-        obj_contrasts = np.stack([
-            (ft_contrasts[i:i+1].T@conj_contrasts[j:j+1]).reshape(-1) for i in range(3) for j in range(9)
-        ]) # 27X8
-
-        if gen_level[0]=='f':
-            log_odds_all = np.random.randn(3,2)@ft_contrasts.T
-            log_odds = np.zeros((3,3))
-            for d in gen_level[1]:
-                log_odds[d] = log_odds_all[d] # make certain features irrelavant
+        if gen_level=='f':
+            log_odds = np.random.randn(3,3)
+            weights = np.random.dirichlet(np.ones(3))
             probs = np.empty((3,3,3))*np.nan
             for i in range(3):
                 for j in range(3):
                     for k in range(3):
-                        probs[i,j,k] = (log_odds[0,i]+log_odds[1,j]+log_odds[2,k])
-        
-        elif gen_level[0]=='c':
-            log_odds = (np.random.randn(4)[None]@conj_contrasts.T).squeeze()
-            probs = np.empty((3,3,3))*np.nan
-            for ipj in range(9):
-                i = ipj//3
-                j = ipj%3
-                if gen_level[1][0]==0:
-                    probs[:,i,j] = log_odds[ipj]
-                elif gen_level[1][0]==1:
-                    probs[i,:,j] = log_odds[ipj]
-                elif gen_level[1][0]==2:
-                    probs[i,j,:] = log_odds[ipj]
-                else:
-                    raise ValueError
-
-        elif gen_level[0]=='fc':
-            feat_log_odds = (np.random.randn(2)[None]@ft_contrasts.T).squeeze()
-            conj_log_odds = (np.random.randn(4)[None]@conj_contrasts.T).squeeze()
+                        probs[i,j,k] = (weights[0]*log_odds[0,i]+ \
+                                        weights[1]*log_odds[1,j]+ \
+                                        weights[2]*log_odds[2,k])
+        elif gen_level=='fc':
+            feat_log_odds = np.random.randn(3)
+            conj_log_odds = np.random.randn(9)
+            weights = np.random.dirichlet(np.ones(2))
+            ft_dim = np.random.randint(0, 3) # randomly choose one feature to be irrelevant
             probs = np.empty((3,3,3))*np.nan
             for i in range(3):
                 for jpk in range(9):
                     j = jpk//3
                     k = jpk%3
-                    if gen_level[1][0]==0:
-                        probs[i,j,k] = (feat_log_odds[i]+conj_log_odds[jpk])
-                    elif gen_level[1][0]==1:
-                        probs[j,i,k] = (feat_log_odds[i]+conj_log_odds[jpk])
-                    elif gen_level[1][0]==2:
-                        probs[j,k,i] = (feat_log_odds[i]+conj_log_odds[jpk])
+                    if ft_dim==0:
+                        probs[i,j,k] = (weights[0]*feat_log_odds[i]+weights[1]*conj_log_odds[jpk])
+                    elif ft_dim==1:
+                        probs[j,i,k] = (weights[0]*feat_log_odds[i]+weights[1]*conj_log_odds[jpk])
+                    elif ft_dim==2:
+                        probs[j,k,i] = (weights[0]*feat_log_odds[i]+weights[1]*conj_log_odds[jpk])
                     else:
                         raise ValueError
-        
-        elif gen_level[0]=='o':
-            probs = (np.random.randn(8)[None]@obj_contrasts.T).squeeze()
-        
+        elif gen_level=='o':
+            probs = np.random.randn(3,3,3)
         else:
             raise RuntimeError
 
         # independently control the mean and std of reward
-        probs = (probs-np.mean(probs))/np.ptp(probs)
-        reward_mean = reward_mean_scale[0]+np.random.rand()*(reward_mean_scale[1]-reward_mean_scale[0]) # uniformly between about 0.3-0.7
+        probs = (probs-np.median(probs))/np.ptp(probs)
+        reward_median = reward_median_scale[0]+np.random.rand()*(reward_median_scale[1]-reward_median_scale[0]) # uniformly between about 0.3-0.7
         reward_range = reward_range_scale[0]+np.random.rand()*(reward_range_scale[1]-reward_range_scale[0]) # uniformly between about 0.5-1.0
-        probs = probs*reward_range+reward_mean
+        probs = probs*reward_range+reward_median
         
         # add jitter to break draws
         probs = 1/(1+np.exp(-probs))
@@ -333,7 +289,6 @@ class MDPRL():
         make the input to the network and target
         '''
         pop_s = np.zeros((len_seq, batch_size, num_choices, 63)) # input population activity
-        pop_c = np.zeros((len_seq, batch_size, num_choices, 27)) # choice population activity
         target = np.zeros((len_seq, batch_size))*np.nan # initialize target array
         rwd_s = np.zeros((len_seq, batch_size, num_choices))*np.nan
         # rwd_s = (np.random.rand(*prob_s.shape)<prob_s) # sampled reward for each stim
@@ -341,23 +296,22 @@ class MDPRL():
         for i in range(batch_size):
             for j in range(num_choices):
                 pop_s[:,i,j,:] = self.pop_stim[index_s_i_perceptual[:,j],:] # size is num_trials X input size
-                pop_c[:,i,j,:] = self.pop_ch[index_s_i_perceptual[:,j],:] # size is num_trials X input size
             
             if num_choices==1:
                 target[:,i] = prob_s[i,:].squeeze(-1) # if only one choice, the target is the reward prob
             else:
-                target[:,i] = np.argmax(prob_s[i,:,:], -1) # if more than one choice, find position of more rewarding target
-            
+                target_side = np.argmax(prob_s[i,:,:], -1)
+                target[:,i] = index_s_i_perceptual[np.arange(len_seq), target_side] # if more than one choice, find position of more rewarding target
+
             for j in range(27):
                 stim_count = np.sum(index_s_i_rwd==j)
                 pseudorandom_rwd_num = int(rwd_schedule[i,j]*(stim_count))
                 pseudorandom_rwd_s = np.concatenate([np.ones(pseudorandom_rwd_num), np.zeros(stim_count-pseudorandom_rwd_num)])
                 rwd_s[:,i][index_s_i_rwd==j] = np.random.permutation(pseudorandom_rwd_s)
 
-        return torch.from_numpy(pop_s).float(), torch.from_numpy(pop_c).float(), \
-               torch.from_numpy(rwd_s).long(), torch.from_numpy(target).long(), \
-               torch.from_numpy(index_s_i_perceptual).long(), \
-               torch.from_numpy(prob_s).transpose(0, 1), gen_level
+        return torch.from_numpy(pop_s).float(), torch.from_numpy(rwd_s).long(), \
+                torch.from_numpy(target).long(), torch.from_numpy(index_s_i_perceptual).long(), \
+                torch.from_numpy(prob_s).transpose(0, 1), gen_level
 
     def generateinputfromexp(self, batch_size, test_N_s, num_choices, participant_num):
         return self.generateinput(batch_size, test_N_s, 

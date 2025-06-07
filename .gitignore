@@ -365,3 +365,5 @@ slurm_*.txt
 # jupyter notebook jobs output
 jupyter_notebook_*.txt
 jupyter_notebook_*.err
+
+wandb/
