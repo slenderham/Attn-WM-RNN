@@ -46,7 +46,7 @@ def train(model, iters):
             _, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_fixation, 
                                             neumann_order=args.neumann_order,
                                             hidden=hidden, w_hidden=w_hidden, 
-                                            DA=None)
+                                            DAs=None)
             loss += args.l2r*hs.pow(2).mean()/3
 
             ''' second phase, give stimuli and no feedback '''
