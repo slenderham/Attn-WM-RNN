@@ -338,8 +338,8 @@ class HierarchicalPlasticRNN(nn.Module):
             self.register_buffer("h0", torch.zeros(1, hidden_size*self.num_areas))
 
     def init_hidden(self, x):
-        batch_size = x[x.keys()[0]].shape[0]
-        h_init = self.h0 + self.rnn._sigma_rec * torch.randn(batch_size, self.hidden_size*self.num_areas, device=x[x.keys()[0]].device)
+        batch_size = x[next(iter(x))].shape[0]
+        h_init = self.h0 + self.rnn._sigma_rec * torch.randn(batch_size, self.hidden_size*self.num_areas, device=x[next(iter(x))].device)
         if self.plastic:
             return [h_init, self.rnn.h2h.pos_func(self.rnn.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1)]
         else:

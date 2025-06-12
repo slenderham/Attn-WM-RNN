@@ -66,7 +66,7 @@ def train(model, iters):
                     raise NotImplementedError
                 elif args.decision_space=='good':
                     action_valid = torch.multinomial(output['action'][:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
-                    action = index_s[i][torch.arange(args.batch_size), action_valid] # (batch size)
+                    action = index_s[i, action_valid] # (batch size)
                     rwd = rwd_s[i][torch.arange(args.batch_size), action_valid]
                     # assert(action.shape==(args.batch_size,))
                     # assert(target.shape==(output.shape[0],args.batch_size))
@@ -115,6 +115,8 @@ def train(model, iters):
         # clamp weight values
         with torch.no_grad():
             model.rnn.h2h.weight.data.clamp_(-model.plasticity.weight_bound, model.plasticity.weight_bound)
+            model.rnn.h2h.weight.data = (1-model.mask_rec_inter)*model.rnn.h2h.weight.data+\
+                                        model.mask_rec_inter*(F.hardshrink(model.rnn.h2h.weight.data, lambd=args.l1w)+1e-8)
 
         if (batch_idx+1) % log_interval == 0:
             if torch.isnan(loss):
@@ -127,7 +129,7 @@ def train(model, iters):
     total_loss = total_loss/iters
     print(f'Training Loss: {total_loss:.4f}, Training Acc: {total_acc:.4f}')
     wandb.log({'Training Loss': total_loss, 'Training Acc': total_acc})
-    return total_loss.item()
+    return total_loss
 
 
 def eval(model, epoch):
@@ -170,7 +172,7 @@ def eval(model, epoch):
                             raise NotImplementedError
                         elif args.decision_space=='good':
                             action_valid = torch.multinomial(output['action'][:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
-                            action = index_s[i][torch.arange(args.batch_size), action_valid] # (batch size)
+                            action = index_s[i, action_valid] # (batch size)
                             # assert(action.shape==(args.batch_size,))
                             rwd = rwd_s[i][range(args.batch_size), action_valid]
                             # assert(rwd.shape==(args.batch_size,))
@@ -198,7 +200,7 @@ def eval(model, epoch):
             losses_means_by_gen.append(losses_means.tolist())
             losses_stds_by_gen.append(losses_stds.tolist())
             print('====> Epoch {} Gen Level: {} Eval Loss: {:.4f}'.format(epoch+1, curr_gen_level, losses_means.mean()))
-            wandb.log({'Eval loss': losses_means.mean()}, step=epoch)
+            wandb.log({'Eval loss': losses_means.mean()})
         return losses_means_by_gen, losses_stds_by_gen
 
 if __name__ == "__main__":
@@ -207,12 +209,12 @@ if __name__ == "__main__":
     parser.add_argument('--exp_dir', type=str, help='Output directory')
     parser.add_argument('--iters', type=int, help='Training iterations')
     parser.add_argument('--epochs', type=int, default=1, help='Training epochs')
-    parser.add_argument('--hidden_size', type=int, default=40, help='Size of recurrent layer')
-    parser.add_argument('--num_areas', type=int, default=4, help='Number of recurrent areas')
-    parser.add_argument('--stim_dim', type=int, default=2, choices=[2, 3], help='Number of features')
+    parser.add_argument('--hidden_size', type=int, default=80, help='Size of recurrent layer')
+    parser.add_argument('--num_areas', type=int, default=2, help='Number of recurrent areas')
+    parser.add_argument('--stim_dim', type=int, default=3, choices=[2, 3], help='Number of features')
     parser.add_argument('--stim_val', type=int, default=3, help='Possible values of features')
-    parser.add_argument('--N_s', type=int, default=45, help='Number of times to repeat the entire stim set')
-    parser.add_argument('--test_N_s', type=int, default=144, help='Number of times to repeat the entire stim set during eval')
+    parser.add_argument('--N_s', type=int, default=135, help='Number of times to repeat the entire stim set')
+    parser.add_argument('--test_N_s', type=int, default=432, help='Number of times to repeat the entire stim set during eval')
     parser.add_argument('--e_prop', type=float, default=4/5, help='Proportion of E neurons')
     parser.add_argument('--batch_size', type=int, default=1, help='Batch size')
     parser.add_argument('--neumann_order', type=int, default=10, help='Timestep for unrolling for neumann approximation')
@@ -232,12 +234,10 @@ if __name__ == "__main__":
     parser.add_argument('--l1r', type=float, default=0.0, help='Weight for L1 reg on firing rate')
     parser.add_argument('--l1w', type=float, default=0.0, help='Weight for L1 reg on weight')
     parser.add_argument('--plas_type', type=str, choices=['all', 'none'], default='all', help='How much plasticity')
-    parser.add_argument('--input_type', type=str, choices=['feat', 'feat+obj'], default='feat+obj', help='Input coding')
-    parser.add_argument('--decision_space', type=str, choices=['good', 'good_feat', 'good_feat_conj_obj', 'action'], help='Supervise with good-based or action-based decision making')
+    parser.add_argument('--input_type', type=str, choices=['feat', 'feat+conj+obj', 'feat+obj'], default='feat+conj+obj', help='Input coding')
+    parser.add_argument('--decision_space', type=str, choices=['good', 'action'], help='Supervise with good-based or action-based decision making')
     parser.add_argument('--task_type', type=str, choices=['value', 'on_policy_double'],
                         help='Learn reward prob or RL. On policy if decision determines. On policy if decision determines rwd. Off policy if rwd sampled from random policy.')
-    parser.add_argument('--rwd_input', action='store_true', help='Whether to use reward as input')
-    parser.add_argument('--action_input', action='store_true', help='Whether to use action as input')
     parser.add_argument('--activ_func', type=str, choices=['relu', 'softplus', 'softplus2', 'retanh', 'sigmoid'], 
                         default='retanh', help='Activation function for recurrent units')
     parser.add_argument('--seed', type=int, help='Random seed')

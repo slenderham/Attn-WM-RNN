@@ -166,19 +166,6 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     ax1b.axis('off')
     ax1b.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    # axattnw = fig.add_axes((LEFT+input_size*2+aux_size+MARGIN*3, BOTTOM+value_size+output_size+MARGIN*2, hidden_size, attn_size))
-    # ims.append(axattnw.imshow(h2attnw[:,sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    # axattnw.set_xticks([])
-    # axattnw.set_yticks([])
-    # axattnw.axis('off')
-    # axattnw.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
-    
-    # axattnb = fig.add_axes((LEFT+input_size*2+aux_size+hidden_size+MARGIN*4, BOTTOM+value_size+output_size+MARGIN*2, PLOT_W, attn_size))
-    # ims.append(axattnb.imshow(h2attnb.unsqueeze(1), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    # axattnb.set_xticks([])
-    # axattnb.set_yticks([])
-    # axattnb.axis('off')
-    
     vbound = np.percentile(h2ow.abs(), 97)
     axoutputw = fig.add_axes((LEFT+input_size+aux_size+MARGIN*2, BOTTOM, hidden_size, output_size))
     ims.append(axoutputw.imshow(h2ow[:,sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
@@ -187,28 +174,6 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     axoutputw.axis('off')
     axoutputw.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     
-    # axoutputb = fig.add_axes((LEFT+input_size+aux_size+hidden_size+MARGIN*3, BOTTOM, PLOT_W, output_size))
-    # ims.append(axoutputb.imshow(h2ob.unsqueeze(1), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    # axoutputb.set_xticks([])
-    # axoutputb.set_yticks([])
-    # axoutputb.axis('off')
-    
-    # axvaluew = fig.add_axes((LEFT+input_size*2+aux_size+MARGIN*3, BOTTOM, hidden_size, value_size))
-    # ims.append(axvaluew.imshow(h2vw[:,sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    # axvaluew.set_xticks([])
-    # axvaluew.set_yticks([])
-    # axvaluew.axis('off')
-    # axvaluew.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
-    
-    # axvalueb = fig.add_axes((LEFT+input_size*2+aux_size+hidden_size+MARGIN*4, BOTTOM, PLOT_W, value_size))
-    # ims.append(axvalueb.imshow(h2vb.unsqueeze(1), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    # axvalueb.set_xticks([])
-    # axvalueb.set_yticks([])
-    # axvalueb.axis('off')
-    # for i in range(2):
-    #     for j in range(3):
-    #         axes[i, j].axis('off')
-    # plt.axis('off')
     
     # fig.subplots_adjust(right=0.7)
     # cbar_ax = fig.add_axes([0.85, 0.15, 0.02, 0.6])
@@ -224,19 +189,6 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
 
     fig = plt.figure('learning_rates', (10, 10))
     ims = []
-    # ax01 = fig.add_axes((LEFT, BOTTOM+attn_size+MARGIN, input_size, hidden_size))
-    # ims.append(ax01.imshow(kappa_in[0][sort_inds].squeeze(), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    # ax01.set_xticks([])
-    # ax01.set_yticks([])
-    # ax01.axis('off')
-    # ax01.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
-    
-    # ax02 = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+attn_size+MARGIN*1, input_size, hidden_size))
-    # ims.append(ax02.imshow(kappa_in[1][sort_inds].squeeze(), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    # ax02.set_xticks([])
-    # ax02.set_yticks([])
-    # ax02.axis('off')
-    # ax02.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
     LEFT = (1-hidden_size)/2
     vbound = np.percentile(kappa_rec.abs(), 97)
@@ -247,13 +199,6 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     ax1w.axis('off')
     ax1w.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     ax1w.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
-    
-    # axfb = fig.add_axes((LEFT+input_size*2+MARGIN*2, BOTTOM, hidden_size, attn_size))
-    # ims.append(axfb.imshow(kappa_fb[:,sort_inds].squeeze(), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    # axfb.set_xticks([])
-    # axfb.set_yticks([])
-    # axfb.axis('off')
-    # axfb.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     
     # fig.subplots_adjust(right=0.85)
     # cbar_ax = fig.add_axes([0.85, 0.1, 0.02, 0.6])

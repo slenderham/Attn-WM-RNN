@@ -258,7 +258,7 @@ class MDPRL():
         # index_s_i is index in the reward schedule matrix, not the sensory space
         if stim_order is None:
             if num_choices==2:
-                index_s_i_rwd = self.pairs[np.random.choice(np.arange(len(self.pairs)), size=len_seq)] 
+                index_s_i_rwd = self.pairs[np.random.permutation(np.repeat(np.arange(len(self.pairs)), 1+len_seq//len(self.pairs)))[:len_seq]]
             elif num_choices==1:
                 index_s_i_rwd = np.repeat(np.random.permutation(27), N_s)
                 index_s_i_rwd = np.random.permutation(index_s_i_rwd).reshape(len_seq,1)
