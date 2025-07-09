@@ -356,9 +356,6 @@ settings.json
 .DS_Store
 *.out
 
-# shell scripts for running jobs
-*.sh
-
 # slurm output
 slurm_*.txt
 
