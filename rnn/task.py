@@ -3,6 +3,8 @@ import torch
 from matplotlib import pyplot as plt
 import scipy.io as sio
 import os
+import torch.nn.functional as F
+from scipy.stats import norm
 
 # TODO: Add reversal functionality
 # TODO: support different dimensions and stim values
@@ -10,38 +12,32 @@ import os
 class MDPRL():
     def __init__(self, times, input_type):
         self.prob_mdprl = np.zeros((1, 3, 3, 3))
-        self.prob_mdprl[:, :, :, 0] = ([0.92, 0.75, 0.43], [0.50, 0.50, 0.50], [0.57, 0.25, 0.08])
-        self.prob_mdprl[:, :, :, 1] = ([0.16, 0.75, 0.98], [0.50, 0.50, 0.50], [0.02, 0.25, 0.84])
-        self.prob_mdprl[:, :, :, 2] = ([0.92, 0.75, 0.43], [0.50, 0.50, 0.50], [0.57, 0.25, 0.08])
+        self.prob_mdprl[:, :, :, 0] = [[0.92, 0.75, 0.43], [0.50, 0.50, 0.50], [0.57, 0.25, 0.08]]
+        self.prob_mdprl[:, :, :, 1] = [[0.16, 0.75, 0.98], [0.50, 0.50, 0.50], [0.02, 0.25, 0.84]]
+        self.prob_mdprl[:, :, :, 2] = [[0.92, 0.75, 0.43], [0.50, 0.50, 0.50], [0.57, 0.25, 0.08]]
 
         s = 1
-        T = np.linspace(times['start_time']*s, times['end_time']*s, 1+int(times['total_time']*s/times['dt']))
-        # when stimuli is present on the screen
-        self.T_stim = (T > times['stim_onset']*s) & (T <= times['stim_end']*s)
-        # when choice is read (only used for making the target)
-        self.T_ch = (T > times['choice_onset']*s) & (T <= times['choice_end']*s)
-        # when dopamine is released
-        self.T_rwd = (T > times['rwd_onset']*s) & (T <= times['rwd_end']*s)
-        # when choice is read (used for training the network)
-        self.T_mask = (T > times['mask_onset']*s) & (T <= times['mask_end']*s)
+        # first phase, fixation, nothing on screen
+        self.T_fixation = int((times['fixation'])/times['dt'])
+        # second phase, stimuli, only, no choice
+        self.T_stim = int((times['stimulus_presentation'])/times['dt'])
+        # third phase, choice is made
+        self.T_ch = int((times['choice_presentation'])/times['dt'])
 
-        self.T = T
+        # self.T = T
         self.s = s
         self.times = times
 
         assert(input_type in ['feat', 'feat+conj', 'feat+obj', 'feat+conj+obj']), 'invalid input type'
-        if input_type=='feat':
-            self.input_indexes = np.arange(0, 9)
-        elif input_type=='feat+conj':
-            self.input_indexes = np.arange(0, 36)
-        elif input_type=='feat+conj+obj':
-            self.input_indexes = np.arange(0, 63)
-        elif input_type=='feat+obj':
-            self.input_indexes = np.concatenate([np.arange(0, 9), np.arange(36, 63)])
-        else:
-            raise RuntimeError
 
-        self.gen_levels = ['feat_1', 'feat_2', 'feat_3', 'conj', 'feat+conj', 'obj']
+        # self.gen_levels = [['f', i] for i in [[0],[1],[2],[0,1],[0,2],[1,2],[0,1,2]]]+\
+        #                   [['c', i] for i in [[0],[1],[2]]]+\
+        #                   [['fc', i] for i in [[0],[1],[2]]]+\
+        #                   [['o',[0]]]
+        self.gen_levels = ['f', 'fc', 'o']
+        self.gen_level_probs = np.array([1]*3)
+
+        self.gen_level_probs = self.gen_level_probs/np.sum(self.gen_level_probs)
 
         # -----------------------------------------------------------------------------------------
         # initialization
@@ -54,10 +50,10 @@ class MDPRL():
         index_pttrnclr = np.zeros((3, 3, 3))
         index_shpclr = np.zeros((3, 3, 3))
 
-        self.filter_stim = self.T_stim.astype(int)
-        self.filter_rwd = self.T_rwd.astype(int).reshape((1, -1))
-        self.filter_ch = self.T_ch.astype(int).reshape((1, -1))
-        self.filter_mask = self.T_mask.astype(int).reshape((1, -1))
+        # self.filter_stim = self.T_stim.astype(int)
+        # self.filter_rwd = self.T_rwd.astype(int).reshape((1, -1))
+        # self.filter_ch = self.T_ch.astype(int).reshape((1, -1))
+        # self.filter_mask = self.T_mask.astype(int).reshape((1, -1))
 
         # -----------------------------------------------------------------------------------------
         # indexing features
@@ -82,19 +78,19 @@ class MDPRL():
         # generate input population activity
         # -----------------------------------------------------------------------------------------
         index_s = np.arange(0, 27, 1) # 27 objects
-        pop_stim = np.zeros((len(index_s), len(self.T), 63))
+        pop_stim = np.zeros((len(index_s), 63))
         for n in range(len(index_s)):
-            pop_stim[n, :, self.index_shp[index_s[n]]] = self.filter_stim*1
-            pop_stim[n, :, 3+self.index_pttrn[index_s[n]]] = self.filter_stim*1
-            pop_stim[n, :, 6+self.index_clr[index_s[n]]] = self.filter_stim*1
+            pop_stim[n, self.index_shp[index_s[n]]] = 1
+            pop_stim[n, 3+self.index_pttrn[index_s[n]]] = 1
+            pop_stim[n, 6+self.index_clr[index_s[n]]] = 1
 
-            pop_stim[n, :, 9+self.index_pttrnclr[index_s[n]]] = self.filter_stim*1
-            pop_stim[n, :, 18+self.index_shpclr[index_s[n]]] = self.filter_stim*1
-            pop_stim[n, :, 27+self.index_shppttrn[index_s[n]]] = self.filter_stim*1
+            pop_stim[n, 9+self.index_pttrnclr[index_s[n]]] = 1
+            pop_stim[n, 18+self.index_shpclr[index_s[n]]] = 1
+            pop_stim[n, 27+self.index_shppttrn[index_s[n]]] = 1
 
-            pop_stim[n, :, 36+index_s[n]] = self.filter_stim*1
+            pop_stim[n, 36+index_s[n]] = 1
 
-        self.pop_stim = pop_stim # objects, timestep, input_size
+        self.pop_stim = pop_stim # objects, input_size
 
         # -----------------------------------------------------------------------------------------
         # generate feasible pairs
@@ -104,19 +100,18 @@ class MDPRL():
             for j in range(len(index_s)):
                 if i==j:
                     continue
-                if self.index_shp[i]==self.index_shp[j] or \
-                   self.index_clr[i]==self.index_clr[j] or \
-                   self.index_pttrn[i]==self.index_pttrn[j]:
-                    continue
+                # if self.index_shp[i]==self.index_shp[j] or \
+                #    self.index_clr[i]==self.index_clr[j] or \
+                #    self.index_pttrn[i]==self.index_pttrn[j]:
+                #     continue
                 pairs.append([i,j])
-        assert(len(pairs)==27*8)
+        assert(len(pairs)==27*26)
         self.pairs = np.array(pairs)
 
         # -----------------------------------------------------------------------------------------
         # loading experimental conditions
         # -----------------------------------------------------------------------------------------
-        subjects = ['AA', 'AB',
-                    'AC', 'AD',
+        subjects = ['AA', 'AB', 'AC', 'AD',
                     'AE', 'AF', 'AG', 'AH', 'AI', 'AJ', 'AK', 'AL', 
                     'AM', 'AN', 'AO', 'AP', 'AQ', 'AR', 'AS', 'AT', 'AU', 
                     'AV', 'AW', 'AX', 'AY', 'AZ', 'BA', 'BB', 'BC', 'BD', 
@@ -126,8 +121,7 @@ class MDPRL():
                     'MM', 'NN', 'OO', 'PP', 'QQ', 'RR', 'SS', 'TT', 
                     'UU', 'VV', 'WW', 'XX', 'YY', 'ZZ']
         subjects = [f'inputs/input_{s.lower()}' for s in subjects]
-        subjects2 = ['AA', 'AB',
-                     'AC', 'AD', 
+        subjects2 = ['AA', 'AB', 'AC', 'AD', 
                      'AE', 'AG', 'AH', 'AI', 'AJ', 'AK', 'AL', 'AM', 
                      'AN', 'AO', 'AP', 'AQ', 'AR', 'AS', 'AT', 'AU', 'AV', 
                      'AW', 'AX', 'AY']
@@ -141,7 +135,6 @@ class MDPRL():
         self.test_stim_dim_order_reverse = []
         self.test_stim_val_order = []
         self.test_stim_val_order_reverse = []
-        self.test_stim_order_sensory = []
         self.test_stim2sensory_idx = []
         self.test_sensory2stim_idx = []
         # actual sampled reward, same as in human experiment
@@ -174,7 +167,7 @@ class MDPRL():
             
             self.test_rwd.append(exp_inputs['input']['inputReward'][0,0])
         
-        self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1)
+        self.test_stim_order = np.stack(self.test_stim_order, axis=0).transpose(2,0,1) # (num_trials, num_subj, num_options)
         self.test_stim_dim_order = np.stack(self.test_stim_dim_order, axis=0)
         self.test_stim_dim_order_reverse = np.stack(self.test_stim_dim_order_reverse, axis=0)
         self.test_stim_val_order = np.stack(self.test_stim_val_order, axis=0)
@@ -183,53 +176,54 @@ class MDPRL():
         self.test_sensory2stim_idx = np.stack(self.test_sensory2stim_idx, axis=0)
         self.test_rwd = np.stack(self.test_rwd, axis=0).transpose(0,2,1)
 
-    def _generate_generalizable_prob(self, gen_level, jitter=0.0, reward_mean_scale=[-1, 1], reward_range_scale=[2, 8]):
+    def _generate_generalizable_prob(self, gen_level, reward_median_scale=[-1, 1], reward_range_scale=[2, 6]):
         # different level of gernalizability in terms of nonlinear terms: 0 (all linear), 1 (conjunction of two features), 2 (no regularity)
         # feat_1,2,3: all linear terms, with 2,1,0 irrelevant features
         # conj, feat+conj: a conj of two features, with a relevant or irrelevant feature
         # obj: a conj of all features
         # assert gen_level in self.gen_levels
-        if gen_level in ['feat_1', 'feat_2', 'feat_3']:
-            irrelevant_features = 3-int(gen_level[5])
+
+        if gen_level=='f':
             log_odds = np.random.randn(3,3)
-            log_odds[:irrelevant_features] = 0 # make certain features irrelavant
-            probs = np.empty((3,3,3))
+            weights = np.random.dirichlet(np.ones(3))
+            probs = np.empty((3,3,3))*np.nan
             for i in range(3):
                 for j in range(3):
                     for k in range(3):
-                        probs[i,j,k] = (log_odds[0,i]+log_odds[1,j]+log_odds[2,k])/np.sqrt(int(gen_level[5]))
-        elif gen_level=='conj':
-            log_odds = np.random.randn(9)
-            probs = np.empty((3,3,3))
-            for ipj in range(9):
-                i = ipj//3
-                j = ipj%3
-                probs[i,j,:] = log_odds[ipj]
-        elif gen_level=='feat+conj':
+                        probs[i,j,k] = (weights[0]*log_odds[0,i]+ \
+                                        weights[1]*log_odds[1,j]+ \
+                                        weights[2]*log_odds[2,k])
+        elif gen_level=='fc':
             feat_log_odds = np.random.randn(3)
             conj_log_odds = np.random.randn(9)
-            probs = np.empty((3,3,3))
+            weights = np.random.dirichlet(np.ones(2))
+            ft_dim = np.random.randint(0, 3) # randomly choose one feature to be irrelevant
+            probs = np.empty((3,3,3))*np.nan
             for i in range(3):
                 for jpk in range(9):
                     j = jpk//3
                     k = jpk%3
-                    probs[i,j,k] = (feat_log_odds[i]+conj_log_odds[jpk])/np.sqrt(2)
-        elif gen_level=='obj':
+                    if ft_dim==0:
+                        probs[i,j,k] = (weights[0]*feat_log_odds[i]+weights[1]*conj_log_odds[jpk])
+                    elif ft_dim==1:
+                        probs[j,i,k] = (weights[0]*feat_log_odds[i]+weights[1]*conj_log_odds[jpk])
+                    elif ft_dim==2:
+                        probs[j,k,i] = (weights[0]*feat_log_odds[i]+weights[1]*conj_log_odds[jpk])
+                    else:
+                        raise ValueError
+        elif gen_level=='o':
             probs = np.random.randn(3,3,3)
         else:
             raise RuntimeError
 
         # independently control the mean and std of reward
-        probs = (probs-np.mean(probs))/np.ptp(probs)
-        reward_mean = reward_mean_scale[0]+np.random.rand()*(reward_mean_scale[1]-reward_mean_scale[0]) # uniformly between about 0.3-0.7
+        probs = (probs-np.median(probs))/np.ptp(probs)
+        reward_median = reward_median_scale[0]+np.random.rand()*(reward_median_scale[1]-reward_median_scale[0]) # uniformly between about 0.3-0.7
         reward_range = reward_range_scale[0]+np.random.rand()*(reward_range_scale[1]-reward_range_scale[0]) # uniformly between about 0.5-1.0
-        probs = probs*reward_range+reward_mean
+        probs = probs*reward_range+reward_median
         
         # add jitter to break draws
-        probs = 1/(1+np.exp(-(probs+jitter*np.random.randn(*probs.shape))))
-        
-        # permute axis to change the order of dimensoins with different levels of information
-        probs = probs.transpose(np.random.permutation(3))
+        probs = 1/(1+np.exp(-probs))
         probs = probs.reshape(1, 3, 3, 3)
         return probs
 
@@ -248,7 +242,7 @@ class MDPRL():
             assert(len(rwd_schedule.shape)==4 and rwd_schedule.shape[1:] == (3, 3, 3))
         else:
             if gen_level is None:
-                gen_level = np.random.choice(self.gen_levels) # sample generalization level
+                gen_level = self.gen_levels[np.random.choice(np.arange(len(self.gen_levels)), p=self.gen_level_probs)] # sample generalization level
             rwd_schedule = self._generate_generalizable_prob(gen_level)
         batch_size = rwd_schedule.shape[0]
         rwd_schedule = np.reshape(rwd_schedule, (batch_size, 27))
@@ -264,27 +258,27 @@ class MDPRL():
         # index_s_i is index in the reward schedule matrix, not the sensory space
         if stim_order is None:
             if num_choices==2:
-                index_s_i = self.pairs[np.random.choice(np.arange(len(self.pairs)), size=len_seq)] 
+                index_s_i_rwd = self.pairs[np.random.permutation(np.repeat(np.arange(len(self.pairs)), 1+len_seq//len(self.pairs)))[:len_seq]]
             elif num_choices==1:
-                index_s_i = np.repeat(np.random.permutation(27), N_s)
-                index_s_i = np.random.permutation(index_s_i).reshape(len_seq,1)
+                index_s_i_rwd = np.repeat(np.random.permutation(27), N_s)
+                index_s_i_rwd = np.random.permutation(index_s_i_rwd).reshape(len_seq,1)
             else:
                 raise ValueError
         else:
-            index_s_i = stim_order
+            index_s_i_rwd = stim_order.copy()
         # index_s_i shape is (len_seq X num_choices)
 
         # true reward prob for each stim
         # do this before changing to the sensory space
-        prob_s = np.stack([rwd_schedule[:, index_s_i[:,i]] for i in range(num_choices)], axis=-1) 
+        prob_s = np.stack([rwd_schedule[:, index_s_i_rwd[:,i]] for i in range(num_choices)], axis=-1) 
 
         # mapping from the reward schedule matrix to the sensory space, only useful for testing
         if stim2sensory_idx is not None:
-            index_s_i = self.permute_mapping(index_s_i, stim2sensory_idx)
-        
-        if rwd_order is None:
-            rwd_s = (np.random.rand(*prob_s.shape)<prob_s) # sampled reward for each stim
+            index_s_i_perceptual = self.permute_mapping(index_s_i_rwd, stim2sensory_idx)
         else:
+            index_s_i_perceptual = index_s_i_rwd.copy()
+        
+        if rwd_order is not None:
             raise NotImplementedError
         # assert(index_s_i.shape==(len_seq, num_choices)), f"{index_s_i.shape}"
         # assert(prob_s.shape==(batch_size, len_seq, num_choices)), f"{prob_s.shape}"
@@ -294,58 +288,37 @@ class MDPRL():
         '''
         make the input to the network and target
         '''
-        pop_s = np.zeros((len_seq, len(self.T), batch_size, num_choices, 63)) # input population activity
-        target = np.zeros((len_seq, len(self.T), batch_size))*np.nan # initialize target array
+        pop_s = np.zeros((len_seq, batch_size, num_choices, 63)) # input population activity
+        target = np.zeros((len_seq, batch_size))*np.nan # initialize target array
+        rwd_s = np.zeros((len_seq, batch_size, num_choices))*np.nan
+        # rwd_s = (np.random.rand(*prob_s.shape)<prob_s) # sampled reward for each stim
 
         for i in range(batch_size):
             for j in range(num_choices):
-                pop_s[:,:,i,j,:] = self.pop_stim[index_s_i[:,j],:,:] # size is num_trials X timesteps X input size
+                pop_s[:,i,j,:] = self.pop_stim[index_s_i_perceptual[:,j],:] # size is num_trials X input size
+            
             if num_choices==1:
-                target[:,:,i] = prob_s[i,:,:].squeeze(-1) # if only one choice, the target is the reward prob
+                target[:,i] = prob_s[i,:].squeeze(-1) # if only one choice, the target is the reward prob
             else:
-                target[:,:,i] = np.argmax(prob_s[i,:,:], -1)[:,None] # if more than one choice, find position of more rewarding target
+                target_side = np.argmax(prob_s[i,:,:], -1)
+                target[:,i] = index_s_i_perceptual[np.arange(len_seq), target_side] # if more than one choice, find position of more rewarding target
 
-        # mask for which signals to supervise
-        output_mask = {'fixation': torch.from_numpy((self.T<0.0*self.s)).reshape(1, len(self.T), 1), \
-                        'target': torch.from_numpy(self.T_mask).reshape(len(self.T))[self.T <= self.times['mask_end']*self.s]}
-        
-        # select input encoding dimensions (to include conj/obj input or not)
-        pop_s = pop_s[:,:,:,:,self.input_indexes]
-        pop_s = {
-            'pre_choice': torch.from_numpy(pop_s[:, self.T <= self.times['choice_onset']*self.s]).float(),
-            'post_choice': torch.from_numpy(pop_s[:, self.T > self.times['choice_onset']*self.s]).float()
-        }
+            for j in range(27):
+                stim_count = np.sum(index_s_i_rwd==j)
+                pseudorandom_rwd_num = int(rwd_schedule[i,j]*(stim_count))
+                pseudorandom_rwd_s = np.concatenate([np.ones(pseudorandom_rwd_num), np.zeros(stim_count-pseudorandom_rwd_num)])
+                rwd_s[:,i][index_s_i_rwd==j] = np.random.permutation(pseudorandom_rwd_s)
 
-        # mask for reward outcome presentation
-        rwd_mask = self.filter_rwd.reshape((len(self.T),1,1)) 
-        rwd_mask = {
-            'pre_choice': torch.from_numpy(rwd_mask[self.T <= self.times['choice_onset']*self.s]).float(),
-            'post_choice': torch.from_numpy(rwd_mask[self.T > self.times['choice_onset']*self.s]).float()
-        }
-
-        # mask for choice presentation
-        ch_mask = self.filter_ch.reshape((len(self.T),1,1)) 
-        ch_mask = {
-            'pre_choice': torch.from_numpy(ch_mask[self.T <= self.times['choice_onset']*self.s]).float(),
-            'post_choice': torch.from_numpy(ch_mask[self.T > self.times['choice_onset']*self.s]).float()
-        }
-
-        target = {
-            'pre_choice': torch.from_numpy(target[:, self.T <= self.times['choice_onset']*self.s]),
-            'post_choice': torch.from_numpy(target[:, self.T > self.times['choice_onset']*self.s])
-        }
-
-        return pop_s, torch.from_numpy(rwd_s).long().transpose(0, 1), target, \
-              output_mask, rwd_mask, ch_mask, \
-              torch.from_numpy(index_s_i).long(), \
-              torch.from_numpy(prob_s).transpose(0, 1)
+        return torch.from_numpy(pop_s).float(), torch.from_numpy(rwd_s).long(), \
+                torch.from_numpy(target).long(), torch.from_numpy(index_s_i_perceptual).long(), \
+                torch.from_numpy(prob_s).transpose(0, 1), gen_level
 
     def generateinputfromexp(self, batch_size, test_N_s, num_choices, participant_num):
         return self.generateinput(batch_size, test_N_s, 
                                  rwd_schedule=self.prob_mdprl, 
                                  num_choices=num_choices, 
-                                 stim_order=self.test_stim_order[:,participant_num],
-                                 stim2sensory_idx=self.test_stim2sensory_idx[participant_num])
+                                 stim_order=self.test_stim_order[:,participant_num].copy(),
+                                 stim2sensory_idx=self.test_stim2sensory_idx[participant_num].copy())
 
     def value_est(self, probdata=None):
         if probdata is None:
@@ -380,24 +353,22 @@ class MDPRL():
         est_shppttrnclr = probdata
 
         return [est_shp, est_pttrn, est_clr,
-                est_pttrnclr, est_shpclr, est_shppttrn, 
-                est_shppttrnclr]
+               est_pttrnclr, est_shpclr, est_shppttrn, 
+               est_shppttrnclr]
 
     def stim_encoding(self, encoding_type='feature_idx'):
         if encoding_type=='feature_idx':
             return {'C': self.index_clr, 'P': self.index_pttrn, 'S': self.index_shp}
         elif encoding_type=='all_onehot':
-            stim_onset_time = np.argmax(self.filter_stim)
-            encmat = self.pop_stim[:, stim_onset_time, :]
+            encmat = self.pop_stim
             assert(encmat.shape==(27,63))
-            assert(encmat.sum()>0)
             return encmat
 
-    def reversal(self, probs):
-        new_order = np.random.permutation(3)
-        dim_to_flip = np.random.randint(0, 3)
-        new_probs = np.take(probs, new_order, dim_to_flip)
-        return new_probs
+    # def reversal(self, probs):
+    #     new_order = np.random.permutation(3)
+    #     dim_to_flip = np.random.randint(0, 3)
+    #     new_probs = np.take(probs, new_order, dim_to_flip)
+    #     return new_probs
     
     def stim_to_sensory(self, stim_dim_order, stim_val_order):
         # given a permutation of feature dimension permutation and feature value permutation,
@@ -413,39 +384,44 @@ class MDPRL():
     
     def permute_mapping(self, orig, mapping):
         # apply the new mapping to the original sequence
-        # each entry mapping[i]->new obj index
+        # each entry of mapping represents [i]->new obj index
         new_order = np.ones_like(orig)*np.nan
         for obj_idx in range(3**3):
             new_order[orig==obj_idx] = mapping[obj_idx]
         new_order = new_order.astype(int)
         return new_order
+    
+    def calculate_loss(self, output, target):
+        loss = 0
+        for d in range(3):
+            loss += F.cross_entropy(output@self.pop_fco[0][d], self.index_fco[0][d][target])/3+\
+                    F.cross_entropy(output@self.pop_fco[1][d], self.index_fco[1][d][target])/3
+        loss += F.cross_entropy(output, target)
+        loss /= 3
+        return loss
 
-    # def generate_test_schedule(self, gen_level, log_odds):
-    #     rwd_schedule = np.zeros((1,3,3,3))
-    #     if gen_level=="feat_1":
-    #         # if log_odds = 2.25, roughly (0.9, 0.5, 0.1)
-    #         # if log_odds = 1.5, roughly (0.8, 0.5, 0.2)
-    #         # if log_odds = 0.85, roughly (0.7, 0.5, 0.3)
-    #         rwd_schedule[:,0,...] = log_odds["feat_1"]
-    #         rwd_schedule[:,2,...] = -log_odds["feat_1"]
-    #     elif gen_level=="feat_2":
-    #         # for a [[0.9, 0.8, 0.65], 
-    #         #        [0.7, 0.5, 0.3],
-    #         #        [0.35, 0.2, 0.1]] 
-    #         # use log odds 1: 1.4, log_odds 2: 0.85
-    #         rwd_schedule[:,0,:,:] += log_odds["feat_1"]
-    #         rwd_schedule[:,2,:,:] += -log_odds["feat_1"]
-    #         rwd_schedule[:,:,0,:] += log_odds["feat_2"]
-    #         rwd_schedule[:,:,2,:] += -log_odds["feat_2"]
-    #     elif gen_level=="feat_3":
-    #         rwd_schedule[:,0,:,:] += log_odds["feat_1"]
-    #         rwd_schedule[:,2,:,:] += -log_odds["feat_1"]
-    #         rwd_schedule[:,:,0,:] += log_odds["feat_2"]
-    #         rwd_schedule[:,:,2,:] += -log_odds["feat_2"]
-    #         rwd_schedule[:,:,:,0] += log_odds["feat_3"]
-    #         rwd_schedule[:,:,:,2] += -log_odds["feat_3"]
-    #     if gen_level=="conj":
-    #         rwd_schedule[:,0,0,:] += log_odds["feat_1"]
-    #         rwd_schedule[:,0,2,:] += log_odds["feat_1"]
-    #         rwd_schedule[:,2,0,:] += log_odds["feat_2"]
-    #         rwd_schedule[:,2,2,:] += log_odds["feat_2"]
+
+    # def calculate_loss(self, output, target, gen_level):
+    #     if gen_level[0]=='f':
+    #         loss = 0
+    #         for d in gen_level[1]:
+    #             loss += F.cross_entropy(output@self.pop_fco[0][d], self.index_fco[0][d][target])
+    #         loss /= len(gen_level[1])
+        
+    #     elif gen_level[0]=='c':
+    #         d = gen_level[1][0]
+    #         loss = F.cross_entropy(output@self.pop_fco[1][d], self.index_fco[1][d][target])
+
+    #     elif gen_level[0]=='fc':
+    #         d = gen_level[1][0]
+    #         loss = F.cross_entropy(output@self.pop_fco[0][d], self.index_fco[0][d][target])/2+\
+    #                F.cross_entropy(output@self.pop_fco[1][d], self.index_fco[1][d][target])/2
+        
+    #     elif gen_level[0]=='o':
+    #         loss = F.cross_entropy(output, target)
+        
+    #     else:
+    #         print(gen_level)
+    #         raise ValueError
+        
+    #     return loss

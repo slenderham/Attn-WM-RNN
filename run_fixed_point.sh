@@ -7,10 +7,10 @@
 #SBATCH --mem=8GB
 #SBATCH --output=exp/test%a/slurm_%j.txt
 
-python rnn/_train_experimental.py --cuda\
+python rnn/train.py --cuda\
         --save_checkpoint\
         --iters 1000\
-        --epochs 25\
+        --epochs 40\
         --hidden_size 80\
         --eval_samples 20\
         --num_areas 2\
