@@ -1,73 +1,192 @@
-import json
-import math
-import os
 from collections import defaultdict
-import itertools
 
 import numpy as np
-import scipy.cluster.hierarchy as sch
 from scipy.signal import convolve2d
 import torch
-import matplotlib as mpl
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
-from sklearn import cluster
-from statsmodels.formula.api import ols
-from statsmodels.stats.anova import anova_lm
-from torch.nn.functional import interpolate
-from torch.serialization import save
 import tqdm
-from analysis import *
-from analysis import participation_ratio, run_svd_time_varying_w, get_dpca
+from plot_utils import *
 from utils import load_checkpoint
+from statsmodels.stats.multitest import fdrcorrection
+from scipy.stats import norm, mannwhitneyu
 
-# plt.rcParams["figure.figsize"] = (16,10)
 
-def get_sub_mats(ws, num_areas, e_hidden_size, i_hidden_size, separate_ei=True):
-    trials, timesteps, batch_size, post_dim, pre_dim = ws.shape
-    assert((e_hidden_size+i_hidden_size)*num_areas==pre_dim and (e_hidden_size+i_hidden_size)*num_areas==post_dim)
-    total_e_size = e_hidden_size*num_areas
-    submats = {}
-    if not separate_ei:
-        for i in range(num_areas):
-            submats[f"rec_intra_{i}"] = ws[:,:,:,list(range(i*e_hidden_size, (i+1)*e_hidden_size))+\
-                                                list(range(total_e_size+i*i_hidden_size, total_e_size+(i+1)*i_hidden_size))]\
-                                        [:,:,:,:,list(range(i*e_hidden_size, (i+1)*e_hidden_size))+\
-                                                list(range(total_e_size+i*i_hidden_size, total_e_size+(i+1)*i_hidden_size))]
+def run_model(args, model_list, task_mdprl, n_samples=None):
+    """
+    Runs the provided models on the given task and collects all relevant states and outputs.
 
-        for i in range(num_areas-1):
-            submats[f"rec_inter_ff_{i}_{i+1}"] = ws[:,:,:,list(range((i+1)*e_hidden_size, (i+2)*e_hidden_size))+\
-                                                    list(range(total_e_size+(i+1)*i_hidden_size, total_e_size+(i+2)*i_hidden_size))]\
-                                            [:,:,:,:,list(range(i*e_hidden_size, (i+1)*e_hidden_size))]
-            submats[f"rec_inter_fb_{i+1}_{i}"] = ws[:,:,:,list(range(i*e_hidden_size, i*e_hidden_size))+\
-                                                    list(range(total_e_size+(i+1)*i_hidden_size, total_e_size+(i+2)*i_hidden_size))]\
-                                            [:,:,:,:,list(range((i+1)*e_hidden_size, (i+2)*e_hidden_size))]
-        return submats
-    else:
-        for i in range(num_areas):
-            e_indices = list(range(i*e_hidden_size, (i+1)*e_hidden_size))
-            i_indices = list(range(total_e_size+i*i_hidden_size, total_e_size+(i+1)*i_hidden_size))
+    Args:
+        args (dict): Dictionary of model and task parameters.
+        model_list (list): List of PyTorch models to evaluate.
+        task_mdprl: Task object with methods for generating input and test stimulus order.
+        n_samples (int, optional): Number of samples to run. If None, uses the number of test stimuli.
 
-            submats[f"rec_intra_ee_{i}"] = ws[...,e_indices,:][:,:,:,:,e_indices]
-            submats[f"rec_intra_ie_{i}"] = ws[...,i_indices,:][:,:,:,:,e_indices]
-            submats[f"rec_intra_ei_{i}"] = ws[...,e_indices,:][:,:,:,:,i_indices]
-            submats[f"rec_intra_ii_{i}"] = ws[...,i_indices,:][:,:,:,:,i_indices]
+    Returns:
+        dict: Dictionary containing all saved states, outputs, and metadata from the model runs.
+    """
+    all_saved_states = defaultdict(list)
+    output_size = args['output_size']    
 
-        for i in range(num_areas-1):
-            e_hi_indices = list(range((i+1)*e_hidden_size, (i+2)*e_hidden_size))
-            e_lo_indices = list(range(i*e_hidden_size, (i+1)*e_hidden_size))
-            i_hi_indices = list(range(total_e_size+(i+1)*i_hidden_size, total_e_size+(i+2)*i_hidden_size))
-            i_lo_indices = list(range(total_e_size+i*i_hidden_size, total_e_size+(i+1)*i_hidden_size))
-
-            submats[f"rec_inter_ff_ee_{i}_{i+1}"] = ws[:,:,:,e_hi_indices,:][:,:,:,:,e_lo_indices]
-            submats[f"rec_inter_ff_ie_{i}_{i+1}"] = ws[:,:,:,i_hi_indices,:][:,:,:,:,e_lo_indices]
-            submats[f"rec_inter_fb_ee_{i+1}_{i}"] = ws[:,:,:,e_lo_indices,:][:,:,:,:,e_hi_indices]
-            submats[f"rec_inter_fb_ie_{i+1}_{i}"] = ws[:,:,:,i_lo_indices,:][:,:,:,:,e_hi_indices]
+    for model in model_list:
+        model.eval()
+        for p in model.parameters():
+            p.requires_grad = False # disable gradient calculation for parameters
+    if n_samples is None:
+        n_samples = task_mdprl.test_stim_order.shape[1]
         
-        return submats
+    n_models = len(model_list)
+    model_assignment = np.concatenate([
+        np.repeat(np.arange(n_models), n_samples//n_models),
+        np.random.choice(np.arange(n_models), size=n_samples%n_models, replace=False)])
+    model_assignment = np.random.permutation(model_assignment)
+    
+    print(np.unique(model_assignment, return_counts=True))
+    
+    for batch_idx in tqdm.tqdm(range(n_samples)):
+        model = model_list[model_assignment[batch_idx]]
+        pop_s, rwd_s, _, index_s, prob_s, _ = task_mdprl.generateinputfromexp(
+            batch_size=1, test_N_s=args['test_N_s'], num_choices=args['num_options'], participant_num=batch_idx)
+        
+        # add empty list for the current episode
+        all_saved_states['whs'].append([])
+
+        all_saved_states['stimuli'].append(torch.from_numpy(np.expand_dims(index_s, axis=(1,2)))) # num trials X time_steps(1) X batch_size(1) X num_choices
+        all_saved_states['reward_probs'].append(torch.from_numpy(np.expand_dims(prob_s, axis=(1,)))) # num_trials X time_steps(1) X batch_size X num_choices
+        
+        all_saved_states['logits'].append([])
+        all_saved_states['choices'].append([])
+        all_saved_states['foregone'].append([])
+        all_saved_states['rewards'].append([])
+        all_saved_states['choose_better'].append([])
+        all_saved_states['hs'].append([])
+        all_saved_states['rwd_sensitivity'].append([])
+#         all_saved_states['ch_sensitivity'].append([])
+
+        # reinitialize hidden layer activity
+        hidden = None
+        w_hidden = None
+
+        for i in range(len(pop_s)):
+            
+            curr_trial_hs = []
+            
+            # first phase, give stimuli and no feedback
+            all_x = {
+                'stim': torch.zeros_like(pop_s[i].mean(1)),
+                'action': torch.zeros(1, output_size),
+            }
+            _, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_fixation, neumann_order = args['neumann_order'],
+                                        hidden=hidden, w_hidden=w_hidden, DAs=None, save_all_states=True)
+            
+            curr_trial_hs.append(hs.detach())
+
+            # second phase, give stimuli and no feedback
+            all_x = {
+                'stim': torch.clamp(pop_s[i].sum(1), min=0, max=1),
+                'action': torch.zeros(1, output_size),
+            }
+            output, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_stim, neumann_order = args['neumann_order'],
+                                        hidden=hidden, w_hidden=w_hidden, DAs=None, save_all_states=True)
+            curr_trial_hs.append(hs.detach())
+
+            if args['task_type']=='on_policy_double':
+                # use output to calculate action, reward, and record loss function
+                if args['decision_space']=='action':
+                    raise NotImplementedError
+                elif args['decision_space']=='good':
+                    # action_valid = torch.argmax(output[:,index_s[i]], -1) # the object that can be chosen (0~1), (batch size, )
+                    action_valid = torch.multinomial(output['action'][:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
+                    all_saved_states['logits'][-1].append(
+                        (output['action'][:,index_s[i,1]]-output['action'][:,index_s[i,0]]).detach()[None,...])
+                    # backpropagate from choice to previous reward
+                    if i>0:
+                        (output['action'][:,index_s[i,1]]-output['action'][:,index_s[i,0]]).squeeze().backward()
+                        all_saved_states['rwd_sensitivity'][-1].append(DAs.grad[None])
+#                         all_saved_states['ch_sensitivity'][-1].append(action_enc.grad[None])
+                        DAs.grad=None
+                    else:
+                        all_saved_states['rwd_sensitivity'][-1].append(torch.zeros(1, 1))
+#                         all_saved_states['ch_sensitivity'][-1].append(torch.zeros(1, 1, 27))
+                    
+                    action = index_s[i, action_valid] # (batch size, )
+                    nonaction = index_s[i, 1-action_valid] # (batch size, )
+                    # rwd = (torch.rand(args['batch_size'])<prob_s[i][range(args['batch_size']), action_valid]).long()
+                    rwd = rwd_s[i][0, action_valid]
+                    all_saved_states['choose_better'][-1].append((action_valid==torch.argmax(prob_s[i], -1)).float()[None,...]) 
+                all_saved_states['rewards'][-1].append(rwd.float()[None,...])
+                all_saved_states['choices'][-1].append(action[None,...])
+                all_saved_states['foregone'][-1].append(nonaction[None,...])
+            elif args['task_type'] == 'value':
+                raise NotImplementedError
+            
+            if args['task_type']=='on_policy_double':
+                all_x = {
+                    'stim': torch.clamp(pop_s[i].sum(1), min=0, max=1),
+                    'action': torch.eye(output_size)[None][0, action],
+                }
+                
+                DAs = (2*rwd.float()-1)
+                DAs = DAs.requires_grad_()
+                
+                hidden = hidden.detach()
+                w_hidden = w_hidden.detach()
+
+                _, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_ch, neumann_order = args['neumann_order'],
+                                                hidden=hidden, w_hidden=w_hidden, DAs=DAs, save_all_states=True)
+                curr_trial_hs.append(hs.detach())
+
+            elif args['task_type'] == 'value':
+                raise NotImplementedError
+            
+            all_saved_states['hs'][-1].append(torch.cat(curr_trial_hs)) 
+            # [num_sessions, [num_trials, [time, num_batch_size, hidden_size]]]
+            all_saved_states['whs'][-1].append(w_hidden.detach()[None]) 
+            # [num_sessions, [num_trials, [1, num_batch_size, hidden_size, hidden_size]]]
+
+        # stack to create a trial dimension for each session
+        for k in all_saved_states.keys():
+            if isinstance(all_saved_states[k][-1], list):
+                all_saved_states[k][-1] = torch.stack(all_saved_states[k][-1], axis=0)
+        # [num_sessions, [num_trials, time_steps, num_batch_size, ...]]
+
+    # concatenate all saved states along the batch dimension
+    for k in all_saved_states.keys():
+        all_saved_states[k] = torch.cat(all_saved_states[k], axis=2) # [num_trials, time_steps, num_sessions, ...]
+
+    # concatenate all accuracies and rewards
+    print(all_saved_states['rewards'].mean(), all_saved_states['choose_better'].mean())
+    
+    for k, v in all_saved_states.items():
+        print(k, v.shape)
+        
+    all_saved_states['model_assignment'] = model_assignment
+    all_saved_states['test_stim_dim_order'] = task_mdprl.test_stim_dim_order
+    all_saved_states['test_stim_dim_order_reverse'] = task_mdprl.test_stim_dim_order_reverse
+    all_saved_states['test_stim_val_order'] = task_mdprl.test_stim_val_order
+    all_saved_states['test_stim_val_order_reverse'] = task_mdprl.test_stim_val_order_reverse
+    all_saved_states['test_stim2sensory_idx'] = task_mdprl.test_stim2sensory_idx
+    all_saved_states['test_sensory2stim_idx'] = task_mdprl.test_sensory2stim_idx
+    
+    return all_saved_states
 
 def get_input_encodings(wxs, stim_enc_mat):
+    """
+    Computes input encodings for each stimulus using the provided weight matrix and stimulus encoding matrix.
+
+    Args:
+        wxs (np.ndarray): Weight matrix of shape (hidden_size, input_size).
+        stim_enc_mat (np.ndarray): Stimulus encoding matrix of shape (27, input_size).
+
+    Returns:
+        tuple: Tuple containing the following:
+            - Encoded stimuli (np.ndarray)
+            - Global average (np.ndarray)
+            - Feature averages (np.ndarray)
+            - Conjunction averages (np.ndarray)
+            - Object averages (np.ndarray)
+    """
     # wxs: hidden_size X input_size
     # stim_enc_mat: stim_nums X input_size
     # hypothesis: input pattern for each input ~ avg + feature + conj + obj
@@ -90,28 +209,21 @@ def get_input_encodings(wxs, stim_enc_mat):
 
     return wxs@stim_enc_mat.T, global_avg, ft_avg, conj_avg, obj_avg
 
-def plot_mean_and_std(ax, m, sd, label, color, alpha=1):
-    if label is not None:
-        ax.plot(m, alpha=alpha, label=label, c=color)
-    else:
-        ax.plot(m, alpha=alpha, c=color)
-    ax.fill_between(range(len(m)), m-sd, m+sd, color=color, alpha=0.1)
-
-def plot_imag_centered_cm(ax, im):
-    max_mag = im.abs().max()*0.3
-    im = ax.imshow(im, vmax=max_mag, vmin=-max_mag, cmap='RdBu_r')
-    return im
-
 def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_size, args):
-    # maxmax = abs(max([x2hw.max().item(), h2hw.max().item(), hb.max().item(), h2ow.max().item()]))
-    # minmin = abs(min([x2hw.min().item(), h2hw.min().item(), hb.min().item(), h2ow.min().item()]))
-    # vbound = max([maxmax, minmin])
-    # selectivity = h2ow[0,:e_size]-h2ow[1,:e_size]
-    # sort_inds = torch.argsort(selectivity)
-    # sort_inds = torch.cat([sort_inds, torch.arange(e_size, h2hw.shape[0])])
+    """
+    Plots the connectivity matrices and learning rates of the model.
 
-    # fig, axes = plt.subplots(2, 3, \
-        # gridspec_kw={'width_ratios': [h2hw.shape[1], x2hw.shape[1], 1], 'height_ratios': [h2hw.shape[0], 1]})
+    Args:
+        sort_inds (np.ndarray): Indices for sorting neurons.
+        x2hw (np.ndarray): Input-to-hidden weights.
+        h2hw (np.ndarray): Hidden-to-hidden weights.
+        hb (np.ndarray): Hidden biases.
+        h2ow (np.ndarray): Hidden-to-output weights.
+        aux2h (np.ndarray): Auxiliary-to-hidden weights.
+        kappa_rec (np.ndarray): Recurrent learning rates.
+        e_size (int): Number of excitatory units.
+        args (dict): Additional arguments for plotting and saving.
+    """
     fig = plt.figure('connectivity', (10, 10))
     ims = []
     hidden_size = h2hw.shape[0]
@@ -119,9 +231,7 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     hidden_size = h2hw.shape[0]*PLOT_W
     input_size = x2hw.shape[1]*PLOT_W
     output_size = h2ow.shape[0]*PLOT_W
-    # attn_size = h2attnw.shape[0]*PLOT_W
     aux_size = aux2h.shape[1]*PLOT_W
-    # value_size = h2vw.shape[0]*PLOT_W
     MARGIN = 0.01
     LEFT = (1-(input_size+aux_size+hidden_size+MARGIN*3+PLOT_W))/2
     BOTTOM = 0.1
@@ -211,6 +321,13 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     #     print(f'Figure saved at plots/{args["exp_dir"]}/learning_rates.pdf')
     
 def plot_weight_summary(args, ws):
+    """
+    Plots summary statistics of weight matrices over trials, including update norms, weight norms, and variability.
+
+    Args:
+        args (dict): Dictionary of model and task parameters.
+        ws (np.ndarray): Weight matrices of shape (trials, timesteps, batch_size, post_dim, pre_dim).
+    """
     trials, timesteps, batch_size, post_dim, pre_dim = ws.shape
     assert(timesteps==1)
 
@@ -288,8 +405,15 @@ def plot_weight_summary(args, ws):
     print('Finished calculating variability')
     
 def plot_learning_curve(args, all_rewards, all_choose_betters, plot_save_dir):
+    """
+    Plots the learning curve for model performance, showing reward and percent better over trials.
 
-    
+    Args:
+        args (dict): Dictionary of model and task parameters.
+        all_rewards (np.ndarray): Array of rewards per trial.
+        all_choose_betters (np.ndarray): Array of 'choose better' metrics per trial.
+        plot_save_dir (str): Directory to save the plot PDF.
+    """
     window_size = 20
     all_choose_betters = convolve2d(all_choose_betters.squeeze(), np.ones((window_size, 1))/window_size, mode='valid')
     all_rewards = convolve2d(all_rewards.squeeze(), np.ones((window_size, 1))/window_size, mode='valid')
@@ -316,653 +440,467 @@ def plot_learning_curve(args, all_rewards, all_choose_betters, plot_save_dir):
         pdf.savefig(fig_summ)
         print(f'Figure saved at plots/{plot_save_dir}/learning_curve.pdf')
 
-def plot_sorted_matrix(w, e_size, w_type, plot_args):
-    # from https://github.com/gyyang/nn-brain/blob/master/EI_RNN.ipynb
-    Z = hierarchical_clustering(w[:e_size, :e_size])
-    fig = plt.figure()
-    ax1 = fig.add_axes([0.09,0.22,0.2,0.48])
-    Z = sch.dendrogram(Z, orientation='left')
-    ax1.set_xticks([])
-    ax1.set_yticks([])
-    # ind_sort = np.concatenate((np.argsort(selectivity[:e_size]), np.argsort(selectivity[e_size:])+e_size))
-    ind_sort = np.concatenate((Z['leaves'][:e_size], np.arange(e_size, w.shape[0])))
-    ax2 = fig.add_axes([0.3,0.1,0.6,0.6])
-    ax2.set_xticks([])
-    ax2.set_yticks([])
-    ax2.axvline(x=e_size-0.5, linewidth=1, color='grey')
-    ax2.axhline(y=e_size-0.5, linewidth=1, color='grey')
-    w = w[ind_sort, :][:, ind_sort]
-    if w_type=='weight':
-        im = plot_imag_centered_cm(ax2, w)
-        plt.title('Sorted Recurrent Connectivity')
-        plt.colorbar(im)
-        plt.savefig(f'plots/{plot_args.exp_dir}/sorted_rec_w')
-    elif w_type=='lr':
-        im = plt.imshow(w, cmap='hot', vmax=w.max()*0.4)
-        plt.title('Sorted Recurrent Learning Rates')
-        plt.colorbar(im)
-        plt.savefig(f'plots/{plot_args.exp_dir}/sorted_rec_lr')
-    else:
-        raise ValueError
 
-def plot_subspace(ws, num_areas, e_hidden_size, i_hidden_size):
-    submats = get_sub_mats(ws, num_areas=num_areas, e_hidden_size=e_hidden_size, i_hidden_size=i_hidden_size)
-    all_us = {}
-    all_ss = {}
-    all_vhs = {}
-    for w_name, w_vals in submats.items():
-        us, ss, vhs = run_svd_time_varying_w(w_vals)
-        all_us[w_name] = us
-        all_ss[w_name] = ss
-        all_vhs[w_name] = vhs
+def plot_psth_geometry(all_model_dpca, axes, title):
+    """
+    Plots the geometry of PSTH (peri-stimulus time histogram) features using dPCA results for all models.
 
-    # plot participation ratios for change of dimensionality through training
-    fig, axes = plt.subplots(num_areas, num_areas)
-    for i in range(num_areas):
-        pr_rec = participation_ratio(all_ss[f"rec_intra_{i}"])
-        plot_mean_and_std(axes[i, i], pr_rec.mean(0), pr_rec.std(0)/np.sqrt(pr_rec.shape[0]))
-        axes[i,i].set_title(fr"Area {i} Recurrent")
-
-    for i in range(num_areas-1):
-        pr_ff = participation_ratio(all_ss[f"rec_inter_ff_{i}_{i+1}"])
-        plot_mean_and_std(axes[i, i+1], pr_ff.mean(0), pr_ff.std(0)/np.sqrt(pr_ff.shape[0]))
-        pr_fb = participation_ratio(all_ss[f"rec_inter_fb_{i}_{i+1}"])
-        plot_mean_and_std(axes[i+1, i], pr_fb.mean(0), pr_fb.std(0)/np.sqrt(pr_fb.shape[0]))
-        axes[i,i+1].set_title(fr"Area {i} \to Area {i+1} FF")
-        axes[i+1,i].set_title(fr"Area {i+1} \to Area {i} FB")
-
-    fig.supylabel('Participation Ratios')
-    fig.supxlabel('Trials')
-
-    # plot dimensional alignment?
-    # SVD(W) = U S VT
-    # for each recurrent matrix's left singular vector (columns of V), see how much it is accepted by its left singular vector (columns of U)
-    # each column of U is a dimension of the output space, match it with rows of V^T through V^TU
-    # then each column of V^TU is the match between all of V^T and one column of U
-    # pre-multiplying with S weighs each 
-    # size (trials, batch_size, post_dim, pre_dim)
-
-    '''
-    for each area, m-intra, n-intra, I-fb, w-ff
-        mn - recurrence if overlap
-        
-        mI - direct feedforward if no overlap
-        nI - feedforward to recurrence
-        
-        mw - recurrence to readout
-        Iw - feedforward to readout
-
-        nw - ? not important
-    '''
-
-    fig, axes = plt.subplots(num_areas, num_areas)
-    mn_cov = []
-    for i in range(num_areas):
-        w_name = f"rec_intra_{i}"
-        mn_cov.append(all_vhs[w_name]@(all_us[w_name] * all_ss[w_name]))
+    Args:
+        all_model_dpca (list): List of dPCA result objects for each model.
+        axes (list): List of matplotlib axes to plot on.
+        title (str): Title for the plot.
+    """
+    # Initialize a list to store average weights for all models
+    all_model_dpca_psth = []
     
-    mff_cov = []
-    mfb_cov = []
-    nff_cov = []
-    nfb_cov = []
-    for i in range(num_areas-1):
-        ff_name = f"rec_inter_ff_{i}_{i+1}"
-        fb_name = f"rec_inter_fb_{i}_{i+1}"
-        w_name = f"rec_intra_{i}"
+    # Create a hue mapping for plotting, grouping dimensions by feature type
+    dim_hue = [0]*3+[1]*3+[2]*3+[3]*9+[4]*9+[5]*9+[6]*27
+    dim_hue = np.tile(np.array(dim_hue).reshape(1, 63), len(all_model_dpca)).flatten()
 
-        mff_cov.append((all_ss[ff_name]*all_vhs[ff_name])@all_us[w_name])
-        mfb_cov.append(all_vhs[w_name]@all_us[w_name])
+    # Loop through each model's dPCA result to extract and concatenate marginalized PSTHs
+    for curr_model_dpca in all_model_dpca:
+        hidden_size = curr_model_dpca.marginalized_psth['s'].shape[0]
+        curr_model_dpca_psth = np.concatenate([curr_model_dpca.marginalized_psth['s'].squeeze(), 
+                                               curr_model_dpca.marginalized_psth['p'].squeeze(), 
+                                               curr_model_dpca.marginalized_psth['c'].squeeze(), 
+                                               curr_model_dpca.marginalized_psth['pc'].squeeze().reshape((hidden_size, 9)), 
+                                               curr_model_dpca.marginalized_psth['sc'].squeeze().reshape((hidden_size, 9)), 
+                                               curr_model_dpca.marginalized_psth['sp'].squeeze().reshape((hidden_size, 9)), 
+                                               curr_model_dpca.marginalized_psth['spc'].squeeze().reshape((hidden_size, 27))], 
+                                               axis=1)
+        all_model_dpca_psth.append(curr_model_dpca_psth.T)
         
-def unit_selectivity(hs, target, e_size):
-    n_trials, n_timesteps, n_batch, n_hidden = hs.shape
-    hs = hs.mean(1) # n_trials, n_batch, n_hidden
-    selectivity = []
-    # grand_mean_hs = hs.mean(axis=0)
-    grand_var_hs = hs.std(axis=0)
-    for i in range(np.unique(target).max()):
-        sse_i = (hs-hs[target==i].mean(axis=0))**2
-        sse_not_i = (hs-hs[target!=i].mean(axis=0))**2
-        selectivity.append(1-(sse_i+sse_not_i)/(grand_var_hs+1e-8)) # sum sq explained by target
-    selectivity = torch.stack(selectivity) # n_targets, n_batch, n_hidden
-    plt.hist(selectivity.flatten().numpy(), bins=20)
-    plt.xlabel('Selectivity')
-    plt.ylabel('Frequency')
-    plt.show()
-    sort_inds = np.concatenate((np.argsort(selectivity[:e_size]), np.argsort(selectivity[e_size:])+e_size))
-    cluster_labels = cluster(selectivity.reshape(n_hidden, 1))
-    cluster_labels = cluster_labels[sort_inds]
-    sorted_cluster_labels = cluster_labels.copy()
-    sorted_cluster_labels[cluster_labels==cluster_labels[0]] = 0
-    sorted_cluster_labels[cluster_labels==cluster_labels[-1]] = 2
-    sorted_cluster_labels[(cluster_labels!=cluster_labels[0]) & (cluster_labels!=cluster_labels[-1])] = 1
-    print(sorted_cluster_labels)
-    return selectivity, sort_inds, sorted_cluster_labels
-
-def plot_dpca(all_saved_states, task_mdprl, args):
-    '''
-    (1) regress hs activity with
-            previous trial choice shape, color, pattern (3x3x3), 
-            previous trial reward (2),
-            current trial stimuli shape, color, pattern pairs (3x3x3), 
-            current trial choice shape, color, pattern (3x3x3), 
-            current trial reward (2),
-    (2) get beta weights which is a mixture of value and stimulus intensity: h ~ Xw. 
-        This will give beta weights timepoints X trials X hidden X latent variables,
-        calculate cpd gives timepoints X trials X hidden X latent variables CPD values
-    (3) compare w with marginal reward probability? see which it dimension it corresponds to the best
-    '''
-
-    n_trials, n_timesteps, n_sessions, n_hidden = all_saved_states['hs'].shape
-    n_areas = args['num_areas'] 
-
-    print("Calculating PSTH")
-
-    '''
-    organize by previous trial outcome
-    '''
-    hs_by_prev = np.zeros((n_hidden//n_areas, n_timesteps, 2, 3, 3, 3)) # sort data by previous trial choices and outcomes
-
-    flat_hs_post = all_saved_states['hs'].numpy()[1:,...].transpose((2,0,1,3)).reshape((n_sessions*(n_trials-1), n_timesteps, n_hidden//n_areas))
-    flat_rwds_pre = all_saved_states['rewards'].numpy()[1:,...].transpose((2,0,1,3)).reshape((n_sessions*(n_trials-1)))
-    flat_acts_pre = all_saved_states['choices'].numpy()[1:,...].transpose((2,0,1,3)).reshape((n_sessions*(n_trials-1)))
-
-    # the prev_f{}_vals are IN TERMS OF THE REWARD SCHEDULE, NOT THE PERCEPTUAL DIMENSIONS
-
-    for prev_rwd_val in range(2):
-        for prev_f1_val in range(3): 
-            for prev_f2_val in range(3):
-                for prev_f3_val in range(3):
-                    # n_trials, 1, n_sessions, ...
-                    act_f1_val = task_mdprl.index_shp[flat_acts_pre]
-                    act_f2_val = task_mdprl.index_pttrn[flat_acts_pre]
-                    act_f3_val = task_mdprl.index_clr[flat_acts_pre]
-
-                    where_trial = (flat_rwds_pre==prev_rwd_val) & \
-                                  (act_f1_val==prev_f1_val) & \
-                                  (act_f2_val==prev_f2_val) & \
-                                  (act_f3_val==prev_f3_val)
-                    hs_by_prev[:, :, prev_rwd_val, prev_f1_val, prev_f2_val, prev_f3_val] = flat_hs_post[where_trial,...].mean(0)
-
-    del flat_hs_post
-    del flat_rwds_pre
-    del flat_acts_pre
+    all_model_dpca_psth = np.stack(all_model_dpca_psth)
     
-    '''
-    organize by current trial stimuli
-    '''
-    hs_by_curr_stim = np.zeros((n_hidden, n_timesteps, 6, 6, 6)) # sort data by current trial choices and outcomes
-
-    flat_hs_curr = all_saved_states['hs'].numpy().transpose((2,0,1,3)).reshape((n_sessions*n_trials, n_timesteps, n_hidden))
-    flat_stims = all_saved_states['stimuli'].numpy().transpose((2,0,1,3)).reshape((n_sessions*n_trials, 2))
-
-    for curr_f1_val in range(6):
-        for curr_f2_val in range(6):
-            for curr_f3_val in range(6):
-                # n_trials, 1, n_sessions, ...
-                stim_f1_val = task_mdprl.index_shp[flat_stims[:,0]]*2+task_mdprl.index_shp[flat_stims[:,1]]
-                stim_f2_val = task_mdprl.index_pttrn[flat_stims[:,0]]*2+task_mdprl.index_pttrn[flat_stims[:,1]]
-                stim_f3_val = task_mdprl.index_clr[flat_stims[:,0]]*2+task_mdprl.index_clr[flat_stims[:,1]]
-                where_trial = (stim_f1_val==curr_f1_val) & \
-                              (stim_f2_val==curr_f2_val) & \
-                              (stim_f3_val==curr_f3_val)
-                hs_by_prev[:, :, curr_f1_val, curr_f2_val, curr_f3_val] = flat_hs_post[where_trial,...].mean(0)
-
-    del flat_stims
-
-    '''
-    organize by current trial outcome
-    '''
-
-    hs_by_curr_outcome = np.zeros((n_hidden, n_timesteps, 2, 3, 3, 3)) # sort data by previous trial choices and outcomes
-    flat_rwds_curr = all_saved_states['rewards'].numpy().transpose((2,0,1,3)).reshape((n_sessions*n_trials))
-    flat_acts_curr = all_saved_states['choices'].numpy().transpose((2,0,1,3)).reshape((n_sessions*n_trials))
-
-    for curr_rew_val in range(2):
-        for curr_f1_val in range(3):
-            for curr_f2_val in range(3):
-                for curr_f3_val in range(3):
-                    # n_trials, 1, n_sessions, ...
-                    act_f1_val = task_mdprl.index_shp[flat_acts_curr]
-                    act_f2_val = task_mdprl.index_pttrn[flat_acts_curr]
-                    act_f3_val = task_mdprl.index_clr[flat_acts_curr]
-                    where_trial = (flat_rwds_curr==curr_rew_val) & \
-                                  (act_f1_val==curr_f1_val) & \
-                                  (act_f2_val==curr_f2_val) & \
-                                  (act_f3_val==curr_f3_val)
-                    hs_by_curr_outcome[:, :, curr_rew_val, curr_f1_val, curr_f2_val, curr_f3_val] = flat_hs_curr[where_trial,...].mean(0)
-         
-    del flat_hs_curr
-    del flat_rwds_curr
-    del flat_acts_curr
-
-
-    print('Calculating DPCA')
-    low_hs_by_prev, all_axes_by_prev, all_explained_vars_by_prev, all_labels_by_prev = \
-        get_dpca(hs_by_prev, "rscp", n_components=10)
-    low_hs_by_curr_stim, all_axes_by_curr_stim, all_explained_vars_by_curr_stim, all_labels_by_curr_stim = \
-        get_dpca(hs_by_curr_stim, "scp", n_components=10)
-    low_hs_by_curr_outcome, all_axes_by_curr_outcome, all_explained_vars_by_curr_outcome, all_labels_by_curr_outcome = \
-        get_dpca(hs_by_curr_outcome, "rscp", n_components=10)
-
-#     fig, axes = plt.subplots(2, 2)
-#     for i in range(4):
-#         plot_mean_and_std(axes[i//2, i%2], all_cpds[i].mean([0, 2]), 
-#                           all_cpds[i].std([0, 2])/np.sqrt(n_trials//4*n_batch), label=['F1', 'F2', 'F3', 'C1', 'C2', 'C3', 'O'])
-    return all_lrs, all_cpds, all_betas
-
-def plot_rsa(hs, stim_order, stim_probs, cluster_label, e_size, splits=8):
-    n_trials, n_timesteps, n_batch, n_hidden = hs.shape
-    hs = hs.mean(1)
-    ehs = hs[:,:,:e_size]
-    ihs = hs[:,:,e_size:]
-    n_steps_par_split = n_trials//splits
-    stim_probs_ordered = order_stim_probs(stim_order, stim_probs) # 7, n_trials, n_batch, n_choice
-    rnn_sims = []
-    input_sims = []
-    reg_results = []
-    for i in range(splits-1):
-        xs = [est[i*n_steps_par_split:(i+1)*n_steps_par_split, :, 0]-est[i*n_steps_par_split:(i+1)*n_steps_par_split, :, 1] 
-              for est in stim_probs_ordered]
-        rnn_sims.append([])
-        input_sims.append([])
-        reg_results.append([])
-        for l in range(cluster_label.max()+1):
-            rnn_sim, input_sim, reg_result = representational_similarity_analysis(xs, ehs[i*n_steps_par_split:(i+1)*n_steps_par_split,:,cluster_label[:e_size]==l])
-            rnn_sims[-1].append(rnn_sim)
-            input_sims[-1].append(input_sim)
-            reg_results[-1].append(reg_result)
-            rnn_sim, input_sim, reg_result = representational_similarity_analysis(xs, ihs[i*n_steps_par_split:(i+1)*n_steps_par_split,:,cluster_label[e_size:]==l])
-            rnn_sims[-1].append(rnn_sim)
-            input_sims[-1].append(input_sim)
-            reg_results[-1].append(reg_result)
-
-    fig = plt.figure('rsa_coeffs')
-    labels = ['Shape', 'Pattern', 'Color', 'Shape+Pattern', 'Pattern+Color', 'Shape+Color', 'Shape+Pattern+Color']
-    titles = ['Exc Left', 'Inh Left', 'Exc Nonsel', 'Inh Nonsel', 'Exc Right', 'Inh Right']
-    for j in range(2*(cluster_label.max()+1)):
-        ax = fig.add_subplot(320+j+1)
-        for i in range(7):
-            coeffs = [res[j].coef[i+1] for res in reg_results]
-            ses = [res[j].se[i+1] for res in reg_results]
-            plot_mean_and_std(ax, np.array(coeffs), np.array(ses), labels[i])
-        ax.set_title(titles[j])
-    fig.supxlabel('Time Segment')
-    fig.supylabel('Regression Coefficient of RDM')
-    handles, labels = ax.get_legend_handles_labels()
-    fig.legend(handles, labels, loc='center right')
-    plt.tight_layout()
-    # plt.savefig(f'plots/{plot_args.exp_dir}/rsa_coeffs')
-    plt.show()
-
-def run_model(args, model_list, task_mdprl, n_samples=None):
-    all_saved_states = defaultdict(list)
-    output_size = args['output_size']    
-
-    for model in model_list:
-        model.eval()
-        for p in model.parameters():
-            p.requires_grad = False # disable gradient calculation for parameters
-    if n_samples is None:
-        n_samples = task_mdprl.test_stim_order.shape[1]
-        
-    n_models = len(model_list)
-    model_assignment = np.concatenate([
-        np.repeat(np.arange(n_models), n_samples//n_models),
-        np.random.choice(np.arange(n_models), size=n_samples%n_models, replace=False)])
-    model_assignment = np.random.permutation(model_assignment)
+    # Plot cosine similarity heatmap between all features, averaged across models
+    all_model_dpca_psth_similarity = batch_cosine_similarity(all_model_dpca_psth, all_model_dpca_psth).mean(0)-np.eye(63)
+    cmap_scale = all_model_dpca_psth_similarity.max()*1.1
     
-    print(np.unique(model_assignment, return_counts=True))
+    sns.heatmap(all_model_dpca_psth_similarity, cmap='RdBu_r', vmin=-cmap_scale, vmax=cmap_scale, 
+                ax=axes[0], square=True, cbar=False, 
+                annot_kws={'fontdict':{'fontsize':10}}, cbar_kws={"shrink": 0.8})
+    axes[0].set_title(title)
     
-    for batch_idx in tqdm.tqdm(range(n_samples)):
-        model = model_list[model_assignment[batch_idx]]
-        pop_s, pop_c, rwd_s, target_valid, index_s, prob_s = task_mdprl.generateinputfromexp(
-            batch_size=1, test_N_s=args['test_N_s'], num_choices=args['num_options'], participant_num=batch_idx)
-        
-        # add empty list for the current episode
-        all_saved_states['whs'].append([])
+    # Define block boundaries and corresponding tick positions for the heatmap
+    block_boundaries = [3, 6, 9, 18, 27, 36]
+    ticks = [1.5, 4.5, 7.5, 13.5, 22.5, 31.5, 49.5]
+    labels = [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']
+    
+    # Add block boundary and tick label comments for the heatmap
+    for bb in block_boundaries:
+        axes[0].axvline(x=bb,color='grey',lw=1)
+        axes[0].axhline(y=bb,color='grey',lw=1)
+    axes[0].set_xticks(ticks)
+    axes[0].set_xticklabels(labels, fontsize=12, rotation=0)
+    axes[0].set_yticks(ticks)
+    axes[0].set_yticklabels(labels, fontsize=12)
 
-        all_saved_states['stimuli'].append(torch.from_numpy(np.expand_dims(index_s, axis=(1,2)))) # num trials X time_steps(1) X batch_size(1) X num_choices
-        all_saved_states['reward_probs'].append(torch.from_numpy(np.expand_dims(prob_s, axis=(1,)))) # num_trials X time_steps(1) X batch_size X num_choices
-        
-        all_saved_states['logits'].append([])
-        all_saved_states['choices'].append([])
-        all_saved_states['foregone'].append([])
-        all_saved_states['rewards'].append([])
-        all_saved_states['choose_better'].append([])
-        
-        all_saved_states['hs'].append([])
+    xxx_for_plot = np.tile(np.arange(63).reshape(1, 63), len(all_model_dpca)).flatten()
 
-        all_saved_states['sensitivity'].append([])
+    sns.stripplot(ax=axes[1], x=xxx_for_plot, y=np.linalg.norm(all_model_dpca_psth, axis=2).flatten(), 
+                  color='k', linewidth=1, size=1, legend=False, alpha=0.2)
+    sns.barplot(ax=axes[1], x=xxx_for_plot, y=np.linalg.norm(all_model_dpca_psth, axis=2).flatten(), 
+                hue=dim_hue, errorbar=None, palette='tab10', legend=False)
+    axes[1].set_xticks(np.array(ticks)-0.5)
+    axes[1].set_xticklabels(labels, fontsize=12, rotation=0)
+    axes[1].tick_params(axis='y', labelsize=12)
+    
+    axes[1].spines['right'].set_visible(False)
+    axes[1].spines['top'].set_visible(False)
 
-        # reinitialize hidden layer activity
-        hidden = None
-        w_hidden = None
 
-        for i in range(len(pop_s)):
+def plot_weight_exp_vars(n_components_for_dpca, all_model_dpca, axes, ylabel):
+    """
+    Plots the explained variance for each dPCA component across all models.
+
+    Args:
+        n_components_for_dpca (dict): Number of components for each dPCA key.
+        all_model_dpca (list): List of dPCA result objects for each model.
+        axes (matplotlib.axes.Axes): Axes to plot on.
+        ylabel (str): Y-axis label for the plot.
+    """
+    key_plot_order = ['s', 'p', 'c', 'pc', 'sc', 'sp', 'spc']
+    
+    # Create x-coordinates for plotting: repeat 0-7 for each model and each key
+    xxx_for_plot = np.tile(np.arange(8).reshape(1,1,8), [len(all_model_dpca),7,1])
+    # Create hue values for color coding: repeat 0-6 for each model and each component
+    hue_for_plot = np.tile(np.arange(7).reshape(1,7,1), [len(all_model_dpca),1,8])
+
+    # Initialize list to store explained variance data for all models
+    all_model_dpca_exp_var = []
+    
+    # Loop through each model's dPCA results
+    for curr_model_dpca in all_model_dpca:
+        # Initialize array to store explained variance ratios for all keys and components
+        all_dpca_exp_var = np.zeros((7, 8))
+        for k_idx, k in enumerate(key_plot_order):
+            # Extract explained variance ratios for the current key, up to the specified number of components
+            all_dpca_exp_var[k_idx][...,:n_components_for_dpca[k]] = \
+                np.array(curr_model_dpca.explained_variance_ratio_[k])
+        all_model_dpca_exp_var.append(all_dpca_exp_var)
             
-            curr_trial_hs = []
-            
-            # first phase, give stimuli and no feedback
-            _, hidden, w_hidden, hs = model(torch.zeros_like(pop_s[i].sum(1)), steps=task_mdprl.T_fixation,
-                                            neumann_order=task_mdprl.T_fixation,
-                                            hidden=hidden, w_hidden=w_hidden, DAs=None,
-                                            Rs=torch.zeros(1, 2),
-                                            acts=torch.zeros(1, output_size),
-                                            save_all_states=True)
+    all_model_dpca_exp_var = np.stack(all_model_dpca_exp_var)
+    # Replace very small values (< 1e-6) with NaN to avoid plotting noise
+    all_model_dpca_exp_var[all_model_dpca_exp_var<1e-6] = np.nan
+    
+    # Create a strip plot showing individual data points for each model
+    sns.stripplot(ax=axes, x=xxx_for_plot.flatten(), y=all_model_dpca_exp_var.flatten(),
+                  hue=hue_for_plot.flatten(), palette='tab10', size=4,
+                  legend=False, linewidth=1, dodge=True, alpha=0.25)
+    # Create a bar plot showing the mean values, overlaid on the strip plot
+    bb = sns.barplot(ax=axes, x=xxx_for_plot.flatten(), y=all_model_dpca_exp_var.flatten(),
+                 hue=hue_for_plot.flatten(), palette='tab10', dodge=True, errorbar=None)
+    # Remove the legend from the bar plot to avoid duplication
+    bb.legend_.remove()
+    
+    # Set x-axis ticks and labels
+    axes.set_xticks(np.arange(0,8,1))
+    axes.set_xticklabels([])  # No x-axis labels
+    axes.set_title(ylabel)
 
-            curr_trial_hs.append(hs.detach())
+def test_dpca_overlap(all_dpca_results, n_components_for_dpca, all_low_hs, overlap_scale, label, axes):
+    """
+    Tests and visualizes the overlap between dPCA axes and low-dimensional hidden states across models.
 
-            output, hidden, w_hidden, hs = model(pop_s[i].sum(1), steps=task_mdprl.T_stim,
-                                                neumann_order=task_mdprl.T_stim,
-                                                hidden=hidden, w_hidden=w_hidden, DAs=None,
-                                                Rs=torch.zeros(1, 2),
-                                                acts=torch.zeros(1, output_size),
-                                                save_all_states=True)
-            curr_trial_hs.append(hs.detach())
+    Args:
+        all_dpca_results (list): List of dPCA result objects for each model.
+        n_components_for_dpca (dict): Number of components for each dPCA key.
+        all_low_hs (list): List of low-dimensional hidden state arrays for each model.
+        overlap_scale (float): Scale for significance thresholding.
+        label (str): Title for the plot.
+        axes (list): List of matplotlib axes to plot on.
 
-            if args['task_type']=='on_policy_double':
-                # use output to calculate action, reward, and record loss function
-                if args['decision_space']=='action':
-                    action = torch.argmax(output[-1,:,:], -1) # batch size
-                    rwd = (torch.rand(args['batch_size'])<prob_s[i][range(args['batch_size']), action]).float()
-                    all_saved_states['choose_better'][-1].append((action==torch.argmax(prob_s[i], -1)).float().squeeze())
-                elif args['decision_space']=='good':
-                    # action_valid = torch.argmax(output[-1,:,index_s[i]], -1) # the object that can be chosen (0~1), (batch size, )
-                    action_valid = torch.multinomial(output[:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
-                    # backpropagate from choice to previous reward
-                    all_saved_states['logits'][-1].append(
-                        (output[:,index_s[i,1]]-output[:,index_s[i,0]]).detach()[None,...])
-                    if i>0:
-                        (output[:,index_s[i,1]]-output[:,index_s[i,0]]).squeeze().backward()
-                        all_saved_states['sensitivity'][-1].append(DAs.grad[None])
-                        DAs.grad=None
-                    else:
-                        all_saved_states['sensitivity'][-1].append(torch.zeros(1, 1))
-                    
-                    action = index_s[i, action_valid] # (batch size, )
-                    nonaction = index_s[i, 1-action_valid] # (batch size, )
-                    # rwd = (torch.rand(args['batch_size'])<prob_s[i][range(args['batch_size']), action_valid]).long()
-                    rwd = rwd_s[i][range(args['batch_size']), action_valid]
-                    all_saved_states['choose_better'][-1].append((action_valid==torch.argmax(prob_s[i], -1)).float()[None,...]) 
-                all_saved_states['rewards'][-1].append(rwd.float()[None,...])
-                all_saved_states['choices'][-1].append(action[None,...])
-                all_saved_states['foregone'][-1].append(nonaction[None,...])
-            elif args['task_type'] == 'value':
-                raise NotImplementedError
-                rwd = (torch.rand(1)<prob_s[i]).float()
-                output = output.reshape(output_mask['target'].shape[0], 1, output_size)
-                acc.append(((output-target_valid['pre_choice'][i])*output_mask['target'].float().unsqueeze(-1)).pow(2).mean(0)/output_mask['target'].float().mean())
-                curr_rwd.append(rwd)
-            
-            if args['task_type']=='on_policy_double':
-                # use the action (optional) and reward as feedback                
-                pop_post = pop_s[i].sum(1)
-                action_enc = pop_c[i][0, action_valid]
-                rwd_enc = torch.eye(2)[rwd]
-                DAs = (2*rwd.float()-1)
-                DAs = DAs.requires_grad_()
+    Returns:
+        np.ndarray: Array of concatenated dPCA axes for all models.
+    """
+    keys = list(n_components_for_dpca.keys())
+    
+    all_model_axes_overlap = []
+    all_model_flat_overlap = []
+    all_model_low_hs_corr_val = []
+    all_model_pvals = []
+    all_model_axes = []
+        
+    for dpca_result, low_hs in zip(all_dpca_results, all_low_hs):
+        all_dpca_axes = np.concatenate([dpca_result.P[k] for k in keys], axis=1) # concat all axes
+        all_dpca_low_hs = np.concatenate([low_hs[k].reshape((low_hs[k].shape[0],-1)) 
+                                          for k in keys], axis=0) # concat all axes
+        low_hs_corr_val = np.corrcoef(all_dpca_low_hs)
+        axes_overlap = all_dpca_axes.T@all_dpca_axes # dot product similarity
+        # axes_corr_val, axes_corr_ps = spearmanr(all_dpca_axes, axis=0) # rank correlation similarity
+        all_overlaps = []
+        all_pvals = []
+        sig_thresh = np.abs(norm.ppf(0.001))*overlap_scale
+
+        for k_idx1 in range(len(keys)):
+            for k_idx2 in range(k_idx1+1, len(keys)):
+                pair_overlaps = (dpca_result.P[keys[k_idx1]].T@dpca_result.P[keys[k_idx2]]).flatten()
+                all_overlaps.append(pair_overlaps)
+                all_pvals.append(norm.cdf(-np.abs(pair_overlaps), loc=0, scale=overlap_scale)+ \
+                    norm.sf(np.abs(pair_overlaps), loc=0, scale=overlap_scale))
                 
-                hidden = hidden.detach()
-                w_hidden = w_hidden.detach()
+        all_overlaps = np.concatenate(all_overlaps)
+        all_pvals = np.concatenate(all_pvals)
+        _, all_corrected_pvals = fdrcorrection(all_pvals)
 
-                _, hidden, w_hidden, hs = model(pop_post, steps=task_mdprl.T_ch,
-                                               neumann_order=task_mdprl.T_ch,
-                                               hidden=hidden, w_hidden=w_hidden, 
-                                               Rs=rwd_enc, acts=action_enc, DAs=DAs,
-                                               save_all_states=True)
-                curr_trial_hs.append(hs.detach())
-
-            elif args['task_type'] == 'value':
-                raise NotImplementedError
-                pop_post = pop_s['post_choice'][i]
-                rwd_enc = torch.eye(2)[rwd]
-                DAs = (2*rwd.float()-1)*rwd_mask['post_choice']
-                _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=None, DAs=DAs, save_weights=False)
-            
-            all_saved_states['hs'][-1].append(torch.cat(curr_trial_hs)) 
-            # [num_sessions, [num_trials, [time, num_batch_size, hidden_size]]]
-            all_saved_states['whs'][-1].append(w_hidden.detach()[None]) 
-            # [num_sessions, [num_trials, [1, num_batch_size, hidden_size, hidden_size]]]
-
-        # stack to create a trial dimension for each session
-        for k in all_saved_states.keys():
-            if isinstance(all_saved_states[k][-1], list):
-                all_saved_states[k][-1] = torch.stack(all_saved_states[k][-1], axis=0)
-        # [num_sessions, [num_trials, time_steps, num_batch_size, ...]]
-
-    # concatenate all saved states along the batch dimension
-    for k in all_saved_states.keys():
-        all_saved_states[k] = torch.cat(all_saved_states[k], axis=2) # [num_trials, time_steps, num_sessions, ...]
-
-
-    # concatenate all accuracies and rewards
-    print(all_saved_states['rewards'].mean(), all_saved_states['choose_better'].mean())
-    
-    for k, v in all_saved_states.items():
-        print(k, v.shape)
+        all_model_axes.append(all_dpca_axes)
+        all_model_axes_overlap.append(axes_overlap)
+        all_model_pvals.append(all_corrected_pvals)
+        all_model_flat_overlap.append(all_overlaps)
+        all_model_low_hs_corr_val.append(low_hs_corr_val)
         
-    all_saved_states['model_assignment'] = model_assignment
-    
-    return all_saved_states
-
-def run_model_all_pairs_with_hidden_init(args, model, task_mdprl, n_samples=60, hidden_init=None):
-    model.eval()
-    all_indices = []
-    all_probs = []
-    all_saved_states_pre = defaultdict(list) # each entry has value of size (num pairs X num_samples X ...)
-    all_saved_states_post = defaultdict(list)
-    all_saved_states = defaultdict(list)
-    output_size = args['output_size']
-    with torch.no_grad():
-        for pair_idx in tqdm.tqdm(range(task_mdprl.pairs.shape[0])):
-            for batch_idx in range(n_samples):
-                pop_s, target_valid, output_mask, rwd_mask, ch_mask, index_s, prob_s = \
-                    task_mdprl.generateinput(batch_size=1, N_s=0, num_choices=args['num_options'], rwd_schedule=task_mdprl.prob_mdprl, \
-                                             stim_order=task_mdprl.pairs[pair_idx:pair_idx+1,:])
-
-                hidden = hidden_init
-                all_saved_states_pre
-                    # first phase, give stimuli and no feedback
-                output, hs, hidden, ss = model(pop_s['pre_choice'][0], hidden=hidden, 
-                                                DAs=torch.zeros(1, 1, 1)*rwd_mask['pre_choice'],
-                                                Rs=torch.zeros(1, 1, 2)*rwd_mask['pre_choice'],
-                                                acts=torch.zeros(1, 1, output_size)*ch_mask['pre_choice'],
-                                                save_weights=False)
-
-                # add empty list for the current episode
-                if batch_idx==0:
-                    for k in ss.keys():
-                        all_saved_states_pre[k].append([])
-                        all_saved_states_post[k].append([])
-#                     all_saved_states['whs_final'].append([])
-                    all_saved_states_pre['hs'].append([])
-                    all_saved_states_post['hs'].append([])
-
-                # save pre-feedback states
-                for k, v in ss.items():
-                    all_saved_states_pre[k][-1].append(v)
-                all_saved_states_pre['hs'][-1].append(hs) # [num_pairs, [num_samples_per_pair, [time_pre, 1, hidden_size]]]
-
-                # use output to calculate action, reward, and record loss function
-                action_valid = torch.argmax(output[-1,:,index_s[0]], -1)
-                action = index_s[0, action_valid] # (batch size, )
-                rwd = (torch.rand(args['batch_size'])<prob_s[0][range(args['batch_size']), action_valid]).long()
-                
-                # use the action (optional) and reward as feedback
-                pop_post = pop_s['post_choice'][0]
-                action_enc = torch.eye(output_size)[action]
-                rwd_enc = torch.eye(2)[rwd]
-                action_enc = action_enc*ch_mask['post_choice']
-                rwd_enc = rwd_enc*rwd_mask['post_choice']
-                DAs = (2*rwd.float()-1)*rwd_mask['post_choice']
-                _, hs, hidden, ss = model(pop_post, hidden=hidden, Rs=rwd_enc, acts=action_enc, DAs=DAs, save_weights=False)
-                
-                # save the post-feedback states
-                for k, v in ss.items():
-                    all_saved_states_post[k][-1].append(v)
-                all_saved_states_post['hs'][-1].append(hs) # [num_pairs, [num_samples_per_pair, [time_post, 1, hidden_size]]]
-
-#             print(len(all_saved_states_pre['hs'][0][0]))
-
-
-            # stack trials for each session
-            for k in all_saved_states_pre.keys():
-                all_saved_states_pre[k][-1] = torch.stack(all_saved_states_pre[k][-1], axis=0)
-            for k in all_saved_states_post.keys():
-                all_saved_states_post[k][-1] = torch.stack(all_saved_states_post[k][-1], axis=0)
-            for k in all_saved_states.keys():
-                all_saved_states[k][-1] = torch.stack(all_saved_states[k][-1], axis=0)
-            # [num_pairs, [num_samples_per_pair, time_steps, 1, hidden_size]]
-            
-            # save accuracies and reward
-            all_indices.append(index_s)
-            all_probs.append(prob_s)
-
-        # concatenate all saved states
-        for k in all_saved_states_pre.keys():
-            all_saved_states_pre[k] = torch.stack(all_saved_states_pre[k], axis=0)
-        for k in all_saved_states_post.keys():
-            all_saved_states_post[k] = torch.stack(all_saved_states_post[k], axis=0)
-        for k in all_saved_states.keys():
-            all_saved_states[k] = torch.stack(all_saved_states[k], axis=0)
-        # [num_pairs, num_samples_per_pair, time_steps, 1, hidden_size]
-
-        # merge pre and post if necessary
-        for k in all_saved_states_pre.keys():
-            all_saved_states[k] = torch.cat([all_saved_states_pre[k], all_saved_states_post[k]], dim=2)
-
-        for k, v in all_saved_states.items():
-            print(k, v.shape)
+    all_model_axes = np.stack(all_model_axes)
+    all_model_axes_overlap = np.stack(all_model_axes_overlap)
+    all_model_pvals = np.stack(all_model_pvals)
+    all_model_flat_overlap = np.stack(all_model_flat_overlap)
+    all_model_low_hs_corr_val = np.stack(all_model_low_hs_corr_val)
         
-        all_indices = torch.stack(all_indices, dim=1) # trials X batch size X 2
-        all_probs = torch.stack(all_probs, dim=1)
-        return all_saved_states
+    tril_mask = np.zeros_like(all_model_axes_overlap.mean(0))
+    tril_mask[np.tril_indices(axes_overlap.shape[0], k=-1)] = 1
+
+    triu_mask = np.zeros_like(all_model_axes_overlap.mean(0))
+    triu_mask[np.triu_indices(axes_overlap.shape[0], k=0)] = 1
     
-def order_stim_probs(stim_order, stim_probs):
-    n_trials, n_batch, n_choices = stim_order.shape
-    assert len(stim_probs)==7 and len(stim_probs[0])==27
-    stim_probs_ordered = []
-    for est in stim_probs:
-        stim_probs_ordered.append(est[stim_order]) # output[t, b, c] = stim_probs[stim_order[t, b, c]]
-    return stim_probs_ordered
-
-# if __name__=='__main__':
-#     import argparse
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument('--exp_dir', type=str, help='Directory of trained model')
-#     parser.add_argument('--connectivity_and_lr', action='store_true')
-#     parser.add_argument('--n_samples', type=int, default=21)
-#     parser.add_argument('--n_runs_per_sample', type=int, default=1)
-#     parser.add_argument('--learning_rates', action='store_true')
-#     parser.add_argument('--sort_rec_w', action='store_true')
-#     parser.add_argument('--sort_rec_lr', action='store_true')
-#     parser.add_argument('--tca', action='store_true')
-#     parser.add_argument('--pca', action='store_true')
-#     parser.add_argument('--rsa', action='store_true')
-#     parser.add_argument('--tdr', action='store_true')
-#     parser.add_argument('--learning_curve', action='store_true')
-#     parser.add_argument('--attn_entropy', action='store_true')
-#     parser.add_argument('--attn_distribution', action='store_true')
-#     plot_args = parser.parse_args()
-
-#     # load training config
-#     f = open(os.path.join(plot_args.exp_dir, 'args.json'), 'r')
-#     args = json.load(f)
-#     print('loaded args')
-#     # load model
-#     exp_times = {
-#         'start_time': -0.25,
-#         'end_time': 0.75,
-#         'stim_onset': 0.0,
-#         'stim_end': 0.6,
-#         'rwd_onset': 0.5,
-#         'rwd_end': 0.6,
-#         'choice_onset': 0.35,
-#         'choice_end': 0.5,
-#         'total_time': 1}
-#     exp_times['dt'] = args['dt']
-#     task_mdprl = MDPRL(exp_times, args['input_type'])
-#     print('loaded task')
-
-#     input_size = {
-#         'feat': args['stim_dim']*args['stim_val'],
-#         'feat+obj': args['stim_dim']*args['stim_val']+args['stim_val']**args['stim_dim'], 
-#         'feat+conj+obj': args['stim_dim']*args['stim_val']+args['stim_dim']*args['stim_val']*args['stim_val']+args['stim_val']**args['stim_dim'],
-#     }[args['input_type']]
-
-#     input_unit_group = {
-#         'feat': [args['stim_dim']*args['stim_val']], 
-#         'feat+obj': [args['stim_dim']*args['stim_val'], args['stim_val']**args['stim_dim']], 
-#         'feat+conj+obj': [args['stim_dim']*args['stim_val'], args['stim_dim']*args['stim_val']*args['stim_val'], args['stim_val']**args['stim_dim']]
-#     }[args['input_type']]
-
-#     if args['attn_type']!='none':
-#         if args['input_type']=='feat':
-#             channel_group_size = [args['stim_val']]*args['stim_dim']
-#         elif args['input_type']=='feat+obj':
-#             channel_group_size = [args['stim_val']]*args['stim_dim'] + [args['stim_val']**args['stim_dim']]
-#         elif args['input_type']=='feat+conj+obj':
-#             channel_group_size = [args['stim_val']]*args['stim_dim'] + [args['stim_val']*args['stim_val']]*args['stim_dim'] + [args['stim_val']**args['stim_dim']]
-#     else:
-#         channel_group_size = [input_size]
-
-#     output_size = 1 if args['task_type']=='value' else 2
-#     model_specs = {'input_size': input_size, 'hidden_size': args['hidden_size'], 'output_size': output_size, 
-#             'plastic': args['plas_type']=='all', 'attention_type': args['attn_type'], 'activation': args['activ_func'],
-#             'dt': args['dt'], 'tau_x': args['tau_x'], 'tau_w': args['tau_w'], 'channel_group_size': channel_group_size,
-#             'c_plasticity': None, 'e_prop': args['e_prop'], 'init_spectral': args['init_spectral'], 'balance_ei': args['balance_ei'],
-#             'sigma_rec': args['sigma_rec'], 'sigma_in': args['sigma_in'], 'sigma_w': args['sigma_w'], 
-#             'rwd_input': args.get('rwd_input', False), 'action_input': args['action_input'], 
-#             'input_unit_group': input_unit_group, 'sep_lr': args['sep_lr'], 'plastic_feedback': args['plastic_feedback'],
-#             'value_est': 'policy' in args['task_type'], 'num_choices': 2 if 'double' in args['task_type'] else 1}
-#     if 'double' in args['task_type']:
-#         model = MultiChoiceRNN(**model_specs)
-#     else:
-#         model = SimpleRNN(**model_specs)
-#     state_dict = torch.load(os.path.join(plot_args.exp_dir, 'checkpoint.pth.tar'), map_location=torch.device('cpu'))['model_state_dict']
-#     model.load_state_dict(state_dict)
-#     print('loaded model')
-
-
-#     # if plot_args.sort_rec_w:
-#         # plot_sorted_matrix(model.h2h.effective_weight().detach(), int(args['e_prop']*args['hidden_size']), 'weight')
-#     # if plot_args.sort_rec_lr:
-#         # plot_sorted_matrix(model.kappa_rec.relu().squeeze().detach(), int(args['e_prop']*args['hidden_size']), 'lr')
+    # plot overlap values
+    im = sns.heatmap(all_model_axes_overlap.mean(0)*triu_mask+\
+                   all_model_low_hs_corr_val.mean(0)*tril_mask, \
+                   cmap='RdBu_r', vmin=-1, vmax=1, ax=axes[1], square=True,
+                    annot_kws={'fontdict':{'fontsize':10}}, cbar_kws={"shrink": 0.6})
     
-#     losses, losses_means, losses_stds, all_saved_states, all_indices = run_model(args, model, task_mdprl)
-#     print('simulation complete')
-
-#     stim_probs_ordered = []
-#     for i in range(plot_args.n_samples):
-#         stim_probs_ordered.append(np.array([task_mdprl.prob_mdprl.reshape(27)[all_indices[:,i,0]], task_mdprl.prob_mdprl.reshape(27)[all_indices[:,i,1]]]).T)
-#     stim_probs_ordered = np.stack(stim_probs_ordered, axis=1)
-
-#     selectivity, sort_inds, cluster_label = unit_selectivity(all_saved_states['hs'], np.argmax(stim_probs_ordered, axis=-1), 
-#                                                         e_size=int(args['e_prop']*args['hidden_size']))
+    txs, tys = np.meshgrid(np.arange(axes_overlap.shape[0]),np.arange(axes_overlap.shape[0]))
+    txs = txs[(np.abs(all_model_axes_overlap.mean(0))>sig_thresh)]
+    tys = tys[(np.abs(all_model_axes_overlap.mean(0))>sig_thresh)]
     
-#     # load metrics
-#     metrics = json.load(open(os.path.join(plot_args.exp_dir, 'metrics.json'), 'r'))
-#     if plot_args.connectivity_and_lr:
-#         plot_connectivity_lr(sort_inds, x2hw=[mx2h.effective_weight().detach() for mx2h in model.x2h],
-#                              h2hw=model.h2h.effective_weight().detach(),
-#                              hb=state_dict['h2h.bias'].detach(),
-#                              h2ow=model.h2o.effective_weight().detach(),
-#                              h2ob=state_dict['h2o.bias'].detach(),
-#                              h2vw=model.h2v.effective_weight().detach(),
-#                              h2vb=state_dict['h2o.bias'].detach(),
-#                              h2attnw=model.attn_func.effective_weight().detach(),
-#                              h2attnb=torch.zeros(model.attn_func.weight.shape[0]),
-#                              aux2h=model.aux2h.effective_weight().detach(),
-#                              kappa_in=[ki.squeeze().abs().detach()*model.x2h[0].mask for ki in model.kappa_in],
-#                              kappa_rec=model.kappa_rec.squeeze().abs().detach()*model.h2h.mask,
-#                              kappa_fb=model.kappa_fb.squeeze().abs().detach()*model.attn_func.mask,
-#                              e_size=int(args['e_prop']*args['hidden_size']))
-#     if plot_args.learning_curve:
-#         plot_learning_curve(losses, losses_means, losses_stds)
-#     if plot_args.attn_entropy:
-#         plot_attn_entropy(all_saved_states['attns'])
-#     if plot_args.attn_distribution:
-#         plot_attn_distribution(all_saved_states['attns'])
-#     if plot_args.rsa:
-#         print(cluster_label*0)
-#         plot_rsa(all_saved_states['hs'], stim_probs=task_mdprl.value_est(), stim_order=all_indices, cluster_label=cluster_label*0, e_size=model.h2h.e_size)
+    block_boundaries = np.cumsum(list(n_components_for_dpca.values()))[:-1]
+    for i in block_boundaries:
+        axes[1].axvline(x=i,color='grey',linewidth=0.2)
+        axes[1].axhline(y=i,color='grey',linewidth=0.2)
+        
+    tick_locs = np.cumsum([0, *n_components_for_dpca.values()])[:-1]+\
+                np.array(list(n_components_for_dpca.values()))//2-0.5
+
+    axes[1].set_xticks(tick_locs, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'], size=15, rotation=0)
+    axes[1].set_yticks(tick_locs, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'], size=18)
+    
+    for (x,y) in zip(txs, tys):
+        if x<=y:
+            continue
+        else:
+            axes[0].text(x-0.4, y+0.7, '*', {'size': 16})
+    
+    sns.histplot(x=all_model_flat_overlap.flatten(), color='purple', ax=axes[0], stat='probability', 
+                 kde=True, bins=np.linspace(-0.5,0.5,21), linewidth=0.1, alpha=0.2)
+    axes[0].set_xlabel('Overlap')
+    axes[0].axvline(sig_thresh, color='grey', linestyle=':')
+    axes[0].axvline(all_overlaps.mean(), color='black', linestyle='--')
+    axes[0].axvline(-sig_thresh, color='grey', linestyle=':')
+    
+    axes[0].set_title(label, fontsize=24)
+    
+    axes[0].spines[['right', 'top']].set_visible(False)
+    
+    print(f"{(all_model_pvals.flatten()<0.05).sum()} out of {np.prod(all_model_pvals.shape)} comparisons were significant")
+    
+    return all_model_axes
+
+def plot_recurrence(all_model_dpca_axes, all_model_rec_intra, axes, title):
+    """
+    Plots the overlap between dPCA axes and recurrent weights within models.
+
+    Args:
+        all_model_dpca_axes (list): List of dPCA axes arrays for each model.
+        all_model_rec_intra (list): List of recurrent weight matrices for each model.
+        axes (list): List of matplotlib axes to plot on.
+        title (str): Title for the plot.
+    """
+    all_model_rec_overlap = []
+    all_model_overlap_within = []
+    all_model_overlap_between = []
+    for (all_dpca_axes, rec_intra) in zip(all_model_dpca_axes, all_model_rec_intra):
+        num_components = all_dpca_axes.shape[1]
+        rec_current = rec_intra.detach().numpy()@all_dpca_axes
+        rec_current = rec_current/np.linalg.norm(rec_current, axis=0)
+        rec_overlap = all_dpca_axes.T@rec_current
+        all_model_rec_overlap.append(rec_overlap)
+        all_model_overlap_within.append(np.diag(rec_overlap))
+        all_model_overlap_between.append(rec_overlap[np.where(~np.eye(num_components,dtype=bool))])
+        
+    all_model_rec_overlap = np.stack(all_model_rec_overlap)
+    all_model_overlap_within = np.stack(all_model_overlap_within)
+    all_model_overlap_between = np.stack(all_model_overlap_between)
+        
+    cmap_scale = all_model_rec_overlap.mean(0).max()*0.9
+    
+    sns.heatmap(all_model_rec_overlap.mean(0), ax=axes[1], vmin=-cmap_scale, vmax=cmap_scale, cmap='RdBu_r', 
+                     square=True, annot_kws={'fontdict':{'fontsize':10}}, cbar_kws={"shrink": 0.8})
+    axes[1].set_xticks([])
+    axes[1].set_yticks([])
+    
+    cmap_scale = all_model_rec_overlap.max()*1
+    violin_xxx = ['Ftr']*(len(all_model_rec_intra)*6)\
+                +['Cnj']*(len(all_model_rec_intra)*12)\
+                +['Obj']*(len(all_model_rec_intra)*8)\
+                +['Btw']*np.prod(all_model_overlap_between.shape).astype(int)
+    sns.violinplot(ax=axes[0], 
+        x=violin_xxx, hue=violin_xxx,         
+        y=np.concatenate([all_model_overlap_within[:,:6].flatten(), 
+                          all_model_overlap_within[:,6:18].flatten(), 
+                          all_model_overlap_within[:,18:27].flatten(), 
+                          all_model_overlap_between.flatten()]),
+        palette=sns.color_palette('Purples_r', 4), cut=0, legend=False)
+    
+    temp_stats = mannwhitneyu(all_model_overlap_within.flatten(), all_model_overlap_between.flatten())
+    
+    
+    axes[0].axhline(0, linestyle='--', color='k')
+    axes[0].set_xlim([-0.5, 3.5])
+    axes[0].set_ylim([-cmap_scale, cmap_scale*(2.0)])
+    axes[0].set_ylabel("")
+    axes[0].set_title(title)
+    print(temp_stats)
+    
+    axes[0].plot([1, 1, 3, 3], [cmap_scale*1.2, cmap_scale*1.4, cmap_scale*1.4, cmap_scale*1.2], lw=1, c='k')
+    axes[0].plot([0, 2], [cmap_scale*1.2, cmap_scale*1.2], lw=1, c='k')
+    axes[0].text(2, cmap_scale*1.3, convert_pvalue_to_asterisks(temp_stats.pvalue), 
+                 ha='center', va='bottom', c='k', fontsize=16)
+    
+    sns.despine(ax=axes[0])
+
+def plot_ff_fb(all_model_dpca_pre, all_model_dpca_post, all_model_rec_inter, 
+               axes, title, pre_label, post_label):
+    """
+    Plots the explained variance of feedforward and feedback connections between model areas using dPCA axes.
+
+    Args:
+        all_model_dpca_pre (list): List of dPCA result objects for pre-synaptic area for each model.
+        all_model_dpca_post (list): List of dPCA result objects for post-synaptic area for each model.
+        all_model_rec_inter (list): List of inter-area recurrent weight matrices for each model.
+        axes (list): List of matplotlib axes to plot on.
+        title (str): Title for the plot.
+        pre_label (str): Label for pre-synaptic area.
+        post_label (str): Label for post-synaptic area.
+    """
+    all_model_explained_vars = []
+    all_model_vars_within = []
+    all_model_vars_between = []
+    
+    for (dpca_pre, dpca_post, rec_inter) in zip(all_model_dpca_pre, all_model_dpca_post, all_model_rec_inter):
+        
+        explained_vars = np.zeros((7,7))
+
+        for k_in_idx, k_in in enumerate(['s', 'p', 'c', 'pc', 'sc', 'sp', 'spc']):
+            currents = rec_inter.detach().numpy()@dpca_pre.P[k_in]
+#             currents -= currents.mean(0, keepdims=True)
+            for k_out_idx, k_out in enumerate(['s', 'p', 'c', 'pc', 'sc', 'sp', 'spc']):
+                explained_vars[k_out_idx][k_in_idx] = \
+                    np.sum((dpca_post.P[k_out].T@currents)**2)/np.sum(currents**2)
+#                 explained_vars[k_out_idx][k_in_idx] = np.sum((dpca_post.P[k_out].T@currents)**2)/dpca_post.P[k_out].shape[1]
+
+        all_model_explained_vars.append(explained_vars)
+        all_model_vars_within.append(np.diag(explained_vars))
+        all_model_vars_between.append(explained_vars[np.where(~np.eye(7, dtype=bool))])
+        
+    all_model_explained_vars = np.stack(all_model_explained_vars)
+    all_model_vars_within = np.stack(all_model_vars_within)
+    all_model_vars_between = np.stack(all_model_vars_between)
+    
+    cmap_scale = all_model_explained_vars.mean(0).max()*1
+    
+    cm = sns.heatmap(all_model_explained_vars.mean(0), ax=axes[1], vmin=0, vmax=None, cmap='Reds', 
+                     square=True, annot_kws={'fontdict':{'fontsize':10}}, cbar_kws={"shrink": 1})
+    axes[1].set_ylabel(post_label)
+    axes[1].set_xlabel(pre_label)
+    
+    cmap_scale = all_model_explained_vars.max()*1
+    violinplot_xxx = ['Ftr']*(len(all_model_rec_inter)*3)\
+                    +['Cnj']*(len(all_model_rec_inter)*3)\
+                    +['Obj']*(len(all_model_rec_inter))\
+                    +['Btw']*np.prod(all_model_vars_between.shape).astype(int)
+    sns.violinplot(ax=axes[0], 
+        x=violinplot_xxx, hue=violinplot_xxx,
+        y=np.concatenate([all_model_vars_within[:,:3].flatten(), 
+                          all_model_vars_within[:,3:6].flatten(),
+                          all_model_vars_within[:,6].flatten(),
+                          all_model_vars_between.flatten()]),
+        palette=sns.color_palette('Purples_r', 4), cut=0, legend=False)
+    
+    temp_stats = mannwhitneyu(all_model_vars_within.flatten(), all_model_vars_between.flatten())
+    
+    
+    axes[0].axhline(0, linestyle='--', color='k')
+    axes[0].set_xlim([-0.5, 3.5])
+    axes[0].set_ylim([-.1*cmap_scale, cmap_scale*1.3])
+    axes[0].set_ylabel("")
+    axes[0].set_title(title)
+    print(temp_stats)
+    
+    unit_len = cmap_scale/10
+
+    bar_bottom = cmap_scale+unit_len*0.5
+    bar_top = cmap_scale+unit_len*1.
+
+    axes[0].plot([1, 1, 3, 3], [bar_bottom, bar_top, bar_top, bar_bottom], lw=1, c='k')
+    axes[0].plot([0, 2], [bar_bottom, bar_bottom], lw=1, c='k')
+    axes[0].text(2, bar_bottom+unit_len/20, 
+                 convert_pvalue_to_asterisks(temp_stats.pvalue), 
+                 ha='center', va='bottom', c='k', fontsize=16)
+    sns.despine(ax=axes[0])
+
+
+def plot_hebb_overlap(all_model_dpca_axes_pre_enc, all_model_dpca_axes_post_enc, 
+                      all_model_dpca_axes_pre_rtv, all_model_dpca_axes_post_rtv, 
+                      all_model_kappa_rec, 
+                      axes, title):
+    """
+    Plots the overlap between Hebbian memory matrices and dPCA axes for encoding and retrieval phases.
+
+    Args:
+        all_model_dpca_axes_pre_enc (list): List of dPCA axes for pre-synaptic encoding phase for each model.
+        all_model_dpca_axes_post_enc (list): List of dPCA axes for post-synaptic encoding phase for each model.
+        all_model_dpca_axes_pre_rtv (list): List of dPCA axes for pre-synaptic retrieval phase for each model.
+        all_model_dpca_axes_post_rtv (list): List of dPCA axes for post-synaptic retrieval phase for each model.
+        all_model_kappa_rec (list): List of recurrent learning rate matrices for each model.
+        axes (matplotlib.axes.Axes): Axes to plot on.
+        title (str): Title for the plot.
+    """
+    all_model_overlaps = {'same_pre_post': [], 'same_pre': [], 'same_post': [], 'diff': []}
+            
+    for all_dpca_axes_pre_enc, all_dpca_axes_post_enc, \
+        all_dpca_axes_pre_rtv, all_dpca_axes_post_rtv, kappa_rec in \
+            tqdm.tqdm(zip(all_model_dpca_axes_pre_enc, all_model_dpca_axes_post_enc, \
+                all_model_dpca_axes_pre_rtv, all_model_dpca_axes_post_rtv, all_model_kappa_rec)):
+        
+        overlaps = {'same_pre_post': [], 'same_pre': [], 'same_post': [], 'diff': []}
+        num_axis = all_dpca_axes_pre_enc.shape[1]
+        
+        for i in range(num_axis):
+            for j in range(num_axis):
+                # calculate hebbian memory
+                mem_mat = kappa_rec.numpy()*(all_dpca_axes_post_enc[:,i:i+1]@all_dpca_axes_pre_enc[:,j:j+1].T)
+                
+                # calculate overlap between cued recall and ground truth
+                for k in range(num_axis):
+                    for l in range(num_axis):
+                        curr_overlap = all_dpca_axes_post_rtv[:,k:k+1].T@mem_mat@all_dpca_axes_pre_rtv[:,l:l+1]
+                        if i==k and j==l:
+                            overlaps['same_pre_post'].append(curr_overlap)
+                        elif j==l:
+                            overlaps['same_pre'].append(curr_overlap)
+                        elif i==k:
+                            overlaps['same_post'].append(curr_overlap)
+                        else:
+                            overlaps['diff'].append(curr_overlap)
+                            
+        
+        for k, v in overlaps.items():
+            all_model_overlaps[k].append(v)
+    
+    for k, v in overlaps.items():
+        all_model_overlaps[k] = np.stack(all_model_overlaps[k])
+    
+    cmap_scale_max = max([all_model_overlaps['same_pre_post'].max(),
+                          all_model_overlaps['same_pre'].max(),
+                          all_model_overlaps['same_post'].max(),
+                          all_model_overlaps['diff'].max()])
+    cmap_scale_min = min([all_model_overlaps['same_pre_post'].min(),
+                          all_model_overlaps['same_pre'].min(),
+                          all_model_overlaps['same_post'].min(),
+                          all_model_overlaps['diff'].min()])
+        
+        
+    sns.violinplot(ax=axes,
+                  x=['Same']*np.prod(all_model_overlaps['same_pre_post'].shape)+\
+                   ['Diff O']*np.prod(all_model_overlaps['same_pre'].shape)+
+                   ['Diff I']*np.prod(all_model_overlaps['same_post'].shape)+\
+                   ['Diff IO']*np.prod(all_model_overlaps['diff'].shape),
+                  y=np.concatenate([all_model_overlaps['same_pre_post'].flatten(),
+                                   all_model_overlaps['same_pre'].flatten(),
+                                   all_model_overlaps['same_post'].flatten(),
+                                   all_model_overlaps['diff'].flatten()]),
+                   hue=['Same']*np.prod(all_model_overlaps['same_pre_post'].shape)+\
+                   ['Diff O']*np.prod(all_model_overlaps['same_pre'].shape)+
+                   ['Diff I']*np.prod(all_model_overlaps['same_post'].shape)+\
+                   ['Diff IO']*np.prod(all_model_overlaps['diff'].shape),
+                  palette=sns.color_palette('pastel', 4), cut=0, legend=False)
+    
+    axes.set_xticks(np.arange(4))
+    axes.set_xticklabels(axes.get_xticklabels(), rotation=30)
+    axes.axhline(0, linestyle = '--', color='k', linewidth=0.5)
+    axes.set_title(title)
+    axes.set_ylim([cmap_scale_min*1.2, cmap_scale_max*1.7])
+    sns.despine(ax=axes)
+    
+    for key_idx, key in enumerate(['same_pre', 'same_post', 'diff']):
+        temp_stats = mannwhitneyu(all_model_overlaps['same_pre_post'].flatten(), 
+                                        all_model_overlaps[key].flatten())
+        
+        unit_len = cmap_scale_max/8
+        
+        bar_bottom = cmap_scale_max+unit_len*(key_idx+1)
+        bar_top = cmap_scale_max+unit_len*(key_idx+1.2)
+        
+        axes.plot([0, 0, key_idx+1, key_idx+1], 
+                     [bar_bottom, bar_top, bar_top, bar_bottom], lw=1, c='k')
+        axes.text(0.5+key_idx, bar_top*1.02, 
+                     convert_pvalue_to_asterisks(temp_stats.pvalue), 
+                     ha='center', va='center', c='k', fontsize=12)

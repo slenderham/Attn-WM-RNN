@@ -9,7 +9,7 @@ import matplotlib as mpl
 import statsmodels.formula.api as smf
 import itertools
 import statsmodels.api as sm
-from analysis import convert_pvalue_to_asterisks
+from plot_utils import convert_pvalue_to_asterisks
 from utils import create_colormap
 import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages

@@ -172,7 +172,7 @@ class PlasticSynapse(nn.Module):
         self.input_size = input_size
         self.output_size = output_size
         self.weight_bound = weight_bound
-        self.lb = 0
+        self.lb = torch.zeros_like(weight_bound)
         self.ub = weight_bound
         
         self.dt_w = dt_w
@@ -269,7 +269,7 @@ class HierarchicalPlasticRNN(nn.Module):
                 inter_regional_sparsity, inter_regional_gain,
                 plastic, activation, dt_x, dt_w, tau_x, tau_w, 
                 e_prop, sigma_rec, sigma_in, sigma_w, 
-                balance_ei=True, init_spectral=None, train_init_state=False, weight_bound=1.0):
+                balance_ei=True, init_spectral=None, train_init_state=False):
         super().__init__()
 
         self.input_config = input_config
@@ -281,7 +281,10 @@ class HierarchicalPlasticRNN(nn.Module):
         self.e_size = int(e_prop * hidden_size)
         self.i_size = hidden_size-self.e_size
         self.plastic = plastic
-        self.weight_bound = weight_bound
+        self.weight_bound = torch.concat(
+            [torch.ones(self.e_size*self.num_areas), 
+             torch.ones(self.i_size*self.num_areas)*self.e_size/self.i_size]
+        )[None, :]*5/(self.hidden_size**0.5)
 
         # specify connectivity
         rec_mask_weight = torch.eye(self.num_areas) + torch.diag(torch.ones(self.num_areas-1), 1) + torch.diag(torch.ones(self.num_areas-1), -1)
@@ -311,7 +314,7 @@ class HierarchicalPlasticRNN(nn.Module):
                                 balance_ei=balance_ei, conn_mask=self.conn_masks)
         
         self.plasticity = PlasticSynapse(input_size=self.hidden_size*self.num_areas, output_size=self.hidden_size*self.num_areas, 
-                                         dt_w=dt_w, tau_w=tau_w, weight_bound=weight_bound, sigma_w=sigma_w, plas_mask=self.plas_mask)
+                                         dt_w=dt_w, tau_w=tau_w, weight_bound=self.weight_bound, sigma_w=sigma_w, plas_mask=self.plas_mask)
         
         # sparsify inter-regional connectivity, but not enforeced
         sparse_mask_ff = (torch.rand((self.conn_masks['rec_inter_ff'].abs().sum().long(),))<inter_regional_sparsity[0])

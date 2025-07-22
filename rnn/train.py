@@ -51,7 +51,7 @@ def train(model, iters):
 
             ''' second phase, give stimuli and no feedback '''
             all_x = {
-                'stim': pop_s[i].sum(1),
+                'stim': torch.clamp(pop_s[i].sum(1), min=0, max=1),
                 'action': torch.zeros(args.batch_size, output_size, device=device),
             }
             output, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_stim, 
@@ -82,7 +82,7 @@ def train(model, iters):
             if args.task_type=='on_policy_double':
                 '''third phase, give stimuli and choice, and update weights'''
                 all_x = {
-                    'stim': pop_s[i].sum(1),
+                    'stim': torch.clamp(pop_s[i].sum(1), min=0, max=1),
                     'action': torch.eye(output_size, device=device)[None][torch.arange(args.batch_size), action],
                 }
                 DAs = (2*rwd.float()-1)
@@ -112,6 +112,8 @@ def train(model, iters):
         optimizer.step()
         optimizer.zero_grad()
 
+        with torch.no_grad():
+            model.rnn.h2h.weight.data.clamp_(-model.plasticity.weight_bound, model.plasticity.weight_bound)
 
         if (batch_idx+1) % log_interval == 0:
             if torch.isnan(loss):
@@ -156,7 +158,7 @@ def eval(model, epoch):
                                                 hidden=hidden, w_hidden=w_hidden, DAs=None)
                     # second phase, give stimuli and no feedback
                     all_x = {
-                        'stim': pop_s[i].sum(1),
+                        'stim': torch.clamp(pop_s[i].sum(1), min=0, max=1),
                         'action': torch.zeros(args.batch_size, output_size, device=device),
                     }
                     output, hidden, w_hidden, _ = model(all_x, steps=task_mdprl.T_stim, neumann_order = 0,
@@ -178,7 +180,7 @@ def eval(model, epoch):
                     if args.task_type=='on_policy_double':
                         '''third phase, give stimuli and choice, and update weights'''
                         all_x = {
-                            'stim': pop_s[i].sum(1),
+                            'stim': torch.clamp(pop_s[i].sum(1), min=0, max=1),
                             'action': torch.eye(output_size, device=device)[None][torch.arange(args.batch_size), action],
                         }
                         DAs = (2*rwd.float()-1)
@@ -297,7 +299,7 @@ if __name__ == "__main__":
                    'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (1, 1)}
     
     model = HierarchicalPlasticRNN(**model_specs).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-6)
     print(model)
     for n, p in model.named_parameters():
         print(n, p.numel())
