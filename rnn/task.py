@@ -363,12 +363,6 @@ class MDPRL():
             encmat = self.pop_stim
             assert(encmat.shape==(27,63))
             return encmat
-
-    # def reversal(self, probs):
-    #     new_order = np.random.permutation(3)
-    #     dim_to_flip = np.random.randint(0, 3)
-    #     new_probs = np.take(probs, new_order, dim_to_flip)
-    #     return new_probs
     
     def stim_to_sensory(self, stim_dim_order, stim_val_order):
         # given a permutation of feature dimension permutation and feature value permutation,
@@ -399,29 +393,3 @@ class MDPRL():
         loss += F.cross_entropy(output, target)
         loss /= 3
         return loss
-
-
-    # def calculate_loss(self, output, target, gen_level):
-    #     if gen_level[0]=='f':
-    #         loss = 0
-    #         for d in gen_level[1]:
-    #             loss += F.cross_entropy(output@self.pop_fco[0][d], self.index_fco[0][d][target])
-    #         loss /= len(gen_level[1])
-        
-    #     elif gen_level[0]=='c':
-    #         d = gen_level[1][0]
-    #         loss = F.cross_entropy(output@self.pop_fco[1][d], self.index_fco[1][d][target])
-
-    #     elif gen_level[0]=='fc':
-    #         d = gen_level[1][0]
-    #         loss = F.cross_entropy(output@self.pop_fco[0][d], self.index_fco[0][d][target])/2+\
-    #                F.cross_entropy(output@self.pop_fco[1][d], self.index_fco[1][d][target])/2
-        
-    #     elif gen_level[0]=='o':
-    #         loss = F.cross_entropy(output, target)
-        
-    #     else:
-    #         print(gen_level)
-    #         raise ValueError
-        
-    #     return loss

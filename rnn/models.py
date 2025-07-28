@@ -172,7 +172,7 @@ class PlasticSynapse(nn.Module):
         self.input_size = input_size
         self.output_size = output_size
         self.weight_bound = weight_bound
-        self.lb = torch.zeros_like(weight_bound)
+        self.lb = 0
         self.ub = weight_bound
         
         self.dt_w = dt_w
@@ -199,7 +199,7 @@ class PlasticSynapse(nn.Module):
             post: post-synaptic firing rates
             kappa: learning rate
         '''
-        new_w = baseline*(self.alpha_w) + w*(1-self.alpha_w) \
+        new_w = w + self.alpha_w*(baseline-w) \
             + R*self.effective_lr()*(torch.bmm(post.unsqueeze(2), pre.unsqueeze(1))+self._sigma_w*torch.randn_like(w))
         new_w = torch.clamp(new_w, self.lb, self.ub)
         return new_w
@@ -222,8 +222,13 @@ class LeakyRNNCell(nn.Module):
         for (input_name, (input_size, input_target)) in self.input_config.items():
             curr_in_mask = torch.zeros(self.num_areas, 1)
             curr_in_mask[input_target, :] = 1
-            self.x2h[input_name] = EILinear(input_size, hidden_size*num_areas, remove_diag=False, pos_function='abs',
+            if input_name != 'reward':
+                self.x2h[input_name] = EILinear(input_size, hidden_size*num_areas, remove_diag=False, pos_function='abs',
                             e_prop=1, zero_cols_prop=0, bias=False, init_gain=math.sqrt(1/hidden_size/len(input_target)),
+                            conn_mask=_get_connectivity_mask_in(curr_in_mask, input_size, self.e_size, self.i_size))
+            else:
+                self.x2h[input_name] = EILinear(input_size, hidden_size*num_areas, remove_diag=False, pos_function='abs',
+                            e_prop=0.5, zero_cols_prop=0, bias=False, init_gain=math.sqrt(1/hidden_size/len(input_target)),
                             conn_mask=_get_connectivity_mask_in(curr_in_mask, input_size, self.e_size, self.i_size))
         self.x2h = nn.ModuleDict(self.x2h)
 
@@ -281,10 +286,7 @@ class HierarchicalPlasticRNN(nn.Module):
         self.e_size = int(e_prop * hidden_size)
         self.i_size = hidden_size-self.e_size
         self.plastic = plastic
-        self.weight_bound = torch.concat(
-            [torch.ones(self.e_size*self.num_areas), 
-             torch.ones(self.i_size*self.num_areas)*self.e_size/self.i_size]
-        )[None, :]*5/(self.hidden_size**0.5)
+        self.weight_bound = 1.0
 
         # specify connectivity
         rec_mask_weight = torch.eye(self.num_areas) + torch.diag(torch.ones(self.num_areas-1), 1) + torch.diag(torch.ones(self.num_areas-1), -1)

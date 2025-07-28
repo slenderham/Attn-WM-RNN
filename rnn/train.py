@@ -51,7 +51,7 @@ def train(model, iters):
 
             ''' second phase, give stimuli and no feedback '''
             all_x = {
-                'stim': torch.clamp(pop_s[i].sum(1), min=0, max=1),
+                'stim': pop_s[i].sum(1),
                 'action': torch.zeros(args.batch_size, output_size, device=device),
             }
             output, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_stim, 
@@ -82,8 +82,8 @@ def train(model, iters):
             if args.task_type=='on_policy_double':
                 '''third phase, give stimuli and choice, and update weights'''
                 all_x = {
-                    'stim': torch.clamp(pop_s[i].sum(1), min=0, max=1),
-                    'action': torch.eye(output_size, device=device)[None][torch.arange(args.batch_size), action],
+                    'stim': pop_s[i].sum(1),
+                    'action': F.one_hot(action, num_classes=output_size).float().to(device),
                 }
                 DAs = (2*rwd.float()-1)
                 _, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_ch, 
@@ -136,7 +136,7 @@ def eval(model, epoch):
     with torch.no_grad():
         for curr_gen_level in task_mdprl.gen_levels:
             losses = []
-            for batch_idx in range(args.eval_samples):
+            for _ in range(args.eval_samples):
                 pop_s, rwd_s, target_s, index_s, prob_s, _ = task_mdprl.generateinput(
                         batch_size=args.batch_size, N_s=args.test_N_s, num_choices=num_options, gen_level=curr_gen_level)
                 index_s = index_s.to(device)
@@ -158,7 +158,7 @@ def eval(model, epoch):
                                                 hidden=hidden, w_hidden=w_hidden, DAs=None)
                     # second phase, give stimuli and no feedback
                     all_x = {
-                        'stim': torch.clamp(pop_s[i].sum(1), min=0, max=1),
+                        'stim': pop_s[i].sum(1),
                         'action': torch.zeros(args.batch_size, output_size, device=device),
                     }
                     output, hidden, w_hidden, _ = model(all_x, steps=task_mdprl.T_stim, neumann_order = 0,
@@ -180,8 +180,8 @@ def eval(model, epoch):
                     if args.task_type=='on_policy_double':
                         '''third phase, give stimuli and choice, and update weights'''
                         all_x = {
-                            'stim': torch.clamp(pop_s[i].sum(1), min=0, max=1),
-                            'action': torch.eye(output_size, device=device)[None][torch.arange(args.batch_size), action],
+                            'stim': pop_s[i].sum(1),
+                            'action': F.one_hot(action, num_classes=output_size).float().to(device),
                         }
                         DAs = (2*rwd.float()-1)
                         _, hidden, w_hidden, _ = model(all_x, steps=task_mdprl.T_ch, neumann_order = 0,
@@ -220,7 +220,7 @@ if __name__ == "__main__":
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
     parser.add_argument('--sigma_in', type=float, default=0.01, help='Std for input noise')
     parser.add_argument('--sigma_rec', type=float, default=0.1, help='Std for recurrent noise')
-    parser.add_argument('--sigma_w', type=float, default=0.001, help='Std for weight noise')
+    parser.add_argument('--sigma_w', type=float, default=0.01, help='Std for weight noise')
     parser.add_argument('--init_spectral', type=float, default=1.0, help='Initial spectral radius for the recurrent weights')
     parser.add_argument('--balance_ei', action='store_true', help='Make mean of E and I recurrent weights equal')
     parser.add_argument('--tau_x', type=float, default=0.1, help='Time constant for recurrent neurons')

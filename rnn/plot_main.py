@@ -3,6 +3,7 @@ from collections import defaultdict
 import numpy as np
 from scipy.signal import convolve2d
 import torch
+from torch.nn import functional as F
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
@@ -74,7 +75,7 @@ def run_model(args, model_list, task_mdprl, n_samples=None):
             
             # first phase, give stimuli and no feedback
             all_x = {
-                'stim': torch.zeros_like(pop_s[i].mean(1)),
+                'stim': torch.zeros_like(pop_s[i].sum(1)),
                 'action': torch.zeros(1, output_size),
             }
             _, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_fixation, neumann_order = args['neumann_order'],
@@ -84,7 +85,7 @@ def run_model(args, model_list, task_mdprl, n_samples=None):
 
             # second phase, give stimuli and no feedback
             all_x = {
-                'stim': torch.clamp(pop_s[i].sum(1), min=0, max=1),
+                'stim': pop_s[i].sum(1),
                 'action': torch.zeros(1, output_size),
             }
             output, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_stim, neumann_order = args['neumann_order'],
@@ -123,8 +124,8 @@ def run_model(args, model_list, task_mdprl, n_samples=None):
             
             if args['task_type']=='on_policy_double':
                 all_x = {
-                    'stim': torch.clamp(pop_s[i].sum(1), min=0, max=1),
-                    'action': torch.eye(output_size)[None][0, action],
+                    'stim': pop_s[i].sum(1),
+                    'action': F.one_hot(action, num_classes=output_size).float(),
                 }
                 
                 DAs = (2*rwd.float()-1)
