@@ -172,9 +172,9 @@ class PlasticSynapse(nn.Module):
         self.input_size = input_size
         self.output_size = output_size
         self.weight_bound = weight_bound
-        self.lb = 0
-        self.ub = weight_bound
-        
+        self.lb = torch.zeros_like(weight_bound)
+        self.ub = torch.ones_like(weight_bound)*weight_bound
+    
         self.dt_w = dt_w
         self.tau_w = tau_w
         
@@ -286,7 +286,7 @@ class HierarchicalPlasticRNN(nn.Module):
         self.e_size = int(e_prop * hidden_size)
         self.i_size = hidden_size-self.e_size
         self.plastic = plastic
-        self.weight_bound = 1.0
+        self.weight_bound = torch.FloatTensor([1.0])
 
         # specify connectivity
         rec_mask_weight = torch.eye(self.num_areas) + torch.diag(torch.ones(self.num_areas-1), 1) + torch.diag(torch.ones(self.num_areas-1), -1)

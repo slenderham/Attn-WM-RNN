@@ -90,6 +90,10 @@ def train(model, iters):
                                                 neumann_order=args.neumann_order,
                                                 hidden=hidden, w_hidden=w_hidden, 
                                                 DAs=DAs)
+                chosen_obj = output['chosen_obj'] # (batch size, output_size)
+                loss += F.cross_entropy(chosen_obj.flatten(end_dim=-2), action.flatten())
+                total_loss += F.cross_entropy(chosen_obj.detach().flatten(end_dim=-2), action.flatten()).detach().item()/len(pop_s)
+
                 loss += args.l2r*hs.pow(2).mean()/3
                 loss += args.l2w*w_hidden.pow(2).sum(dim=(-2, -1)).mean()
                 if args.num_areas>1:
@@ -98,7 +102,6 @@ def train(model, iters):
             elif args.task_type == 'value':
                 raise NotImplementedError
 
-        
         # add weight decay for static weights
         loss /= len(pop_s)
 
@@ -287,6 +290,7 @@ if __name__ == "__main__":
 
     output_config = {
         'action': (output_size, [1]),
+        'chosen_obj': (output_size, [0]),
     }
 
     num_options = 1 if args.task_type=='value' else 2

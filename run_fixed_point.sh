@@ -15,7 +15,7 @@ python rnn/train.py --cuda\
         --eval_samples 20\
         --num_areas 2\
         --decision_space good\
-        --l2r 1e-1\
+        --l2r 1e-2\
         --l2w 1e-5\
         --l1w 1e-5\
         --init_spectral 1.0\
