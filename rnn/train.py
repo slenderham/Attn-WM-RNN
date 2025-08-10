@@ -107,9 +107,11 @@ def train(model, iters):
 
         for input_w in model.rnn.x2h.values():
             loss += args.l2w*(input_w.effective_weight().pow(2).sum())
+            loss += args.l1w*(input_w.effective_weight().abs().sum())
         for output_w in model.h2o.values():
             loss += args.l2w*(output_w.effective_weight().pow(2).sum())
-
+            loss += args.l1w*(output_w.effective_weight().abs().sum())
+        
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
         optimizer.step()

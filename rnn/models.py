@@ -286,7 +286,7 @@ class HierarchicalPlasticRNN(nn.Module):
         self.e_size = int(e_prop * hidden_size)
         self.i_size = hidden_size-self.e_size
         self.plastic = plastic
-        self.weight_bound = torch.FloatTensor([1.0])
+        self.weight_bound = torch.FloatTensor([1.0]*self.e_size*self.num_areas+[4.0]*self.i_size*self.num_areas)
 
         # specify connectivity
         rec_mask_weight = torch.eye(self.num_areas) + torch.diag(torch.ones(self.num_areas-1), 1) + torch.diag(torch.ones(self.num_areas-1), -1)
@@ -357,8 +357,7 @@ class HierarchicalPlasticRNN(nn.Module):
         if hidden is None and w_hidden is None:
             hidden, w_hidden = self.init_hidden(x)
         
-        if save_all_states: 
-            hs = []
+        hs = []
 
         # fixed point iterations, not keeping gradient
         for _ in range(steps-neumann_order):
@@ -372,6 +371,8 @@ class HierarchicalPlasticRNN(nn.Module):
             hidden, output = self.rnn(x, hidden, w_hidden)
             if save_all_states:
                 hs.append(hidden)
+            else:
+                hs.append(output)
 
         # if dopamine is not None, update weight
         if DAs is not None:
@@ -380,7 +381,7 @@ class HierarchicalPlasticRNN(nn.Module):
         if save_all_states:
             hs = torch.stack(hs, dim=0)
         else:
-            hs = output
+            hs = torch.stack(hs, dim=0)
 
         os = {}
         for output_name in self.h2o.keys():

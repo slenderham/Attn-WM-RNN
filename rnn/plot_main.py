@@ -8,10 +8,13 @@ from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import seaborn as sns
 import tqdm
+from sklearn.metrics import silhouette_samples, adjusted_rand_score
+from sklearn.cluster import SpectralClustering
+from scipy.optimize import linear_sum_assignment
 from plot_utils import *
 from utils import load_checkpoint
 from statsmodels.stats.multitest import fdrcorrection
-from scipy.stats import norm, mannwhitneyu
+from scipy.stats import norm, mannwhitneyu, spearmanr, pearsonr
 
 
 def run_model(args, model_list, task_mdprl, n_samples=None):
@@ -172,6 +175,7 @@ def run_model(args, model_list, task_mdprl, n_samples=None):
     
     return all_saved_states
 
+
 def get_input_encodings(wxs, stim_enc_mat):
     """
     Computes input encodings for each stimulus using the provided weight matrix and stimulus encoding matrix.
@@ -210,7 +214,8 @@ def get_input_encodings(wxs, stim_enc_mat):
 
     return wxs@stim_enc_mat.T, global_avg, ft_avg, conj_avg, obj_avg
 
-def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_size, args):
+
+def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, h2aux, kappa_rec, e_size, mdl_idx, args):
     """
     Plots the connectivity matrices and learning rates of the model.
 
@@ -221,8 +226,10 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
         hb (np.ndarray): Hidden biases.
         h2ow (np.ndarray): Hidden-to-output weights.
         aux2h (np.ndarray): Auxiliary-to-hidden weights.
+        h2aux (np.ndarray): Hidden-to-auxiliary weights.
         kappa_rec (np.ndarray): Recurrent learning rates.
         e_size (int): Number of excitatory units.
+        mdl_idx (int): Index of the model.
         args (dict): Additional arguments for plotting and saving.
     """
     fig = plt.figure('connectivity', (10, 10))
@@ -238,22 +245,15 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     BOTTOM = 0.1
     
     vbound = np.percentile(x2hw.abs(), 97)
-    ax01 = fig.add_axes((LEFT, BOTTOM+output_size+MARGIN, input_size, hidden_size))
+    ax01 = fig.add_axes((LEFT, BOTTOM+2*output_size+MARGIN*2, input_size, hidden_size))
     ims.append(ax01.imshow(x2hw[sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax01.set_xticks([])
     ax01.set_yticks([])
     ax01.axis('off')
     ax01.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    # ax02 = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+output_size+MARGIN*3, input_size, hidden_size))
-    # ims.append(ax02.imshow(x2hw[1][sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
-    # ax02.set_xticks([])
-    # ax02.set_yticks([])
-    # ax02.axis('off')
-    # ax02.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
-    
     vbound = np.percentile(aux2h.abs(), 97)
-    axaux = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+output_size+MARGIN, aux_size, hidden_size))
+    axaux = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+2*output_size+MARGIN*2, aux_size, hidden_size))
     ims.append(axaux.imshow(aux2h[sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     axaux.set_xticks([])
     axaux.set_yticks([])
@@ -261,7 +261,7 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     axaux.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
     vbound = np.percentile(h2hw.abs(), 97)
-    ax1w = fig.add_axes((LEFT+input_size+aux_size+MARGIN*2, BOTTOM+output_size+MARGIN, hidden_size, hidden_size))
+    ax1w = fig.add_axes((LEFT+input_size+aux_size+MARGIN*2, BOTTOM+2*output_size+MARGIN*2, hidden_size, hidden_size))
     ims.append(ax1w.imshow(h2hw[sort_inds][:,sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax1w.set_xticks([])
     ax1w.set_yticks([])
@@ -270,13 +270,21 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     ax1w.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
     vbound = np.percentile(hb.abs(), 97)
-    ax1b = fig.add_axes((LEFT+input_size+aux_size+hidden_size+MARGIN*3, BOTTOM+output_size+MARGIN, PLOT_W, hidden_size))
+    ax1b = fig.add_axes((LEFT+input_size+aux_size+hidden_size+MARGIN*3, BOTTOM+2*output_size+MARGIN*2, PLOT_W, hidden_size))
     ims.append(ax1b.imshow(hb[sort_inds].unsqueeze(1), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax1b.set_xticks([])
     ax1b.set_yticks([])
     ax1b.axis('off')
     ax1b.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
+    vbound = np.percentile(h2aux.abs(), 97)
+    axoutputaux = fig.add_axes((LEFT+input_size+aux_size+MARGIN*2, BOTTOM+output_size+MARGIN, hidden_size, output_size))
+    ims.append(axoutputaux.imshow(h2aux[:,sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    axoutputaux.set_xticks([])
+    axoutputaux.set_yticks([])
+    axoutputaux.axis('off')
+    axoutputaux.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
+
     vbound = np.percentile(h2ow.abs(), 97)
     axoutputw = fig.add_axes((LEFT+input_size+aux_size+MARGIN*2, BOTTOM, hidden_size, output_size))
     ims.append(axoutputw.imshow(h2ow[:,sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
@@ -285,17 +293,11 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     axoutputw.axis('off')
     axoutputw.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     
-    
-    # fig.subplots_adjust(right=0.7)
-    # cbar_ax = fig.add_axes([0.85, 0.15, 0.02, 0.6])
-    # fig.colorbar(ims[-1], cax=cbar_ax)
-    plt.suptitle('Model Connectivity', y=0.85)
-    # plt.tight_layout()
+    plt.suptitle(f'Model Connectivity {mdl_idx}', y=0.95)
     plt.show()
-    # plt.savefig(f'plots/{args["exp_dir"]}/connectivity.jpg')
-    # with PdfPages(f'plots/{args["exp_dir"]}/connectivity.pdf') as pdf:
-    #     pdf.savefig(fig)
-    #     print(f'Figure saved at plots/{args["exp_dir"]}/connectivity.pdf')
+    with PdfPages(f'plots/{args["plot_save_dir"]}/connectivity{mdl_idx}.pdf') as pdf:
+        pdf.savefig(fig)
+        print(f'Figure saved at plots/{args["plot_save_dir"]}/connectivity{mdl_idx}.pdf')
 
 
     fig = plt.figure('learning_rates', (10, 10))
@@ -311,16 +313,14 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, kappa_rec, e_si
     ax1w.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
     ax1w.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
-    # fig.subplots_adjust(right=0.85)
-    # cbar_ax = fig.add_axes([0.85, 0.1, 0.02, 0.6])
-    # fig.colorbar(ims[-1], cax=cbar_ax)
-    plt.suptitle('Model Learning Rates', y=0.85)
-    # plt.tight_layout()
+
+    plt.suptitle(f'Model Learning Rates {mdl_idx}', y=0.95)
     plt.show()
-    # with PdfPages(f'plots/{args["exp_dir"]}/learning_rates.pdf') as pdf:
-    #     pdf.savefig(fig)
-    #     print(f'Figure saved at plots/{args["exp_dir"]}/learning_rates.pdf')
+    with PdfPages(f'plots/{args["plot_save_dir"]}/learning_rates_{mdl_idx}.pdf') as pdf:
+        pdf.savefig(fig)
+        print(f'Figure saved at plots/{args["plot_save_dir"]}/learning_rates_{mdl_idx}.pdf')
     
+
 def plot_weight_summary(args, ws):
     """
     Plots summary statistics of weight matrices over trials, including update norms, weight norms, and variability.
@@ -405,6 +405,7 @@ def plot_weight_summary(args, ws):
     fig.show()
     print('Finished calculating variability')
     
+
 def plot_learning_curve(args, all_rewards, all_choose_betters, plot_save_dir):
     """
     Plots the learning curve for model performance, showing reward and percent better over trials.
@@ -559,6 +560,7 @@ def plot_weight_exp_vars(n_components_for_dpca, all_model_dpca, axes, ylabel):
     axes.set_xticklabels([])  # No x-axis labels
     axes.set_title(ylabel)
 
+
 def test_dpca_overlap(all_dpca_results, n_components_for_dpca, all_low_hs, overlap_scale, label, axes):
     """
     Tests and visualizes the overlap between dPCA axes and low-dimensional hidden states across models.
@@ -664,6 +666,149 @@ def test_dpca_overlap(all_dpca_results, n_components_for_dpca, all_low_hs, overl
     
     return all_model_axes
 
+
+def plot_selectivity_clusters(all_dpca_results, keys, ideal_centroids, label, axes, E_SIZE):
+    all_mdl_exp_vars = []
+
+    # Loop through each model's dPCA results and extract the unitwise explained variance ratios
+    for dpca_results in all_dpca_results:
+        curr_mdl_exp_vars = np.stack([
+            np.sum(dpca_results.unitwise_explained_variance_ratio_[k], 0) for k in keys])
+        all_mdl_exp_vars.append(curr_mdl_exp_vars)
+
+    # Stack the unitwise explained variance ratios for all models
+    all_mdl_exp_vars = np.stack([exp_vars.T for exp_vars in all_mdl_exp_vars])
+    
+    # Extract the excitatory unitwise explained variance ratios and cluster them
+    concat_exp_vars_exc = all_mdl_exp_vars[:,:E_SIZE].reshape(-1,len(keys))
+    
+    for num_clus_test in range(2, 10):
+        kmeans_mdl_exc = SpectralClustering(n_clusters=num_clus_test, assign_labels="kmeans", n_init=20,
+                            affinity='cosine', kernel_params={'gamma': 1/len(keys)}).fit(concat_exp_vars_exc)
+        print(num_clus_test, np.mean(silhouette_samples(concat_exp_vars_exc, kmeans_mdl_exc.labels_)))
+    
+    num_clus_exc = len(ideal_centroids[0])
+    kmeans_mdl_exc = SpectralClustering(n_clusters=num_clus_exc, assign_labels="kmeans", n_init=20,
+                            affinity='rbf', kernel_params={'gamma': 1/len(keys)}).fit(concat_exp_vars_exc)
+    
+
+    # Compute the centroids of the excitatory clusters and match them to the ideal centroids
+    exp_vars_centroids_exc = []
+    for clus in range(num_clus_exc):
+        exp_vars_centroids_exc.append(concat_exp_vars_exc[kmeans_mdl_exc.labels_==clus].mean(0))
+    exp_vars_centroids_exc = np.stack(exp_vars_centroids_exc)
+
+    # Match the excitatory centroids to the ideal centroids, for each ideal centroid find the centroid that is most correlated
+    # ideal_to_clus: index of ideal centroid -> index of excitatory centroid
+    _, ideal_to_clus = linear_sum_assignment(
+        -np.corrcoef(exp_vars_centroids_exc, ideal_centroids[0])[:num_clus_exc,num_clus_exc:].T)
+    exp_vars_centroids_exc = exp_vars_centroids_exc[ideal_to_clus]
+
+    # change the cluster labels to match the ideal centroids
+    clus_to_ideal = np.argsort(ideal_to_clus) # index of excitatory centroid -> index of ideal centroid
+    exc_clusters = clus_to_ideal[kmeans_mdl_exc.labels_].reshape((len(all_dpca_results), E_SIZE))
+    
+    # Extract the inhibitory unitwise explained variance ratios and cluster them
+    concat_exp_vars_inh = all_mdl_exp_vars[:,E_SIZE:].reshape(-1,len(keys))
+    if not np.any(np.isnan(concat_exp_vars_inh)):
+        
+        for num_clus_test in range(2, 10):
+            kmeans_mdl_inh = SpectralClustering(n_clusters=num_clus_test, assign_labels="kmeans", n_init=20,
+                                affinity='cosine', kernel_params={'gamma': 1/len(keys)}).fit(concat_exp_vars_inh)
+            print(num_clus_test, np.mean(silhouette_samples(concat_exp_vars_inh, kmeans_mdl_inh.labels_)))
+
+        num_clus_inh = len(ideal_centroids[1])
+        kmeans_mdl_inh = SpectralClustering(n_clusters=num_clus_inh, assign_labels="kmeans", n_init=20,
+                                    affinity='rbf', kernel_params={'gamma': 1/len(keys)}).fit(concat_exp_vars_inh)
+        inh_clusters = kmeans_mdl_inh.labels_
+        exp_vars_centroids_inh = []
+        for clus in range(num_clus_inh):
+            exp_vars_centroids_inh.append(concat_exp_vars_inh[kmeans_mdl_inh.labels_==clus].mean(0))
+        exp_vars_centroids_inh = np.stack(exp_vars_centroids_inh)   
+        
+        # match the inhibitory centroids to the ideal centroids
+        _, ideal_to_clus = linear_sum_assignment(
+            -np.corrcoef(exp_vars_centroids_inh, ideal_centroids[1])[:num_clus_inh,num_clus_inh:].T)
+        exp_vars_centroids_inh = exp_vars_centroids_inh[ideal_to_clus]
+        
+        # change the cluster labels to match the ideal centroids
+        clus_to_ideal = np.argsort(ideal_to_clus) # index of inhibitory centroid -> index of ideal centroid
+        inh_clusters = clus_to_ideal[inh_clusters].reshape((len(all_dpca_results), I_SIZE))
+        
+        # concatenate the excitatory and inhibitory centroids
+        exp_vars_centroids = np.concatenate([exp_vars_centroids_exc, exp_vars_centroids_inh])
+    else:
+        # if there are no inhibitory units, set the inhibitory cluster centroids to nan
+        num_clus_inh = len(ideal_centroids[1])
+        exp_vars_centroids = np.concatenate([exp_vars_centroids_exc, np.nan*np.empty((num_clus_inh, len(keys)))])
+        inh_clusters = None
+        
+    cmap_scale = min(np.nanmax(np.abs(exp_vars_centroids))*0.9,0.4)
+    
+    sns.heatmap(exp_vars_centroids, \
+                   cmap='Purples', vmin=0, vmax=cmap_scale, ax=axes[0], 
+                    annot_kws={'fontdict':{'fontsize':12}}, cbar_kws={"shrink": 0.8})
+    axes[0].set_xticks(np.arange(7)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'])
+    axes[0].set_yticks(np.arange(num_clus_exc+num_clus_inh)+0.5, 
+                       [f'E{i+1}' for i in range(num_clus_exc)]+[f'I{i+1}' for i in range(num_clus_inh)], 
+                       rotation=0)
+    axes[0].axhline(num_clus_exc, c='k', lw=2)
+    
+    
+    all_model_exp_var_corr = np.stack([spearmanr(exp_vars, nan_policy='omit').statistic-np.eye(len(keys))
+                                              for exp_vars in all_mdl_exp_vars])
+    
+    cmap_scale = np.nanmax(np.abs(all_model_exp_var_corr.mean(0)))*1.1
+    
+    sns.heatmap(all_model_exp_var_corr.mean(0).T, \
+                   cmap='RdBu_r', vmin=-cmap_scale, vmax=cmap_scale, ax=axes[1], 
+                    annot_kws={'fontdict':{'fontsize':12}}, cbar_kws={"shrink": 0.8})
+    
+    axes[1].set_xticks(np.arange(7)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'])
+    axes[1].set_yticks(np.arange(7)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'], 
+                       rotation=0)
+    
+    return [exc_clusters, inh_clusters]
+
+
+def plot_input_output_overlap(all_model_dpca_in, all_model_dpca_out, n_components_for_dpca, dim_labels,axes):
+
+    all_model_output_choice_overlap = []
+
+    for idx_model in range(len(all_model_dpca_in)):
+        input_output_overlap = np.nan*np.empty((7,7))
+        for k_out_idx, k_out in enumerate(n_components_for_dpca.keys()):
+            for k_ch_idx, k_ch in enumerate(n_components_for_dpca.keys()):
+                input_output_overlap[k_out_idx, k_ch_idx] = \
+                    np.sum((all_model_dpca_out[idx_model].P[k_out].T@
+                            all_model_dpca_in[idx_model].P[k_ch])**2)/\
+                        all_model_dpca_out[idx_model].P[k_out].shape[1]
+
+        all_model_output_choice_overlap.append(input_output_overlap)
+    all_model_output_choice_overlap = np.stack(all_model_output_choice_overlap)
+
+    cmap_scale = all_model_output_choice_overlap.mean(0).max()
+    cm = axes.imshow(all_model_output_choice_overlap.mean(0), vmin=0, vmax=cmap_scale, cmap='magma')  
+    axes.set_xticks(np.arange(7), dim_labels)
+    axes.set_yticks(np.arange(7), dim_labels)
+    axes.set_xlabel("Input axes")
+    axes.set_ylabel("Output axes")
+    
+    # orthogonalize the input axes from the output axes
+    for idx_model in range(len(all_model_dpca_in)):
+        for k_idx in range(all_model_dpca_in[idx_model].P.shape[1]):
+            input_axes = all_model_dpca_in[idx_model].P[:,k_idx]
+            output_axes = all_model_dpca_out[idx_model].P[:,k_idx]
+            ,  = np.linalg.qr(np.concatenate([output_axes, input_axes], axis=1))
+            input_axes = input_axes[:, :input_axes.shape[1]//2]
+            output_axes = output_axes[:, :output_axes.shape[1]//2]
+            all_model_dpca_in[idx_model].P[:,k_idx] = input_axes
+            all_model_dpca_out[idx_model].P[:,k_idx] = output_axes
+            
+                
+    
+    
+    
 def plot_recurrence(all_model_dpca_axes, all_model_rec_intra, axes, title):
     """
     Plots the overlap between dPCA axes and recurrent weights within models.
@@ -807,6 +952,59 @@ def plot_ff_fb(all_model_dpca_pre, all_model_dpca_post, all_model_rec_inter,
                  ha='center', va='bottom', c='k', fontsize=16)
     sns.despine(ax=axes[0])
 
+def plot_connectivity_by_clusters(all_model_rec, all_model_clusters_pre, all_model_clusters_post, label, axes):
+    num_clusters_exc_pre = np.unique(all_model_clusters_pre[0])[-1]+1
+    if all_model_clusters_pre[1] is not None:
+        num_clusters_inh_pre = np.unique(all_model_clusters_pre[1])[-1]+1
+    else:
+        num_clusters_inh_pre = 0
+
+    num_clusters_exc_post = np.unique(all_model_clusters_post[0])[-1]+1
+    if all_model_clusters_post[1] is not None:
+        num_clusters_inh_post = np.unique(all_model_clusters_post[1])[-1]+1
+    else:
+        num_clusters_inh_post = 0
+    
+    clus_conn_mat = np.zeros((len(all_model_rec), num_clusters_exc_post+num_clusters_inh_post, num_clusters_exc_pre+num_clusters_inh_pre ))
+
+    
+    for mdl_idx, mdl_rec in enumerate(all_model_rec):
+        for clus_i in range(num_clusters_exc_post):
+            for clus_j in range(num_clusters_exc_pre):
+                clus_mask_i = all_model_clusters_post[0][mdl_idx]==clus_i
+                clus_mask_j = all_model_clusters_pre[0][mdl_idx]==clus_j
+                clus_conn_mat[mdl_idx, clus_i, clus_j] = mdl_rec[:E_SIZE,:E_SIZE][clus_mask_i][:,clus_mask_j].mean()
+
+        for clus_i in range(num_clusters_exc_post):
+            for clus_j in range(num_clusters_inh_pre):
+                clus_mask_i = all_model_clusters_post[0][mdl_idx]==clus_i
+                clus_mask_j = all_model_clusters_pre[1][mdl_idx]==clus_j
+                clus_conn_mat[mdl_idx, clus_i, num_clusters_exc_pre+clus_j] = mdl_rec[:E_SIZE,E_SIZE:][clus_mask_i][:,clus_mask_j].mean()
+
+        for clus_i in range(num_clusters_inh_post):
+            for clus_j in range(num_clusters_exc_pre):
+                clus_mask_i = all_model_clusters_post[1][mdl_idx]==clus_i
+                clus_mask_j = all_model_clusters_pre[0][mdl_idx]==clus_j
+                clus_conn_mat[mdl_idx, num_clusters_exc_pre+clus_i, clus_j] = mdl_rec[E_SIZE:,:E_SIZE][clus_mask_i][:,clus_mask_j].mean()
+
+        for clus_i in range(num_clusters_inh_post):
+            for clus_j in range(num_clusters_inh_pre):
+                clus_mask_i = all_model_clusters_post[1][mdl_idx]==clus_i
+                clus_mask_j = all_model_clusters_pre[1][mdl_idx]==clus_j
+                clus_conn_mat[mdl_idx, num_clusters_exc_pre+clus_i, num_clusters_exc_pre+clus_j] = mdl_rec[E_SIZE:,E_SIZE:][clus_mask_i][:,clus_mask_j].mean()
+
+    cmap_scale = max(np.abs(np.nanmean(clus_conn_mat, 0)).max(), 0)
+    sns.heatmap(np.nanmean(clus_conn_mat, 0), ax=axes, cmap='RdBu_r', norm=mpl.colors.CenteredNorm(halfrange=cmap_scale))
+    axes.set_xticks(np.arange(0,num_clusters_exc_pre+num_clusters_inh_pre)+0.5)
+    axes.set_xticklabels([f'E{i+1}' for i in range(num_clusters_exc_pre)]+[f'I{i+1}' for i in range(num_clusters_inh_pre)], 
+                       rotation=0)
+    axes.set_yticks(np.arange(0,num_clusters_exc_post+num_clusters_inh_post)+0.5)
+    axes.set_yticklabels([f'E{i+1}' for i in range(num_clusters_exc_post)]+[f'I{i+1}' for i in range(num_clusters_inh_post)], 
+                       rotation=0)
+    axes.set_xlabel('Cluster')
+    axes.set_ylabel('Cluster')
+    axes.set_title(label)
+
 
 def plot_hebb_overlap(all_model_dpca_axes_pre_enc, all_model_dpca_axes_post_enc, 
                       all_model_dpca_axes_pre_rtv, all_model_dpca_axes_post_rtv, 
@@ -869,7 +1067,7 @@ def plot_hebb_overlap(all_model_dpca_axes_pre_enc, all_model_dpca_axes_post_enc,
                           all_model_overlaps['diff'].min()])
         
         
-    sns.violinplot(ax=axes,
+    sns.violinplot(ax=axes[1],
                   x=['Same']*np.prod(all_model_overlaps['same_pre_post'].shape)+\
                    ['Diff O']*np.prod(all_model_overlaps['same_pre'].shape)+
                    ['Diff I']*np.prod(all_model_overlaps['same_post'].shape)+\
@@ -889,7 +1087,23 @@ def plot_hebb_overlap(all_model_dpca_axes_pre_enc, all_model_dpca_axes_post_enc,
     axes.axhline(0, linestyle = '--', color='k', linewidth=0.5)
     axes.set_title(title)
     axes.set_ylim([cmap_scale_min*1.2, cmap_scale_max*1.7])
-    sns.despine(ax=axes)
+
+    # Plot the 'same_pre_post' as a matrix heatmap in axes[0], using the same grid as in plot_recurrence
+
+    same_pre_post = all_model_overlaps['same_pre_post']
+    # If shape is (n_models, n, n), average over models
+    if same_pre_post.ndim == 3:
+        mean_overlap = same_pre_post.mean(axis=0)
+    else:
+        mean_overlap = same_pre_post
+
+    # Plot heatmap
+    sns.heatmap(mean_overlap, ax=axes[0], cmap='RdBu_r', center=0, vmin=cmap_scale_min, vmax=cmap_scale_max,
+                square=True, cbar_kws={"shrink": 0.7})
+    axes[0].set_title("Same Pre/Post Overlap Matrix")
+    axes[0].set_xlabel("Pre")
+    axes[0].set_ylabel("Post")
+
     
     for key_idx, key in enumerate(['same_pre', 'same_post', 'diff']):
         temp_stats = mannwhitneyu(all_model_overlaps['same_pre_post'].flatten(), 
@@ -905,3 +1119,5 @@ def plot_hebb_overlap(all_model_dpca_axes_pre_enc, all_model_dpca_axes_post_enc,
         axes.text(0.5+key_idx, bar_top*1.02, 
                      convert_pvalue_to_asterisks(temp_stats.pvalue), 
                      ha='center', va='center', c='k', fontsize=12)
+
+    sns.despine()

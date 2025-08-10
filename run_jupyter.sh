@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=jupyter_notebook
-#SBATCH --time=24:00:00
+#SBATCH --time=240:00:00
 #SBATCH --mem=64G
 #SBATCH --output=jupyter_notebook_%j.txt
 #SBATCH --error=jupyter_notebook_%j.err
@@ -30,4 +30,4 @@ module load python
 jupyter-notebook --no-browser --ip=${node} --port=${port} --ResourceUseDisplay.track_cpu_percent=True
 
 # keep it alive
-sleep 86400
+sleep 864000
