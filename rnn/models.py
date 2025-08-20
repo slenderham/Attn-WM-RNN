@@ -371,8 +371,6 @@ class HierarchicalPlasticRNN(nn.Module):
             hidden, output = self.rnn(x, hidden, w_hidden)
             if save_all_states:
                 hs.append(hidden)
-            else:
-                hs.append(output)
 
         # if dopamine is not None, update weight
         if DAs is not None:
@@ -381,7 +379,7 @@ class HierarchicalPlasticRNN(nn.Module):
         if save_all_states:
             hs = torch.stack(hs, dim=0)
         else:
-            hs = torch.stack(hs, dim=0)
+            hs = output
 
         os = {}
         for output_name in self.h2o.keys():

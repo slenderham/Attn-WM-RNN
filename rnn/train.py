@@ -86,13 +86,18 @@ def train(model, iters):
                     'action': F.one_hot(action, num_classes=output_size).float().to(device),
                 }
                 DAs = (2*rwd.float()-1)
-                _, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_ch, 
+                output, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_ch, 
                                                 neumann_order=args.neumann_order,
                                                 hidden=hidden, w_hidden=w_hidden, 
                                                 DAs=DAs)
                 chosen_obj = output['chosen_obj'] # (batch size, output_size)
                 loss += F.cross_entropy(chosen_obj.flatten(end_dim=-2), action.flatten())
+
+                action_logits = output['action'].flatten(end_dim=-2)
+                loss += F.cross_entropy(action_logits, action.flatten())
+                 
                 total_loss += F.cross_entropy(chosen_obj.detach().flatten(end_dim=-2), action.flatten()).detach().item()/len(pop_s)
+                total_loss += F.cross_entropy(action_logits.detach(), action.flatten()).detach().item()/len(pop_s)
 
                 loss += args.l2r*hs.pow(2).mean()/3
                 loss += args.l2w*w_hidden.pow(2).sum(dim=(-2, -1)).mean()
@@ -305,7 +310,7 @@ if __name__ == "__main__":
                    'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (1, 1)}
     
     model = HierarchicalPlasticRNN(**model_specs).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-6)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-5)
     print(model)
     for n, p in model.named_parameters():
         print(n, p.numel())
