@@ -242,6 +242,41 @@ def get_dpca_results_by_weights(all_model_weights, n_components_for_dpca):
     return dpca_results
 
 
+def make_contrast_coding_threeway(num_factors=3, num_levels=3):
+    """
+    Returns contrast coding arrays for a three-level categorical variable,
+    as well as for the binary and trinary interactions, using sum-to-zero (Helmert) coding.
+    Interactions are computed using the Kronecker product of the main effects.
+
+    Returns:
+        [main_effects, binary_interactions, trinary_interaction]
+        - main_effects: (3,2) array, each row is a level, columns are contrasts
+        - binary_interactions: (3,4) array, each row is a level, columns are interaction contrasts
+        - trinary_interaction: (3,8) array, each row is a level, columns are trinary interaction contrasts
+    """
+    assert(num_levels<=3), 'num_levels must be less than or equal to 3'
+    assert(num_factors<=3), 'num_factors must be less than or equal to 3'
+
+    # Main effects: num_levels levels, num_levels-1 contrasts (sum-to-zero coding)
+    # Level 0: [1, 0]
+    # Level 1: [0, 1]
+    # Level 2: [-1, -1]
+    main_effects = np.eye(num_levels)
+    main_effects[-1,:] = -1
+    main_effects = main_effects[:,:-1] # (num_levels,num_levels-1)
+
+    # Binary interactions: kron(main_effects, main_effects)
+    # This gives a (num_levels, num_levels*2) array for each pair of levels
+    binary_interactions = np.kron(main_effects, main_effects)  # (num_levels,2) x (num_levels,2) -> (num_levels*num_levels,4)
+
+    # Trinary interaction: kron(main_effects, kron(main_effects, main_effects))
+    # For each level, take the outer product three times
+    trinary_interaction = np.kron(main_effects, np.kron(main_effects, main_effects)) # (num_levels,2) x (num_levels,2) x (num_levels,2) -> (num_levels**3,8)
+
+    return [main_effects, binary_interactions, trinary_interaction]
+
+
+
 def align_dpca_axes(all_model_dpca_to_align, all_model_dpca_target, n_components_for_dpca, args):
     # use the procrustes alignment to calculate the transformation matrix across low_hs
     # use the transformation matrix to align the encoding axes
@@ -419,8 +454,8 @@ def run_plot_selectivity_clusters(all_model_dpca_stim_in, all_model_dpca_stim_ou
                             np.concatenate([np.eye(7), np.eye(7)], axis=1)[:6],
                             np.concatenate([np.eye(7), np.zeros((7,7))], axis=1)]), 
                         np.concatenate([
-                            np.concatenate([np.eye(7), np.eye(7)], axis=1)[:6],
-                            np.concatenate([np.zeros((7,7)), np.eye(7)], axis=1)]),
+                            np.concatenate([np.eye(7), np.eye(7)], axis=1),
+                            np.concatenate([np.zeros((7,7)), np.eye(7)], axis=1)[3:6]]),
                         np.concatenate([np.eye(7), np.zeros((7,7))], axis=1)]
 
     # cluster units in stim and choice areas based on both the input and output weights
@@ -429,7 +464,7 @@ def run_plot_selectivity_clusters(all_model_dpca_stim_in, all_model_dpca_stim_ou
                             [np.concatenate([np.eye(7), np.eye(7)], axis=1), ideal_centroids[2]], E_SIZE, I_SIZE, "Stimuli input", axes[:,0])
     all_model_selectivity_clusters_choice = \
                         plot_selectivity_clusters(all_model_dpca_choice_in, all_model_dpca_choice_out, ['s','p','c','pc','sc','sp','spc'], 
-                            [np.concatenate([np.eye(7), np.eye(7)], axis=1), ideal_centroids[2]], E_SIZE, I_SIZE, "Choice output", axes[:,1])
+                            [ideal_centroids[1], ideal_centroids[2]], E_SIZE, I_SIZE, "Choice output", axes[:,1])
 
     axes[0,0].set_ylabel('Cluster centroids', labelpad=20)
     axes[1,0].set_ylabel("Rank corr.", labelpad=20)

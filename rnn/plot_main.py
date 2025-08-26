@@ -692,7 +692,7 @@ def plot_selectivity_clusters(all_dpca_results_in, all_dpca_results_out, keys, i
     
     num_clus_exc = len(ideal_centroids[0])
     kmeans_mdl_exc = SpectralClustering(n_clusters=num_clus_exc, assign_labels="kmeans", n_init=20,
-                            affinity='rbf', kernel_params={'gamma': 0.5/len(keys)}).fit(concat_exp_vars_exc)
+                            affinity='cosine', kernel_params={'gamma': 0.5/len(keys)}).fit(concat_exp_vars_exc)
     
 
     # Compute the centroids of the excitatory clusters and match them to the ideal centroids
@@ -724,10 +724,11 @@ def plot_selectivity_clusters(all_dpca_results_in, all_dpca_results_out, keys, i
         kmeans_mdl_inh = SpectralClustering(n_clusters=num_clus_test, assign_labels="kmeans", n_init=20,
                             affinity='cosine', kernel_params={'gamma': 0.5/len(keys)}).fit(concat_exp_vars_inh)
         print(num_clus_test, np.mean(silhouette_samples(concat_exp_vars_inh, kmeans_mdl_inh.labels_)))
+    print("-"*50)
 
     num_clus_inh = len(ideal_centroids[1])
     kmeans_mdl_inh = SpectralClustering(n_clusters=num_clus_inh, assign_labels="kmeans", n_init=20,
-                                affinity='rbf', kernel_params={'gamma': 0.5/len(keys)}).fit(concat_exp_vars_inh)
+                                affinity='cosine', kernel_params={'gamma': 0.5/len(keys)}).fit(concat_exp_vars_inh)
     inh_clusters = kmeans_mdl_inh.labels_
     exp_vars_centroids_inh = []
     for clus in range(num_clus_inh):
@@ -778,6 +779,17 @@ def plot_selectivity_clusters(all_dpca_results_in, all_dpca_results_out, keys, i
     axes[0].set_title(label)
     
     return [exc_clusters, inh_clusters]
+
+
+# TODO: change the dpca align function to use orthogonal contrasts for all weights
+# TODO: change the heatmap of overlap between dpca axes to incorporate both input and output weights on the same plot
+#           original dpca axes -> align all to the orthogonal contrasts -> orthogonalize input from output
+# TODO: finish the plot of overlap between dpca axes and recurrent weights
+# TODO: apply the dpca axes to the input and output weights to get the reparameterized weights
+# TODO: change the plot of hebbian memory matrix to incorporate both input and output weights on the same plot
+# TODO: add a heatmap for the overlap between dpca axes and recurrent weights
+# TODO: turn the sensitivity analysis into a function
+# TODO: turn the dpca analyses of the firing rates into a function (separate analyses for choice and learning)
 
 
 def plot_input_output_overlap(all_model_dpca_in, all_model_dpca_out, n_components_for_dpca, dim_labels,axes):
@@ -836,7 +848,7 @@ def plot_input_output_overlap(all_model_dpca_in, all_model_dpca_out, n_component
     return all_model_ortho_input_axes
 
 
-def plot_reparam_weights(all_model_dpca, all_model_rec, plot_config, n_components_for_dpca, num_areas, dim_labels, axes):
+def plot_reparam_weights(all_model_dpca, all_model_rec, plot_config, n_components_for_dpca, dim_labels):
     '''
     Plots the reparameterized weights for each model.
 
@@ -852,9 +864,9 @@ def plot_reparam_weights(all_model_dpca, all_model_rec, plot_config, n_component
 
     num_models = len(all_model_rec)
 
-    all_pos_reparam_weights = [[None]*len(plot_config[0])]*len(plot_config)
-    all_pos_within_weights = [[None]*len(plot_config[0])]*len(plot_config)
-    all_pos_between_weights = [[None]*len(plot_config[0])]*len(plot_config)
+    all_pos_reparam_weights = [[None]*len(plot_config[0])]*len(plot_config) # each weight has shape (component, component)
+    all_pos_within_weights = [[None]*len(plot_config[0])]*len(plot_config) # each weight has shape (component,)
+    all_pos_between_weights = [[None]*len(plot_config[0])]*len(plot_config) # each weight has shape (component*(component-1))
 
     for row_idx in range(len(plot_config)):
         for col_idx in range(len(plot_config[row_idx])):
@@ -870,17 +882,34 @@ def plot_reparam_weights(all_model_dpca, all_model_rec, plot_config, n_component
                 all_pos_within_weights[row_idx][col_idx].append(np.diag(curr_mdl_reparam_weights))
                 all_pos_between_weights[row_idx][col_idx].append(curr_mdl_reparam_weights[np.where(~np.eye(num_components,dtype=bool))])
             
-            all_pos_reparam_weights[row_idx][col_idx] = np.stack(all_pos_reparam_weights[row_idx][col_idx])
+            all_pos_reparam_weights[row_idx][col_idx] = np.stack(all_pos_reparam_weights[row_idx][col_idx]) 
             all_pos_within_weights[row_idx][col_idx] = np.stack(all_pos_within_weights[row_idx][col_idx])
             all_pos_between_weights[row_idx][col_idx] = np.stack(all_pos_between_weights[row_idx][col_idx])
 
     
     concat_reparam_weights = np.concatenate([np.concatenate(all_pos_reparam_weights[row_idx], axis=1) 
                                              for row_idx in range(len(plot_config))], axis=0)
+    all_pos_within_weights = np.array(all_pos_within_weights) 
+    all_pos_between_weights = np.array(all_pos_between_weights) 
+
+    fig, axes = plt.subplots(1,2, figsize=(12, 6))
 
     cmap_scale = concat_reparam_weights.mean(0).max()*0.9
-    sns.heatmap(concat_reparam_weights.mean(0), ax=axes, vmin=-cmap_scale, vmax=cmap_scale, cmap='RdBu_r', 
+    sns.heatmap(concat_reparam_weights.mean(0), ax=axes[0], vmin=-cmap_scale, vmax=cmap_scale, cmap='RdBu_r', 
                      square=True, annot_kws={'fontdict':{'fontsize':10}}, cbar_kws={"shrink": 0.8})
+
+    cmap_scale = concat_reparam_weights.max()*1
+    violin_xxx = ['Ftr']*(len(plot_config)*len(plot_config[0])*6)\
+                +['Cnj']*(len(plot_config)*len(plot_config[0])*12)\
+                +['Obj']*(len(plot_config)*len(plot_config[0])*8)\
+                +['Btw']*np.prod(all_pos_between_weights.shape).astype(int)
+    sns.violinplot(ax=axes[1], 
+        x=violin_xxx, hue=violin_xxx,         
+        y=np.concatenate([all_pos_within_weights[:,:,:6].flatten(), 
+                          all_pos_within_weights[:,:,6:18].flatten(), 
+                          all_pos_within_weights[:,:,18:27].flatten(), 
+                          all_pos_between_weights.flatten()]),
+        palette=sns.color_palette('Purples_r', 4), cut=0, legend=False)
 
     
 

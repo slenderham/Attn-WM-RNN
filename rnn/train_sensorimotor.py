@@ -40,7 +40,7 @@ def train(model, iters):
         for i in range(len(pop_s)):
             ''' first phase, give nothing '''
             all_x = {
-                'stim': torch.zeros_like(pop_s[i].sum(1)),
+                'stim': torch.concat([pop_s[i][:,0], pop_s[i][:,1]], dim=-1),  # (batch size, 2*input size)
                 'action': torch.zeros(args.batch_size, output_size, device=device),
             }
             _, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_fixation, 
@@ -51,7 +51,7 @@ def train(model, iters):
 
             ''' second phase, give stimuli and no feedback '''
             all_x = {
-                'stim': pop_s[i].sum(1),
+                'stim': torch.concat([pop_s[i][:,0], pop_s[i][:,1]], dim=-1),
                 'action': torch.zeros(args.batch_size, output_size, device=device),
             }
             output, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_stim, 
@@ -82,7 +82,7 @@ def train(model, iters):
             if args.task_type=='on_policy_double':
                 '''third phase, give stimuli and choice, and update weights'''
                 all_x = {
-                    'stim': pop_s[i].sum(1),
+                    'stim': torch.concat([pop_s[i][:,0], pop_s[i][:,1]], dim=-1),
                     'action': F.one_hot(action, num_classes=output_size).float().to(device),
                 }
                 DAs = (2*rwd.float()-1)
@@ -156,14 +156,14 @@ def eval(model, epoch):
                 for i in range(len(pop_s)):
                     # first phase, give nothing
                     all_x = {
-                        'stim': torch.zeros_like(pop_s[i].sum(1)),
+                        'stim': torch.concat([pop_s[i][:,0], pop_s[i][:,1]], dim=-1),
                         'action': torch.zeros(args.batch_size, output_size, device=device),
                     }
                     _, hidden, w_hidden, _ = model(all_x, steps=task_mdprl.T_fixation, neumann_order = 0,
                                                 hidden=hidden, w_hidden=w_hidden, DAs=None)
                     # second phase, give stimuli and no feedback
                     all_x = {
-                        'stim': pop_s[i].sum(1),
+                        'stim': torch.concat([pop_s[i][:,0], pop_s[i][:,1]], dim=-1),
                         'action': torch.zeros(args.batch_size, output_size, device=device),
                     }
                     output, hidden, w_hidden, _ = model(all_x, steps=task_mdprl.T_stim, neumann_order = 0,
@@ -185,7 +185,7 @@ def eval(model, epoch):
                     if args.task_type=='on_policy_double':
                         '''third phase, give stimuli and choice, and update weights'''
                         all_x = {
-                            'stim': pop_s[i].sum(1),
+                            'stim': torch.concat([pop_s[i][:,0], pop_s[i][:,1]], dim=-1),
                             'action': F.one_hot(action, num_classes=output_size).float().to(device),
                         }
                         DAs = (2*rwd.float()-1)
@@ -283,7 +283,7 @@ if __name__ == "__main__":
         'feat+obj': args.stim_dim*args.stim_val+args.stim_val**args.stim_dim, 
         'feat+conj+obj': args.stim_dim*args.stim_val+args.stim_dim*args.stim_val*args.stim_val+args.stim_val**args.stim_dim,
     }[args.input_type]
-    output_size = args.stim_val**args.stim_dim
+    output_size = 2
 
     input_config = {
         'stim': (input_size, [0]),

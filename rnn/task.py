@@ -10,7 +10,7 @@ from scipy.stats import norm
 # TODO: support different dimensions and stim values
 
 class MDPRL():
-    def __init__(self, times, input_type):
+    def __init__(self, times, input_type, target_type):
         self.prob_mdprl = np.zeros((1, 3, 3, 3))
         self.prob_mdprl[:, :, :, 0] = [[0.92, 0.75, 0.43], [0.50, 0.50, 0.50], [0.57, 0.25, 0.08]]
         self.prob_mdprl[:, :, :, 1] = [[0.16, 0.75, 0.98], [0.50, 0.50, 0.50], [0.02, 0.25, 0.84]]
@@ -29,6 +29,8 @@ class MDPRL():
         self.times = times
 
         assert(input_type in ['feat', 'feat+conj', 'feat+obj', 'feat+conj+obj']), 'invalid input type'
+        assert(target_type in ['good', 'action']), 'invalid target type'
+        self.target_type = target_type
 
         # self.gen_levels = [['f', i] for i in [[0],[1],[2],[0,1],[0,2],[1,2],[0,1,2]]]+\
         #                   [['c', i] for i in [[0],[1],[2]]]+\
@@ -300,8 +302,11 @@ class MDPRL():
             if num_choices==1:
                 target[:,i] = prob_s[i,:].squeeze(-1) # if only one choice, the target is the reward prob
             else:
-                target_side = np.argmax(prob_s[i,:,:], -1)
-                target[:,i] = index_s_i_perceptual[np.arange(len_seq), target_side] # if more than one choice, find position of more rewarding target
+                if self.target_type=='good':
+                    target_side = np.argmax(prob_s[i,:,:], -1)
+                    target[:,i] = index_s_i_perceptual[np.arange(len_seq), target_side] # if more than one choice, find position of more rewarding target
+                elif self.target_type=='action':
+                    target[:,i] = np.argmax(prob_s[i,:,:], -1) # if more than one choice, find position of more rewarding target
 
             for j in range(27):
                 stim_count = np.sum(index_s_i_rwd==j)

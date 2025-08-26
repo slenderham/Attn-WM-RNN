@@ -14,7 +14,7 @@ python rnn/train.py --cuda\
         --hidden_size 80\
         --eval_samples 20\
         --num_areas 2\
-        --decision_space good\
+        --decision_space action\
         --l2r 1e-2\
         --l2w 1e-5\
         --l1w 1e-5\
