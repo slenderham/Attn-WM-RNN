@@ -40,7 +40,7 @@ def train(model, iters):
         for i in range(len(pop_s)):
             ''' first phase, give nothing '''
             all_x = {
-                'stim': torch.zeros_like(pop_s[i].sum(1)),
+                'stim': torch.zeros_like(pop_s[i]),
                 'action': torch.zeros(args.batch_size, output_size, device=device),
             }
             _, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_fixation, 
@@ -51,7 +51,7 @@ def train(model, iters):
 
             ''' second phase, give stimuli and no feedback '''
             all_x = {
-                'stim': pop_s[i].sum(1),
+                'stim': pop_s[i],
                 'action': torch.zeros(args.batch_size, output_size, device=device),
             }
             output, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_stim, 
@@ -63,11 +63,15 @@ def train(model, iters):
             ''' use output to calculate action, reward, and record loss function '''
             if args.task_type=='on_policy_double':
                 if args.decision_space=='action':
-                    raise NotImplementedError
+                    action_loc = torch.multinomial(output['action'].softmax(-1), num_samples=1).squeeze(-1)
+                    action_stim = index_s[i, action_loc]
+                    rwd = rwd_s[i][torch.arange(args.batch_size), action_loc]
+                    action = action_loc
                 elif args.decision_space=='good':
-                    action_valid = torch.multinomial(output['action'][:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
-                    action = index_s[i, action_valid] # (batch size)
-                    rwd = rwd_s[i][torch.arange(args.batch_size), action_valid]
+                    action_loc = torch.multinomial(output['action'][:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
+                    action_stim = index_s[i, action_loc] # (batch size)
+                    rwd = rwd_s[i][torch.arange(args.batch_size), action_loc]
+                    action = action_stim
                     # assert(action.shape==(args.batch_size,))
                     # assert(target.shape==(output.shape[0],args.batch_size))
                     # assert(rwd.shape==(args.batch_size,))
@@ -75,14 +79,14 @@ def train(model, iters):
                 target = target_s[i].flatten()
                 loss += F.cross_entropy(action_logits, target)
                 total_loss += F.cross_entropy(action_logits.detach(), target).detach().item()/len(pop_s)
-                total_acc += (action==target).float().item()/len(pop_s)
+                total_acc += (action==target).float().item()/len(pop_s)    
             elif args.task_type == 'value':
                 raise NotImplementedError
             
             if args.task_type=='on_policy_double':
                 '''third phase, give stimuli and choice, and update weights'''
                 all_x = {
-                    'stim': pop_s[i].sum(1),
+                    'stim': pop_s[i],
                     'action': F.one_hot(action, num_classes=output_size).float().to(device),
                 }
                 DAs = (2*rwd.float()-1)
@@ -91,8 +95,8 @@ def train(model, iters):
                                                 hidden=hidden, w_hidden=w_hidden, 
                                                 DAs=DAs)
                 chosen_obj = output['chosen_obj'] # (batch size, output_size)
-                loss += F.cross_entropy(chosen_obj.flatten(end_dim=-2), action.flatten())
-                total_loss += F.cross_entropy(chosen_obj.detach().flatten(end_dim=-2), action.flatten()).detach().item()/len(pop_s)
+                loss += F.cross_entropy(chosen_obj.flatten(end_dim=-2), action_stim.flatten())
+                total_loss += F.cross_entropy(chosen_obj.detach().flatten(end_dim=-2), action_stim.flatten()).detach().item()/len(pop_s)
 
                 loss += args.l2r*hs.pow(2).mean()/3
                 loss += args.l2w*w_hidden.pow(2).sum(dim=(-2, -1)).mean()
@@ -156,14 +160,14 @@ def eval(model, epoch):
                 for i in range(len(pop_s)):
                     # first phase, give nothing
                     all_x = {
-                        'stim': torch.zeros_like(pop_s[i].sum(1)),
+                        'stim': torch.zeros_like(pop_s[i]),
                         'action': torch.zeros(args.batch_size, output_size, device=device),
                     }
                     _, hidden, w_hidden, _ = model(all_x, steps=task_mdprl.T_fixation, neumann_order = 0,
                                                 hidden=hidden, w_hidden=w_hidden, DAs=None)
                     # second phase, give stimuli and no feedback
                     all_x = {
-                        'stim': pop_s[i].sum(1),
+                        'stim': pop_s[i],
                         'action': torch.zeros(args.batch_size, output_size, device=device),
                     }
                     output, hidden, w_hidden, _ = model(all_x, steps=task_mdprl.T_stim, neumann_order = 0,
@@ -171,13 +175,18 @@ def eval(model, epoch):
                     if args.task_type=='on_policy_double':
                         # use output to calculate action, reward, and record loss function
                         if args.decision_space=='action':
-                            raise NotImplementedError
+                            action_loc = torch.multinomial(output['action'].softmax(-1), num_samples=1).squeeze(-1)
+                            action_stim = index_s[i, action_loc]
+                            rwd = rwd_s[i][torch.arange(args.batch_size), action_loc]
+                            action = action_loc
+                            loss.append((action==target_s[i]).float())
                         elif args.decision_space=='good':
-                            action_valid = torch.multinomial(output['action'][:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
-                            action = index_s[i, action_valid] # (batch size)
+                            action_loc = torch.multinomial(output['action'][:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
+                            action_stim = index_s[i, action_loc] # (batch size)
                             # assert(action.shape==(args.batch_size,))
-                            rwd = rwd_s[i][range(args.batch_size), action_valid]
+                            rwd = rwd_s[i][range(args.batch_size), action_stim]
                             # assert(rwd.shape==(args.batch_size,))
+                            action = action_stim
                             loss.append((action==target_s[i]).float())
                     elif args.task_type == 'value':
                         raise NotImplementedError
@@ -185,7 +194,7 @@ def eval(model, epoch):
                     if args.task_type=='on_policy_double':
                         '''third phase, give stimuli and choice, and update weights'''
                         all_x = {
-                            'stim': pop_s[i].sum(1),
+                            'stim': pop_s[i],
                             'action': F.one_hot(action, num_classes=output_size).float().to(device),
                         }
                         DAs = (2*rwd.float()-1)
@@ -276,14 +285,22 @@ if __name__ == "__main__":
     else:
         device = torch.device('cuda' if args.cuda else 'cpu')
 
-    task_mdprl = MDPRL(exp_times, args.input_type)
+    task_mdprl = MDPRL(exp_times, args.input_type, args.decision_space)    
 
-    input_size = {
+    stim_size = {
         'feat': args.stim_dim*args.stim_val,
         'feat+obj': args.stim_dim*args.stim_val+args.stim_val**args.stim_dim, 
         'feat+conj+obj': args.stim_dim*args.stim_val+args.stim_dim*args.stim_val*args.stim_val+args.stim_val**args.stim_dim,
     }[args.input_type]
-    output_size = args.stim_val**args.stim_dim
+    
+    if args.decision_space=='good':
+        input_size = stim_size
+        output_size = args.stim_val**args.stim_dim
+    elif args.decision_space=='action':
+        input_size = stim_size*2
+        output_size = 2
+    else:
+        raise ValueError
 
     input_config = {
         'stim': (input_size, [0]),
@@ -292,7 +309,7 @@ if __name__ == "__main__":
 
     output_config = {
         'action': (output_size, [1]),
-        'chosen_obj': (output_size, [0]),
+        'chosen_obj': (args.stim_val**args.stim_dim, [0]),
     }
 
     num_options = 1 if args.task_type=='value' else 2
@@ -315,7 +332,7 @@ if __name__ == "__main__":
         load_checkpoint(model, optimizer, device, folder=args.exp_dir, filename='checkpoint.pth.tar')
         print('Model loaded successfully')
 
-    wandb.init(project="attn-rnn_3x3", config=args)
+    wandb.init(project="attn-rnn_3x3x3", config=args)
 
     metrics = defaultdict(list)
     best_eval_loss = 0

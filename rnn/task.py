@@ -29,7 +29,7 @@ class MDPRL():
         self.times = times
 
         assert(input_type in ['feat', 'feat+conj', 'feat+obj', 'feat+conj+obj']), 'invalid input type'
-        assert(target_type in ['good', 'action']), 'invalid target type'
+        assert(target_type in ['good', 'action', 'good+action']), 'invalid target type'
         self.target_type = target_type
 
         # self.gen_levels = [['f', i] for i in [[0],[1],[2],[0,1],[0,2],[1,2],[0,1,2]]]+\
@@ -300,7 +300,7 @@ class MDPRL():
                 pop_s[:,i,j,:] = self.pop_stim[index_s_i_perceptual[:,j],:] # size is num_trials X input size
             
             if num_choices==1:
-                target[:,i] = prob_s[i,:].squeeze(-1) # if only one choice, the target is the reward prob
+                raise NotImplementedError
             else:
                 if self.target_type=='good':
                     target_side = np.argmax(prob_s[i,:,:], -1)
@@ -313,6 +313,13 @@ class MDPRL():
                 pseudorandom_rwd_num = int(rwd_schedule[i,j]*(stim_count))
                 pseudorandom_rwd_s = np.concatenate([np.ones(pseudorandom_rwd_num), np.zeros(stim_count-pseudorandom_rwd_num)])
                 rwd_s[:,i][index_s_i_rwd==j] = np.random.permutation(pseudorandom_rwd_s)
+
+        if self.target_type=='good':
+            pop_s = pop_s.sum(2)
+        elif self.target_type=='action' or self.target_type=='good+action':
+            pop_s = np.concatenate([pop_s[:,:,0], pop_s[:,:,1]], axis=-1)
+        else:
+            raise ValueError
 
         return torch.from_numpy(pop_s).float(), torch.from_numpy(rwd_s).long(), \
                 torch.from_numpy(target).long(), torch.from_numpy(index_s_i_perceptual).long(), \

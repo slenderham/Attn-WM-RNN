@@ -290,10 +290,10 @@ class HierarchicalPlasticRNN(nn.Module):
 
         # specify connectivity
         rec_mask_weight = torch.eye(self.num_areas) + torch.diag(torch.ones(self.num_areas-1), 1) + torch.diag(torch.ones(self.num_areas-1), -1)
-        # rec_mask_plas = rec_mask_weight
-        rec_mask_plas = torch.zeros_like(rec_mask_weight)
-        rec_mask_plas[0,1] = 1
-        rec_mask_plas[1,0] = 1
+        rec_mask_plas = rec_mask_weight
+        # rec_mask_plas = torch.zeros_like(rec_mask_weight)
+        # rec_mask_plas[0,1] = 1
+        # rec_mask_plas[1,0] = 1
 
         self.conn_masks = _get_connectivity_mask_rec(rec_mask=rec_mask_weight, num_areas=self.num_areas,
                                                  e_hidden_units_per_area=self.e_size, 
