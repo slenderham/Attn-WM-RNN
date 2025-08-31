@@ -276,7 +276,6 @@ def make_contrast_coding_threeway(num_factors=3, num_levels=3):
     return [main_effects, binary_interactions, trinary_interaction]
 
 
-
 def align_dpca_axes(all_model_dpca_to_align, all_model_dpca_target, n_components_for_dpca, args):
     # use the procrustes alignment to calculate the transformation matrix across low_hs
     # use the transformation matrix to align the encoding axes

@@ -29,7 +29,7 @@ class MDPRL():
         self.times = times
 
         assert(input_type in ['feat', 'feat+conj', 'feat+obj', 'feat+conj+obj']), 'invalid input type'
-        assert(target_type in ['good', 'action', 'good+action']), 'invalid target type'
+        assert(target_type in ['good', 'action']), 'invalid target type'
         self.target_type = target_type
 
         # self.gen_levels = [['f', i] for i in [[0],[1],[2],[0,1],[0,2],[1,2],[0,1,2]]]+\
@@ -316,8 +316,8 @@ class MDPRL():
 
         if self.target_type=='good':
             pop_s = pop_s.sum(2)
-        elif self.target_type=='action' or self.target_type=='good+action':
-            pop_s = np.concatenate([pop_s[:,:,0], pop_s[:,:,1]], axis=-1)
+        elif self.target_type=='action':
+            pop_s = np.concatenate([pop_s[:,:,0]-pop_s[:,:,1], pop_s[:,:,1]-pop_s[:,:,0]], axis=-1)
         else:
             raise ValueError
 

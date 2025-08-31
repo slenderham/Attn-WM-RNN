@@ -357,31 +357,39 @@ class HierarchicalPlasticRNN(nn.Module):
         if hidden is None and w_hidden is None:
             hidden, w_hidden = self.init_hidden(x)
         
-        hs = []
 
-        # fixed point iterations, not keeping gradient
-        for _ in range(steps-neumann_order):
-            with torch.no_grad():
+        if x is not None and DAs is None:
+            # if dopamine is not provided, run the RNN to get decision output
+            # fixed point iterations, not keeping gradient
+            hs = []
+            for _ in range(steps-neumann_order):
+                with torch.no_grad():
+                    hidden, output = self.rnn(x, hidden, w_hidden)
+                if save_all_states:
+                    hs.append(hidden)
+            # k-order neumann series approximation
+            hidden = hidden.detach()
+            for _ in range(min(steps, neumann_order)):
                 hidden, output = self.rnn(x, hidden, w_hidden)
+                if save_all_states:
+                    hs.append(hidden)
+            
             if save_all_states:
-                hs.append(hidden)
-        # k-order neumann series approximation
-        hidden = hidden.detach()
-        for _ in range(min(steps, neumann_order)):
-            hidden, output = self.rnn(x, hidden, w_hidden)
-            if save_all_states:
-                hs.append(hidden)
+                hs = torch.stack(hs, dim=0)
+            else:
+                hs = output
 
-        # if dopamine is not None, update weight
-        if DAs is not None:
+            os = {}
+            for output_name in self.h2o.keys():
+                os[output_name] = self.h2o[output_name](output)
+            
+            return os, hidden, w_hidden, hs
+        elif x is None and DAs is not None:
+            # if dopamine is provided, update weight
+            output = self.rnn.activation(hidden)
             w_hidden = self.plasticity(w_hidden, self.rnn.h2h.pos_func(self.rnn.h2h.weight).unsqueeze(0), DAs, output, output)
-        
-        if save_all_states:
-            hs = torch.stack(hs, dim=0)
+            return None, hidden, w_hidden, None
         else:
-            hs = output
+            raise ValueError("Invalid input and dopamine combination")
 
-        os = {}
-        for output_name in self.h2o.keys():
-            os[output_name] = self.h2o[output_name](output)
-        return os, hidden, w_hidden, hs
+        

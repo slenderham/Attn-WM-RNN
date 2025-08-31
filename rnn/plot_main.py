@@ -904,14 +904,13 @@ def plot_reparam_weights(all_model_dpca, all_model_rec, plot_config, n_component
                 +['Obj']*(len(plot_config)*len(plot_config[0])*8)\
                 +['Btw']*np.prod(all_pos_between_weights.shape).astype(int)
     sns.violinplot(ax=axes[1], 
-        x=violin_xxx, hue=violin_xxx,         
+        x=violin_xxx, hue=violin_xxx,
         y=np.concatenate([all_pos_within_weights[:,:,:6].flatten(), 
                           all_pos_within_weights[:,:,6:18].flatten(), 
                           all_pos_within_weights[:,:,18:27].flatten(), 
                           all_pos_between_weights.flatten()]),
         palette=sns.color_palette('Purples_r', 4), cut=0, legend=False)
 
-    
 
 def plot_recurrence(all_model_dpca_axes, all_model_rec_intra, n_components_for_dpca, axes, title):
     """
