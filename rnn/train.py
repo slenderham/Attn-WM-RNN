@@ -301,7 +301,7 @@ if __name__ == "__main__":
     }
 
     output_config = {
-        'action': (output_size, [0]),
+        'action': (output_size, [1]),
         'chosen_obj': (args.stim_val**args.stim_dim, [0]),
     }
 

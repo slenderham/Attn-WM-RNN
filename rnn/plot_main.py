@@ -665,34 +665,31 @@ def test_dpca_overlap(all_dpca_results, n_components_for_dpca, overlap_scale, la
     return
 
 
-def plot_selectivity_clusters(all_dpca_results_in, all_dpca_results_out, keys, ideal_centroids, E_SIZE, I_SIZE, label, axes):
+def plot_selectivity_clusters(all_dpca_results, keys, ideal_centroids, E_SIZE, I_SIZE, label, axes):
     
-    num_models = len(all_dpca_results_in['unitwise_explained_var'])
+    num_models = len(all_dpca_results['unitwise_explained_var'])
     all_mdl_exp_vars = []
 
     # Loop through each model's dPCA results and extract the unitwise explained variance ratios
-    for dpca_unitwise_exp_vars_in, dpca_unitwise_exp_vars_out \
-        in zip(all_dpca_results_in['unitwise_explained_var'], all_dpca_results_out['unitwise_explained_var']):
-        curr_mdl_exp_vars = np.stack([
-            np.sum(dpca_unitwise_exp_vars_in[k], 0) for k in keys]+
-            [np.sum(dpca_unitwise_exp_vars_out[k], 0) for k in keys])
+    for dpca_unitwise_exp_vars in all_dpca_results['unitwise_explained_var']:
+        curr_mdl_exp_vars = np.stack([np.sum(dpca_unitwise_exp_vars[k], 0) for k in keys])
         all_mdl_exp_vars.append(curr_mdl_exp_vars)
 
     # Stack the unitwise explained variance ratios for all models
-    all_mdl_exp_vars = np.stack([exp_vars.T for exp_vars in all_mdl_exp_vars]) # (num_models, num_units, num_keys*2)
+    all_mdl_exp_vars = np.stack([exp_vars.T for exp_vars in all_mdl_exp_vars]) # (num_models, num_units, num_keys)
     
     # Extract the excitatory unitwise explained variance ratios and cluster them
-    concat_exp_vars_exc = all_mdl_exp_vars[:,:E_SIZE].reshape(-1,len(keys)*2)
+    concat_exp_vars_exc = all_mdl_exp_vars[:,:E_SIZE].reshape(-1,len(keys))
     
-    for num_clus_test in range(2, 20):
+    for num_clus_test in range(2, 11):
         kmeans_mdl_exc = SpectralClustering(n_clusters=num_clus_test, assign_labels="kmeans", n_init=20,
-                            affinity='cosine', kernel_params={'gamma': 0.5/len(keys)}).fit(concat_exp_vars_exc)
+                            affinity='cosine', kernel_params={'gamma': 1/len(keys)}).fit(concat_exp_vars_exc)
         print(num_clus_test, np.mean(silhouette_samples(concat_exp_vars_exc, kmeans_mdl_exc.labels_)))
     print("-"*50)
     
     num_clus_exc = len(ideal_centroids[0])
     kmeans_mdl_exc = SpectralClustering(n_clusters=num_clus_exc, assign_labels="kmeans", n_init=20,
-                            affinity='cosine', kernel_params={'gamma': 0.5/len(keys)}).fit(concat_exp_vars_exc)
+                            affinity='cosine', kernel_params={'gamma': 1/len(keys)}).fit(concat_exp_vars_exc)
     
 
     # Compute the centroids of the excitatory clusters and match them to the ideal centroids
@@ -717,36 +714,40 @@ def plot_selectivity_clusters(all_dpca_results_in, all_dpca_results_out, keys, i
 
     
     # Extract the inhibitory unitwise explained variance ratios and cluster them
-    concat_exp_vars_inh = all_mdl_exp_vars[:,E_SIZE:].reshape(-1,len(keys)*2)
-    concat_exp_vars_inh = np.nan_to_num(concat_exp_vars_inh)
-    
-    for num_clus_test in range(2, 20):
-        kmeans_mdl_inh = SpectralClustering(n_clusters=num_clus_test, assign_labels="kmeans", n_init=20,
-                            affinity='cosine', kernel_params={'gamma': 0.5/len(keys)}).fit(concat_exp_vars_inh)
-        print(num_clus_test, np.mean(silhouette_samples(concat_exp_vars_inh, kmeans_mdl_inh.labels_)))
-    print("-"*50)
-
+    concat_exp_vars_inh = all_mdl_exp_vars[:,E_SIZE:].reshape(-1,len(keys))
     num_clus_inh = len(ideal_centroids[1])
-    kmeans_mdl_inh = SpectralClustering(n_clusters=num_clus_inh, assign_labels="kmeans", n_init=20,
-                                affinity='cosine', kernel_params={'gamma': 0.5/len(keys)}).fit(concat_exp_vars_inh)
-    inh_clusters = kmeans_mdl_inh.labels_
-    exp_vars_centroids_inh = []
-    for clus in range(num_clus_inh):
-        exp_vars_centroids_inh.append(concat_exp_vars_inh[kmeans_mdl_inh.labels_==clus].mean(0))
-    exp_vars_centroids_inh = np.stack(exp_vars_centroids_inh)   
     
-    # match the inhibitory centroids to the ideal centroids
-    # Compute correlation between each cluster centroid and each ideal centroid
-    corr_matrix = np.zeros((num_clus_inh, num_clus_inh))
-    for i in range(num_clus_inh):
-        for j in range(num_clus_inh):
-            corr_matrix[i, j] = np.corrcoef(ideal_centroids[1][i], exp_vars_centroids_inh[j])[0, 1]
-    _, ideal_to_clus = linear_sum_assignment(-corr_matrix)
-    exp_vars_centroids_inh = exp_vars_centroids_inh[ideal_to_clus]
-    
-    # change the cluster labels to match the ideal centroids
-    clus_to_ideal = np.argsort(ideal_to_clus) # index of inhibitory centroid -> index of ideal centroid
-    inh_clusters = clus_to_ideal[inh_clusters].reshape((num_models, I_SIZE))
+    if not np.isnan(concat_exp_vars_inh).any():
+        for num_clus_test in range(2, 11):
+            kmeans_mdl_inh = SpectralClustering(n_clusters=num_clus_test, assign_labels="kmeans", n_init=20,
+                                affinity='cosine', kernel_params={'gamma': 1/len(keys)}).fit(concat_exp_vars_inh)
+            print(num_clus_test, np.mean(silhouette_samples(concat_exp_vars_inh, kmeans_mdl_inh.labels_)))
+        print("-"*50)
+
+        kmeans_mdl_inh = SpectralClustering(n_clusters=num_clus_inh, assign_labels="kmeans", n_init=20,
+                                    affinity='cosine', kernel_params={'gamma': 1/len(keys)}).fit(concat_exp_vars_inh)
+        inh_clusters = kmeans_mdl_inh.labels_
+        exp_vars_centroids_inh = []
+        for clus in range(num_clus_inh):
+            exp_vars_centroids_inh.append(concat_exp_vars_inh[kmeans_mdl_inh.labels_==clus].mean(0))
+        exp_vars_centroids_inh = np.stack(exp_vars_centroids_inh)   
+        
+        # match the inhibitory centroids to the ideal centroids
+        # Compute correlation between each cluster centroid and each ideal centroid
+        corr_matrix = np.zeros((num_clus_inh, num_clus_inh))
+        for i in range(num_clus_inh):
+            for j in range(num_clus_inh):
+                corr_matrix[i, j] = np.corrcoef(ideal_centroids[1][i], exp_vars_centroids_inh[j])[0, 1]
+        _, ideal_to_clus = linear_sum_assignment(-corr_matrix)
+        exp_vars_centroids_inh = exp_vars_centroids_inh[ideal_to_clus]
+        
+        # change the cluster labels to match the ideal centroids
+        clus_to_ideal = np.argsort(ideal_to_clus) # index of inhibitory centroid -> index of ideal centroid
+        inh_clusters = clus_to_ideal[inh_clusters].reshape((num_models, I_SIZE))
+    else:
+        concat_exp_vars_inh = np.nan_to_num(concat_exp_vars_inh)
+        exp_vars_centroids_inh = np.zeros((num_clus_inh, len(keys)))
+        inh_clusters = np.zeros((num_models, I_SIZE))
     
     # concatenate the excitatory and inhibitory centroids
     exp_vars_centroids = np.concatenate([exp_vars_centroids_exc, exp_vars_centroids_inh])
@@ -756,14 +757,14 @@ def plot_selectivity_clusters(all_dpca_results_in, all_dpca_results_out, keys, i
     sns.heatmap(exp_vars_centroids, \
                    cmap='Purples', vmin=0, vmax=cmap_scale, ax=axes[0], 
                     annot_kws={'fontdict':{'fontsize':12}}, cbar_kws={"shrink": 0.8})
-    axes[0].set_xticks(np.arange(14)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*2)
+    axes[0].set_xticks(np.arange(7)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'])
     axes[0].set_yticks(np.arange(num_clus_exc+num_clus_inh)+0.5, 
                        [f'E{i+1}' for i in range(num_clus_exc)]+[f'I{i+1}' for i in range(num_clus_inh)], 
                        rotation=0)
     axes[0].axhline(num_clus_exc, c='k', lw=2)
     
     
-    all_model_exp_var_corr = np.stack([spearmanr(exp_vars, nan_policy='omit').statistic-np.eye(len(keys)*2)
+    all_model_exp_var_corr = np.stack([spearmanr(exp_vars, nan_policy='omit').statistic-np.eye(len(keys))
                                               for exp_vars in all_mdl_exp_vars])
     
     cmap_scale = np.nanmax(np.abs(all_model_exp_var_corr.mean(0)))*1.1
@@ -772,8 +773,8 @@ def plot_selectivity_clusters(all_dpca_results_in, all_dpca_results_out, keys, i
                    cmap='RdBu_r', vmin=-cmap_scale, vmax=cmap_scale, ax=axes[1], 
                     annot_kws={'fontdict':{'fontsize':12}}, cbar_kws={"shrink": 0.8})
     
-    axes[1].set_xticks(np.arange(14)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*2)
-    axes[1].set_yticks(np.arange(14)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*2, 
+    axes[1].set_xticks(np.arange(7)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'])
+    axes[1].set_yticks(np.arange(7)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'], 
                        rotation=0)
 
     axes[0].set_title(label)
@@ -848,36 +849,37 @@ def plot_input_output_overlap(all_model_dpca_in, all_model_dpca_out, n_component
     return all_model_ortho_input_axes
 
 
-def plot_reparam_weights(all_model_dpca, all_model_rec, plot_config, n_components_for_dpca, dim_labels):
+def plot_reparam_weights(all_model_dpca, all_model_rec, n_components_for_dpca, axes_heatmap, axes_violin):
     '''
     Plots the reparameterized weights for each model.
 
     Args:
         all_model_dpca: dict of {dpca_dict_name: dpca_result}, where dpca_dict_name is the name of the dpca dictionary
         all_model_rec: dict of {(area_in, area_out): recurrent weight matrices}
-        plot_config: nested list of (area_in, area_out, dpca_dict_name), where the location of each tuple indicates where to plot the weight.
-                     The dpca_dict_name is the name of the dpca dictionary storing results for the weight.
         n_components_for_dpca: dict, number of components for each dimension
-        dim_labels: list, labels for each dimension
-        axes: matplotlib axes, axes to plot on
+        axes_heatmap: matplotlib axes, axes to plot on for the heatmap
+        axes_violin: matplotlib axes, axes to plot on for the violin plot
     '''
 
-    num_models = len(all_model_rec)
+    num_models = len(all_model_rec[0][0])
+    num_areas = len(all_model_rec)
 
-    all_pos_reparam_weights = [[None]*len(plot_config[0])]*len(plot_config) # each weight has shape (component, component)
-    all_pos_within_weights = [[None]*len(plot_config[0])]*len(plot_config) # each weight has shape (component,)
-    all_pos_between_weights = [[None]*len(plot_config[0])]*len(plot_config) # each weight has shape (component*(component-1))
+    all_pos_reparam_weights = [[[] for _ in range(num_areas)] for _ in range(num_areas)] # each weight has shape (component, component)
+    all_pos_within_weights = [[[] for _ in range(num_areas)] for _ in range(num_areas)] # each weight has shape (component,)
+    all_pos_between_weights = [[[] for _ in range(num_areas)] for _ in range(num_areas)] # each weight has shape (component*(component-1))
 
-    for row_idx in range(len(plot_config)):
-        for col_idx in range(len(plot_config[row_idx])):
-            curr_pos_dpca_axes = all_model_dpca[plot_config[row_idx][col_idx][2]]['encoding_axes']
-            curr_pos_raw_weights = all_model_rec[(plot_config[row_idx][0], plot_config[col_idx][1])]
+    for row_idx in range(num_areas): # area out
+        for col_idx in range(num_areas): # area in
+            curr_pos_dpca_axes_in = all_model_dpca[col_idx]['encoding_axes']
+            curr_pos_dpca_axes_out = all_model_dpca[row_idx]['encoding_axes']
+            curr_pos_raw_weights = all_model_rec[row_idx][col_idx]
             for mdl_idx in range(num_models):
-                curr_mdl_dpca_axes = np.concatenate([curr_pos_dpca_axes[mdl_idx][k] for k in n_components_for_dpca.keys()], axis=1)
-                num_components = curr_mdl_dpca_axes.shape[1]
-                rec_current = curr_pos_raw_weights[mdl_idx].detach().numpy()@curr_mdl_dpca_axes
+                curr_mdl_dpca_axes_in = np.concatenate([curr_pos_dpca_axes_in[mdl_idx][k] for k in n_components_for_dpca.keys()], axis=1)
+                curr_mdl_dpca_axes_out = np.concatenate([curr_pos_dpca_axes_out[mdl_idx][k] for k in n_components_for_dpca.keys()], axis=1)
+                num_components = curr_mdl_dpca_axes_in.shape[1]
+                rec_current = curr_pos_raw_weights[mdl_idx].detach().numpy()@curr_mdl_dpca_axes_in
                 # rec_current = rec_current/np.linalg.norm(rec_current, axis=0)
-                curr_mdl_reparam_weights = curr_mdl_dpca_axes.T@rec_current
+                curr_mdl_reparam_weights = curr_mdl_dpca_axes_out.T@rec_current
                 all_pos_reparam_weights[row_idx][col_idx].append(curr_mdl_reparam_weights)
                 all_pos_within_weights[row_idx][col_idx].append(np.diag(curr_mdl_reparam_weights))
                 all_pos_between_weights[row_idx][col_idx].append(curr_mdl_reparam_weights[np.where(~np.eye(num_components,dtype=bool))])
@@ -887,30 +889,54 @@ def plot_reparam_weights(all_model_dpca, all_model_rec, plot_config, n_component
             all_pos_between_weights[row_idx][col_idx] = np.stack(all_pos_between_weights[row_idx][col_idx])
 
     
-    concat_reparam_weights = np.concatenate([np.concatenate(all_pos_reparam_weights[row_idx], axis=1) 
-                                             for row_idx in range(len(plot_config))], axis=0)
+    concat_reparam_weights = np.concatenate([np.concatenate(all_pos_reparam_weights[row_idx], axis=2) 
+                                             for row_idx in range(num_areas)], axis=1)
     all_pos_within_weights = np.array(all_pos_within_weights) 
     all_pos_between_weights = np.array(all_pos_between_weights) 
 
-    fig, axes = plt.subplots(1,2, figsize=(12, 6))
-
     cmap_scale = concat_reparam_weights.mean(0).max()*0.9
-    sns.heatmap(concat_reparam_weights.mean(0), ax=axes[0], vmin=-cmap_scale, vmax=cmap_scale, cmap='RdBu_r', 
+    sns.heatmap(concat_reparam_weights.mean(0), ax=axes_heatmap, vmin=-cmap_scale, vmax=cmap_scale, cmap='RdBu_r', 
                      square=True, annot_kws={'fontdict':{'fontsize':10}}, cbar_kws={"shrink": 0.8})
 
-    cmap_scale = concat_reparam_weights.max()*1
-    violin_xxx = ['Ftr']*(len(plot_config)*len(plot_config[0])*6)\
-                +['Cnj']*(len(plot_config)*len(plot_config[0])*12)\
-                +['Obj']*(len(plot_config)*len(plot_config[0])*8)\
-                +['Btw']*np.prod(all_pos_between_weights.shape).astype(int)
-    sns.violinplot(ax=axes[1], 
-        x=violin_xxx, hue=violin_xxx,
-        y=np.concatenate([all_pos_within_weights[:,:,:6].flatten(), 
-                          all_pos_within_weights[:,:,6:18].flatten(), 
-                          all_pos_within_weights[:,:,18:27].flatten(), 
-                          all_pos_between_weights.flatten()]),
-        palette=sns.color_palette('Purples_r', 4), cut=0, legend=False)
+    
+    violin_xxx = ['Ftr']*(num_models*6)\
+                +['Cnj']*(num_models*12)\
+                +['Obj']*(num_models*8)\
+                +['Btw']*(all_pos_between_weights.size//(num_areas**2))
+    for row_idx in range(num_areas):
+        for col_idx in range(num_areas):
+            violin_scale = all_pos_within_weights[row_idx,col_idx].max()*1.1
+            sns.violinplot(ax=axes_violin[row_idx][col_idx], 
+                           x=violin_xxx, hue=violin_xxx,
+                           y=np.concatenate([all_pos_within_weights[row_idx,col_idx][:,:6].flatten(), 
+                                             all_pos_within_weights[row_idx,col_idx][:,6:18].flatten(), 
+                                             all_pos_within_weights[row_idx,col_idx][:,18:27].flatten(), 
+                                             all_pos_between_weights[row_idx,col_idx].flatten()]),
+                           palette=sns.color_palette('Purples_r', 4), cut=0, legend=False)
+            
+            temp_stats = mannwhitneyu(all_pos_within_weights[row_idx,col_idx][:,:6].flatten(), 
+                            all_pos_between_weights[row_idx,col_idx].flatten())
+            axes_violin[row_idx][col_idx].text(0, all_pos_within_weights[row_idx,col_idx][:,:6].max()*1.3, 
+                                               convert_pvalue_to_asterisks(temp_stats.pvalue), 
+                                               ha='center', va='bottom', c='k', fontsize=16)
+            
+            temp_stats = mannwhitneyu(all_pos_within_weights[row_idx,col_idx][:,6:18].flatten(), 
+                            all_pos_between_weights[row_idx,col_idx].flatten())
+            axes_violin[row_idx][col_idx].text(1, all_pos_within_weights[row_idx,col_idx][:,6:18].max()*1.3, 
+                                               convert_pvalue_to_asterisks(temp_stats.pvalue), 
+                                               ha='center', va='bottom', c='k', fontsize=16)
+            
+            temp_stats = mannwhitneyu(all_pos_within_weights[row_idx,col_idx][:,18:27].flatten(), 
+                            all_pos_between_weights[row_idx,col_idx].flatten())
+            axes_violin[row_idx][col_idx].text(2, all_pos_within_weights[row_idx,col_idx][:, 18:27].max()*1.3, 
+                                               convert_pvalue_to_asterisks(temp_stats.pvalue), 
+                                               ha='center', va='bottom', c='k', fontsize=16)
 
+            axes_violin[row_idx][col_idx].axhline(0, linestyle='--', color='k')
+            axes_violin[row_idx][col_idx].set_xlim([-0.5, 3.5])
+            axes_violin[row_idx][col_idx].set_ylim([-violin_scale, violin_scale*(2.0)])
+            
+            sns.despine(ax=axes_violin[row_idx][col_idx])
 
 def plot_recurrence(all_model_dpca_axes, all_model_rec_intra, n_components_for_dpca, axes, title):
     """
