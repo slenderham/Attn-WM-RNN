@@ -782,15 +782,11 @@ def plot_selectivity_clusters(all_dpca_results, keys, ideal_centroids, E_SIZE, I
     return [exc_clusters, inh_clusters]
 
 
-# TODO: change the dpca align function to use orthogonal contrasts for all weights
-# TODO: change the heatmap of overlap between dpca axes to incorporate both input and output weights on the same plot
-#           original dpca axes -> align all to the orthogonal contrasts -> orthogonalize input from output
-# TODO: finish the plot of overlap between dpca axes and recurrent weights
-# TODO: apply the dpca axes to the input and output weights to get the reparameterized weights
+# TODO: align all low dim dpca outputs to the orthogonal contrasts and 
+#       apply the dpca axes to the input and output weights to get the reparameterized weights -> get the reparameterized lrs
 # TODO: change the plot of hebbian memory matrix to incorporate both input and output weights on the same plot
-# TODO: add a heatmap for the overlap between dpca axes and recurrent weights
 # TODO: turn the sensitivity analysis into a function
-# TODO: turn the dpca analyses of the firing rates into a function (separate analyses for choice and learning)
+# TODO: turn the dpca analyses of the firing rates into a function
 
 
 def plot_input_output_overlap(all_model_dpca_in, all_model_dpca_out, n_components_for_dpca, dim_labels,axes):
@@ -914,23 +910,35 @@ def plot_reparam_weights(all_model_dpca, all_model_rec, n_components_for_dpca, a
                                              all_pos_between_weights[row_idx,col_idx].flatten()]),
                            palette=sns.color_palette('Purples_r', 4), cut=0, legend=False)
             
+            # plot the p-value for the between-weights vs. within-weights
+            unit_len = violin_scale/8
+
             temp_stats = mannwhitneyu(all_pos_within_weights[row_idx,col_idx][:,:6].flatten(), 
-                            all_pos_between_weights[row_idx,col_idx].flatten())
-            axes_violin[row_idx][col_idx].text(0, all_pos_within_weights[row_idx,col_idx][:,:6].max()*1.3, 
+                            all_pos_between_weights[row_idx,col_idx].flatten())        
+            bar_bottom = violin_scale+unit_len*3
+            bar_top = violin_scale+unit_len*3.2
+            axes_violin[row_idx][col_idx].plot([0, 0, 3, 3], [bar_bottom, bar_top, bar_top, bar_bottom], lw=1, c='k')
+            axes_violin[row_idx][col_idx].text(0.5, bar_top*1.02, 
                                                convert_pvalue_to_asterisks(temp_stats.pvalue), 
-                                               ha='center', va='bottom', c='k', fontsize=16)
+                                               ha='center', va='center', c='k', fontsize=14)
             
+            bar_bottom = violin_scale+unit_len*2
+            bar_top = violin_scale+unit_len*2.2
+            axes_violin[row_idx][col_idx].plot([1, 1, 3, 3], [bar_bottom, bar_top, bar_top, bar_bottom], lw=1, c='k')
             temp_stats = mannwhitneyu(all_pos_within_weights[row_idx,col_idx][:,6:18].flatten(), 
                             all_pos_between_weights[row_idx,col_idx].flatten())
-            axes_violin[row_idx][col_idx].text(1, all_pos_within_weights[row_idx,col_idx][:,6:18].max()*1.3, 
+            axes_violin[row_idx][col_idx].text(1.5, bar_top*1.02, 
                                                convert_pvalue_to_asterisks(temp_stats.pvalue), 
-                                               ha='center', va='bottom', c='k', fontsize=16)
+                                               ha='center', va='center', c='k', fontsize=14)
             
+            bar_bottom = violin_scale+unit_len*1
+            bar_top = violin_scale+unit_len*1.2
+            axes_violin[row_idx][col_idx].plot([2, 2, 3, 3], [bar_bottom, bar_top, bar_top, bar_bottom], lw=1, c='k')
             temp_stats = mannwhitneyu(all_pos_within_weights[row_idx,col_idx][:,18:27].flatten(), 
                             all_pos_between_weights[row_idx,col_idx].flatten())
-            axes_violin[row_idx][col_idx].text(2, all_pos_within_weights[row_idx,col_idx][:, 18:27].max()*1.3, 
+            axes_violin[row_idx][col_idx].text(2.5, bar_top*1.02, 
                                                convert_pvalue_to_asterisks(temp_stats.pvalue), 
-                                               ha='center', va='bottom', c='k', fontsize=16)
+                                               ha='center', va='center', c='k', fontsize=14)
 
             axes_violin[row_idx][col_idx].axhline(0, linestyle='--', color='k')
             axes_violin[row_idx][col_idx].set_xlim([-0.5, 3.5])
@@ -938,150 +946,6 @@ def plot_reparam_weights(all_model_dpca, all_model_rec, n_components_for_dpca, a
             
             sns.despine(ax=axes_violin[row_idx][col_idx])
 
-def plot_recurrence(all_model_dpca_axes, all_model_rec_intra, n_components_for_dpca, axes, title):
-    """
-    Plots the overlap between dPCA axes and recurrent weights within models.
-
-    Args:
-        all_model_dpca_axes (list): List of dPCA axes arrays for each model.
-        all_model_rec_intra (list): List of recurrent weight matrices for each model.
-        axes (list): List of matplotlib axes to plot on.
-        title (str): Title for the plot.
-    """
-    all_model_rec_overlap = []
-    all_model_overlap_within = []
-    all_model_overlap_between = []
-    for (all_dpca_axes, rec_intra) in zip(all_model_dpca_axes, all_model_rec_intra):
-        concat_dpca_axes = np.concatenate([all_dpca_axes[k] for k in n_components_for_dpca.keys()], axis=1)
-        num_components = concat_dpca_axes.shape[1]
-        rec_current = rec_intra.detach().numpy()@concat_dpca_axes
-        # rec_current = rec_current/np.linalg.norm(rec_current, axis=0)
-        rec_overlap = concat_dpca_axes.T@rec_current
-        all_model_rec_overlap.append(rec_overlap)
-        all_model_overlap_within.append(np.diag(rec_overlap))
-        all_model_overlap_between.append(rec_overlap[np.where(~np.eye(num_components,dtype=bool))])
-        
-    all_model_rec_overlap = np.stack(all_model_rec_overlap)
-    all_model_overlap_within = np.stack(all_model_overlap_within)
-    all_model_overlap_between = np.stack(all_model_overlap_between)
-        
-    cmap_scale = all_model_rec_overlap.mean(0).max()*0.9
-    
-    sns.heatmap(all_model_rec_overlap.mean(0), ax=axes[1], vmin=-cmap_scale, vmax=cmap_scale, cmap='RdBu_r', 
-                     square=True, annot_kws={'fontdict':{'fontsize':10}}, cbar_kws={"shrink": 0.8})
-    axes[1].set_xticks([])
-    axes[1].set_yticks([])
-    
-    cmap_scale = all_model_rec_overlap.max()*1
-    violin_xxx = ['Ftr']*(len(all_model_rec_intra)*6)\
-                +['Cnj']*(len(all_model_rec_intra)*12)\
-                +['Obj']*(len(all_model_rec_intra)*8)\
-                +['Btw']*np.prod(all_model_overlap_between.shape).astype(int)
-    sns.violinplot(ax=axes[0], 
-        x=violin_xxx, hue=violin_xxx,         
-        y=np.concatenate([all_model_overlap_within[:,:6].flatten(), 
-                          all_model_overlap_within[:,6:18].flatten(), 
-                          all_model_overlap_within[:,18:27].flatten(), 
-                          all_model_overlap_between.flatten()]),
-        palette=sns.color_palette('Purples_r', 4), cut=0, legend=False)
-    
-    temp_stats = mannwhitneyu(all_model_overlap_within.flatten(), all_model_overlap_between.flatten())
-    
-    
-    axes[0].axhline(0, linestyle='--', color='k')
-    axes[0].set_xlim([-0.5, 3.5])
-    axes[0].set_ylim([-cmap_scale, cmap_scale*(2.0)])
-    axes[0].set_ylabel("")
-    axes[0].set_title(title)
-    print(temp_stats)
-    
-    axes[0].plot([1, 1, 3, 3], [cmap_scale*1.2, cmap_scale*1.4, cmap_scale*1.4, cmap_scale*1.2], lw=1, c='k')
-    axes[0].plot([0, 2], [cmap_scale*1.2, cmap_scale*1.2], lw=1, c='k')
-    axes[0].text(2, cmap_scale*1.3, convert_pvalue_to_asterisks(temp_stats.pvalue), 
-                 ha='center', va='bottom', c='k', fontsize=16)
-    
-    sns.despine(ax=axes[0])
-
-
-def plot_ff_fb(all_model_dpca_pre, all_model_dpca_post, all_model_rec_inter, 
-               axes, title, pre_label, post_label):
-    """
-    Plots the explained variance of feedforward and feedback connections between model areas using dPCA axes.
-
-    Args:
-        all_model_dpca_pre (list): List of dPCA result objects for pre-synaptic area for each model.
-        all_model_dpca_post (list): List of dPCA result objects for post-synaptic area for each model.
-        all_model_rec_inter (list): List of inter-area recurrent weight matrices for each model.
-        axes (list): List of matplotlib axes to plot on.
-        title (str): Title for the plot.
-        pre_label (str): Label for pre-synaptic area.
-        post_label (str): Label for post-synaptic area.
-    """
-    all_model_explained_vars = []
-    all_model_vars_within = []
-    all_model_vars_between = []
-    
-    for (dpca_pre, dpca_post, rec_inter) in zip(all_model_dpca_pre, all_model_dpca_post, all_model_rec_inter):
-        
-        explained_vars = np.zeros((7,7))
-
-        for k_in_idx, k_in in enumerate(['s', 'p', 'c', 'pc', 'sc', 'sp', 'spc']):
-            currents = rec_inter.detach().numpy()@dpca_pre.P[k_in]
-#             currents -= currents.mean(0, keepdims=True)
-            for k_out_idx, k_out in enumerate(['s', 'p', 'c', 'pc', 'sc', 'sp', 'spc']):
-                explained_vars[k_out_idx][k_in_idx] = \
-                    np.sum((dpca_post.P[k_out].T@currents)**2)/np.sum(currents**2)
-#                 explained_vars[k_out_idx][k_in_idx] = np.sum((dpca_post.P[k_out].T@currents)**2)/dpca_post.P[k_out].shape[1]
-
-        all_model_explained_vars.append(explained_vars)
-        all_model_vars_within.append(np.diag(explained_vars))
-        all_model_vars_between.append(explained_vars[np.where(~np.eye(7, dtype=bool))])
-        
-    all_model_explained_vars = np.stack(all_model_explained_vars)
-    all_model_vars_within = np.stack(all_model_vars_within)
-    all_model_vars_between = np.stack(all_model_vars_between)
-    
-    cmap_scale = all_model_explained_vars.mean(0).max()*1
-    
-    cm = sns.heatmap(all_model_explained_vars.mean(0), ax=axes[1], vmin=0, vmax=None, cmap='Reds', 
-                     square=True, annot_kws={'fontdict':{'fontsize':10}}, cbar_kws={"shrink": 1})
-    axes[1].set_ylabel(post_label)
-    axes[1].set_xlabel(pre_label)
-    
-    cmap_scale = all_model_explained_vars.max()*1
-    violinplot_xxx = ['Ftr']*(len(all_model_rec_inter)*3)\
-                    +['Cnj']*(len(all_model_rec_inter)*3)\
-                    +['Obj']*(len(all_model_rec_inter))\
-                    +['Btw']*np.prod(all_model_vars_between.shape).astype(int)
-    sns.violinplot(ax=axes[0], 
-        x=violinplot_xxx, hue=violinplot_xxx,
-        y=np.concatenate([all_model_vars_within[:,:3].flatten(), 
-                          all_model_vars_within[:,3:6].flatten(),
-                          all_model_vars_within[:,6].flatten(),
-                          all_model_vars_between.flatten()]),
-        palette=sns.color_palette('Purples_r', 4), cut=0, legend=False)
-    
-    temp_stats = mannwhitneyu(all_model_vars_within.flatten(), all_model_vars_between.flatten())
-    
-    
-    axes[0].axhline(0, linestyle='--', color='k')
-    axes[0].set_xlim([-0.5, 3.5])
-    axes[0].set_ylim([-.1*cmap_scale, cmap_scale*1.3])
-    axes[0].set_ylabel("")
-    axes[0].set_title(title)
-    print(temp_stats)
-    
-    unit_len = cmap_scale/10
-
-    bar_bottom = cmap_scale+unit_len*0.5
-    bar_top = cmap_scale+unit_len*1.
-
-    axes[0].plot([1, 1, 3, 3], [bar_bottom, bar_top, bar_top, bar_bottom], lw=1, c='k')
-    axes[0].plot([0, 2], [bar_bottom, bar_bottom], lw=1, c='k')
-    axes[0].text(2, bar_bottom+unit_len/20, 
-                 convert_pvalue_to_asterisks(temp_stats.pvalue), 
-                 ha='center', va='bottom', c='k', fontsize=16)
-    sns.despine(ax=axes[0])
 
 def plot_connectivity_by_clusters(all_model_rec, all_model_clusters_pre, all_model_clusters_post, label, axes):
     num_clusters_exc_pre = np.unique(all_model_clusters_pre[0])[-1]+1
@@ -1137,118 +1001,142 @@ def plot_connectivity_by_clusters(all_model_rec, all_model_clusters_pre, all_mod
     axes.set_title(label)
 
 
-def plot_hebb_overlap(all_model_dpca_axes_pre_enc, all_model_dpca_axes_post_enc, 
-                      all_model_dpca_axes_pre_rtv, all_model_dpca_axes_post_rtv, 
-                      all_model_kappa_rec, 
-                      axes, title):
+def plot_reparam_lrs(all_model_dpca, all_model_kappa, n_components_for_dpca, axes_heatmap, axes_violin):
     """
     Plots the overlap between Hebbian memory matrices and dPCA axes for encoding and retrieval phases.
 
     Args:
-        all_model_dpca_axes_pre_enc (list): List of dPCA axes for pre-synaptic encoding phase for each model.
-        all_model_dpca_axes_post_enc (list): List of dPCA axes for post-synaptic encoding phase for each model.
-        all_model_dpca_axes_pre_rtv (list): List of dPCA axes for pre-synaptic retrieval phase for each model.
-        all_model_dpca_axes_post_rtv (list): List of dPCA axes for post-synaptic retrieval phase for each model.
-        all_model_kappa_rec (list): List of recurrent learning rate matrices for each model.
-        axes (matplotlib.axes.Axes): Axes to plot on.
-        title (str): Title for the plot.
+        all_model_dpca: dict of {dpca_dict_name: dpca_result}, where dpca_dict_name is the name of the dpca dictionary
+        all_model_kappa: dict of {(area_in, area_out): learning rate matrices}
+        n_components_for_dpca: dict, number of components for each dimension
+        axes_heatmap: matplotlib axes, axes to plot on for the heatmap
+        axes_violin: matplotlib axes, axes to plot on for the violin plot
+        title: str, title for the plot
     """
-    all_model_overlaps = {'same_pre_post': [], 'same_pre': [], 'same_post': [], 'diff': []}
+    num_models = len(all_model_dpca[0]['encoding_axes'])
+    num_areas = len(all_model_kappa)
+
+    all_pos_reparam_lrs = [[None for _ in range(num_areas)] for _ in range(num_areas)]
+    all_pos_mem_overlaps = {'same_pre_post': [[[] for _ in range(num_areas)] for _ in range(num_areas)],  
+                          # (num_models, num_axis*num_axis)
+                          'same_pre': [[[] for _ in range(num_areas)] for _ in range(num_areas)], 
+                          # (num_models, num_axis*num_axis*(num_axis-1))
+                          'same_post': [[[] for _ in range(num_areas)] for _ in range(num_areas)], 
+                          # (num_models, num_axis*num_axis*(num_axis-1))
+                          'diff': [[[] for _ in range(num_areas)] for _ in range(num_areas)]} 
+                          # (num_models, num_axis*num_axis*(num_axis-1)*(num_axis-1))}
+
+    for row_idx in range(num_areas): # area out
+        for col_idx in range(num_areas): # area in
+            num_axis = sum(list(n_components_for_dpca.values()))
+
+            if row_idx != col_idx+1 and col_idx != row_idx+1:
+                all_pos_reparam_lrs[row_idx][col_idx] = np.zeros((num_models, num_axis, num_axis))
+                continue
             
-    for all_dpca_axes_pre_enc, all_dpca_axes_post_enc, \
-        all_dpca_axes_pre_rtv, all_dpca_axes_post_rtv, kappa_rec in \
-            tqdm.tqdm(zip(all_model_dpca_axes_pre_enc, all_model_dpca_axes_post_enc, \
-                all_model_dpca_axes_pre_rtv, all_model_dpca_axes_post_rtv, all_model_kappa_rec)):
-        
-        overlaps = {'same_pre_post': [], 'same_pre': [], 'same_post': [], 'diff': []}
-        num_axis = all_dpca_axes_pre_enc.shape[1]
-        
-        for i in range(num_axis):
-            for j in range(num_axis):
-                # calculate hebbian memory
-                mem_mat = kappa_rec.numpy()*(all_dpca_axes_post_enc[:,i:i+1]@all_dpca_axes_pre_enc[:,j:j+1].T)
-                
-                # calculate overlap between cued recall and ground truth
-                for k in range(num_axis):
-                    for l in range(num_axis):
-                        curr_overlap = all_dpca_axes_post_rtv[:,k:k+1].T@mem_mat@all_dpca_axes_pre_rtv[:,l:l+1]
-                        if i==k and j==l:
-                            overlaps['same_pre_post'].append(curr_overlap)
-                        elif j==l:
-                            overlaps['same_pre'].append(curr_overlap)
-                        elif i==k:
-                            overlaps['same_post'].append(curr_overlap)
-                        else:
-                            overlaps['diff'].append(curr_overlap)
-                            
-        
-        for k, v in overlaps.items():
-            all_model_overlaps[k].append(v)
-    
-    for k, v in overlaps.items():
-        all_model_overlaps[k] = np.stack(all_model_overlaps[k])
-    
-    cmap_scale_max = max([all_model_overlaps['same_pre_post'].max(),
-                          all_model_overlaps['same_pre'].max(),
-                          all_model_overlaps['same_post'].max(),
-                          all_model_overlaps['diff'].max()])
-    cmap_scale_min = min([all_model_overlaps['same_pre_post'].min(),
-                          all_model_overlaps['same_pre'].min(),
-                          all_model_overlaps['same_post'].min(),
-                          all_model_overlaps['diff'].min()])
-        
-        
-    sns.violinplot(ax=axes[1],
-                  x=['Same']*np.prod(all_model_overlaps['same_pre_post'].shape)+\
-                   ['Diff O']*np.prod(all_model_overlaps['same_pre'].shape)+
-                   ['Diff I']*np.prod(all_model_overlaps['same_post'].shape)+\
-                   ['Diff IO']*np.prod(all_model_overlaps['diff'].shape),
-                  y=np.concatenate([all_model_overlaps['same_pre_post'].flatten(),
-                                   all_model_overlaps['same_pre'].flatten(),
-                                   all_model_overlaps['same_post'].flatten(),
-                                   all_model_overlaps['diff'].flatten()]),
-                   hue=['Same']*np.prod(all_model_overlaps['same_pre_post'].shape)+\
-                   ['Diff O']*np.prod(all_model_overlaps['same_pre'].shape)+
-                   ['Diff I']*np.prod(all_model_overlaps['same_post'].shape)+\
-                   ['Diff IO']*np.prod(all_model_overlaps['diff'].shape),
-                  palette=sns.color_palette('pastel', 4), cut=0, legend=False)
-    
-    axes.set_xticks(np.arange(4))
-    axes.set_xticklabels(axes.get_xticklabels(), rotation=30)
-    axes.axhline(0, linestyle = '--', color='k', linewidth=0.5)
-    axes.set_title(title)
-    axes.set_ylim([cmap_scale_min*1.2, cmap_scale_max*1.7])
+            curr_pos_dpca_axes_in = all_model_dpca[col_idx]['encoding_axes']
+            curr_pos_dpca_axes_out = all_model_dpca[row_idx]['encoding_axes']
+            curr_pos_raw_lrs = all_model_kappa[row_idx][col_idx]
 
-    # Plot the 'same_pre_post' as a matrix heatmap in axes[0], using the same grid as in plot_recurrence
+            all_pos_reparam_lrs[row_idx][col_idx] = np.empty((num_models, num_axis, num_axis))*np.nan
 
-    same_pre_post = all_model_overlaps['same_pre_post']
-    # If shape is (n_models, n, n), average over models
-    if same_pre_post.ndim == 3:
-        mean_overlap = same_pre_post.mean(axis=0)
-    else:
-        mean_overlap = same_pre_post
+            for mdl_idx in tqdm.tqdm(range(num_models), desc=f'Calculating reparameterized learning rates for {col_idx} -> {row_idx}'):
+                curr_mdl_dpca_axes_in = np.concatenate([curr_pos_dpca_axes_in[mdl_idx][k] for k in n_components_for_dpca.keys()], axis=1)
+                curr_mdl_dpca_axes_out = np.concatenate([curr_pos_dpca_axes_out[mdl_idx][k] for k in n_components_for_dpca.keys()], axis=1)
+                curr_mdl_raw_lrs = curr_pos_raw_lrs[mdl_idx].detach().numpy()
 
-    # Plot heatmap
-    sns.heatmap(mean_overlap, ax=axes[0], cmap='RdBu_r', center=0, vmin=cmap_scale_min, vmax=cmap_scale_max,
+                for i in range(num_axis):
+                    for j in range(num_axis):
+                        mem_mat = curr_mdl_raw_lrs*(curr_mdl_dpca_axes_out[:,i:i+1]@curr_mdl_dpca_axes_in[:,j:j+1].T)
+
+                        for k in range(num_axis):
+                            for l in range(num_axis):
+                                curr_overlap = (curr_mdl_dpca_axes_out[:,k:k+1].T@mem_mat@curr_mdl_dpca_axes_in[:,l:l+1]).squeeze()
+                                if i==k and j==l:
+                                    all_pos_mem_overlaps['same_pre_post'][row_idx][col_idx].append(curr_overlap)
+                                    all_pos_reparam_lrs[row_idx][col_idx][mdl_idx,i,j] = curr_overlap
+                                elif j==l:
+                                    all_pos_mem_overlaps['same_pre'][row_idx][col_idx].append(curr_overlap)
+                                elif i==k:
+                                    all_pos_mem_overlaps['same_post'][row_idx][col_idx].append(curr_overlap)
+                                else:
+                                    all_pos_mem_overlaps['diff'][row_idx][col_idx].append(curr_overlap)
+
+            print(all_pos_reparam_lrs[row_idx][col_idx].shape)
+            print(len(all_pos_mem_overlaps['same_pre_post'][row_idx][col_idx]))
+            print(len(all_pos_mem_overlaps['same_pre'][row_idx][col_idx]))
+            print(len(all_pos_mem_overlaps['same_post'][row_idx][col_idx]))
+            print(len(all_pos_mem_overlaps['diff'][row_idx][col_idx]))
+    
+    all_pos_reparam_lrs = np.concatenate([np.concatenate(all_pos_reparam_lrs[row_idx], axis=2) 
+                                                for row_idx in range(num_areas)], axis=1)
+    
+    for k in all_pos_mem_overlaps.keys():
+        print(k)
+        all_pos_mem_overlaps[k] = np.stack([np.stack([all_pos_mem_overlaps[k][area_idx][area_idx+1], 
+                                             all_pos_mem_overlaps[k][area_idx+1][area_idx]]) for area_idx in range(num_areas-1)], axis=0)
+
+    print(all_pos_reparam_lrs.shape)
+    print(all_pos_mem_overlaps['same_pre_post'].shape)
+    print(all_pos_mem_overlaps['same_pre'].shape)
+    print(all_pos_mem_overlaps['same_post'].shape)
+    print(all_pos_mem_overlaps['diff'].shape)
+
+    # plot the average reparameterized learning rates
+    cmap_scale_max = all_pos_reparam_lrs.mean(0).max()
+    cmap_scale_min = all_pos_reparam_lrs.mean(0).min()
+    sns.heatmap(all_pos_reparam_lrs.mean(0), ax=axes_heatmap, cmap='RdBu_r', center=0, vmin=cmap_scale_min, vmax=cmap_scale_max,
                 square=True, cbar_kws={"shrink": 0.7})
-    axes[0].set_title("Same Pre/Post Overlap Matrix")
-    axes[0].set_xlabel("Pre")
-    axes[0].set_ylabel("Post")
+    axes_heatmap.set_xlabel("Pre")
+    axes_heatmap.set_ylabel("Post")
+
+
+    # plot all the memory overlaps in violin plots
+    cmap_scale_max = max([all_pos_mem_overlaps['same_pre_post'].max(),
+                          all_pos_mem_overlaps['same_pre'].max(),
+                          all_pos_mem_overlaps['same_post'].max(),
+                          all_pos_mem_overlaps['diff'].max()])
+    cmap_scale_min = min([all_pos_mem_overlaps['same_pre_post'].min(),
+                          all_pos_mem_overlaps['same_pre'].min(),
+                          all_pos_mem_overlaps['same_post'].min(),
+                          all_pos_mem_overlaps['diff'].min()])
 
     
-    for key_idx, key in enumerate(['same_pre', 'same_post', 'diff']):
-        temp_stats = mannwhitneyu(all_model_overlaps['same_pre_post'].flatten(), 
-                                        all_model_overlaps[key].flatten())
+    for row_idx in range(num_areas):
+        col_idx = 1-row_idx
+        sns.violinplot(ax=axes_violin[row_idx],
+                    x=['Same']*np.prod(all_pos_mem_overlaps['same_pre_post'][row_idx][col_idx].shape)+\
+                      ['Diff O']*np.prod(all_pos_mem_overlaps['same_pre'][row_idx][col_idx].shape)+
+                      ['Diff I']*np.prod(all_pos_mem_overlaps['same_post'][row_idx][col_idx].shape)+\
+                      ['Diff IO']*np.prod(all_pos_mem_overlaps['diff'][row_idx][col_idx].shape),
+                    y=np.concatenate([all_pos_mem_overlaps['same_pre_post'][row_idx][col_idx].flatten(),
+                                    all_pos_mem_overlaps['same_pre'][row_idx][col_idx].flatten(),
+                                    all_pos_mem_overlaps['same_post'][row_idx][col_idx].flatten(),
+                                    all_pos_mem_overlaps['diff'][row_idx][col_idx].flatten()]),
+                    hue=['Same']*np.prod(all_pos_mem_overlaps['same_pre_post'][row_idx][col_idx].shape)+\
+                        ['Diff O']*np.prod(all_pos_mem_overlaps['same_pre'][row_idx][col_idx].shape)+
+                        ['Diff I']*np.prod(all_pos_mem_overlaps['same_post'][row_idx][col_idx].shape)+\
+                        ['Diff IO']*np.prod(all_pos_mem_overlaps['diff'][row_idx][col_idx].shape),
+                    palette=sns.color_palette('pastel', 4), cut=0, legend=False)
         
-        unit_len = cmap_scale_max/8
-        
-        bar_bottom = cmap_scale_max+unit_len*(key_idx+1)
-        bar_top = cmap_scale_max+unit_len*(key_idx+1.2)
-        
-        axes.plot([0, 0, key_idx+1, key_idx+1], 
-                     [bar_bottom, bar_top, bar_top, bar_bottom], lw=1, c='k')
-        axes.text(0.5+key_idx, bar_top*1.02, 
-                     convert_pvalue_to_asterisks(temp_stats.pvalue), 
-                     ha='center', va='center', c='k', fontsize=12)
+        axes_violin[row_idx].set_xticks(np.arange(4))
+        axes_violin[row_idx].set_xticklabels(axes_violin[row_idx].get_xticklabels(), rotation=30)
+        axes_violin[row_idx].axhline(0, linestyle = '--', color='k', linewidth=0.5)
+        axes_violin[row_idx].set_ylim([cmap_scale_min*1.2, cmap_scale_max*1.7])
 
-    sns.despine()
+        for key_idx, key in enumerate(['same_pre', 'same_post', 'diff']):
+            temp_stats = mannwhitneyu(all_pos_mem_overlaps['same_pre_post'][row_idx][col_idx].flatten(), 
+                                            all_pos_mem_overlaps[key][row_idx][col_idx].flatten())
+            
+            unit_len = cmap_scale_max/8
+            
+            bar_bottom = cmap_scale_max+unit_len*(key_idx+1)
+            bar_top = cmap_scale_max+unit_len*(key_idx+1.2)
+            
+            axes_violin[row_idx].plot([0, 0, key_idx+1, key_idx+1], 
+                        [bar_bottom, bar_top, bar_top, bar_bottom], lw=1, c='k')
+            axes_violin[row_idx].text(0.5+key_idx, bar_top*1.02, 
+                        convert_pvalue_to_asterisks(temp_stats.pvalue), 
+                        ha='center', va='center', c='k', fontsize=12)
+
+        sns.despine(ax=axes_violin[row_idx])

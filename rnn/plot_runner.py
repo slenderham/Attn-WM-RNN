@@ -306,8 +306,7 @@ def get_all_dpca_results(all_models, task_mdprl, n_components_for_dpca, args):
     return all_model_dpca_stim_in, all_model_dpca_choice_out, all_model_dpca_stim_out
     
 
-def run_plot_psth_geometry(all_model_dpca_stim_in, all_model_dpca_choice_out, 
-                         all_model_dpca_stim_out, args):
+def run_plot_psth_geometry(all_model_dpca_stim_in, all_model_dpca_choice_out, args):
 
     fig, axes = plt.subplots(2,2, figsize=(10, 7), height_ratios=(6,1))
 
@@ -478,68 +477,50 @@ def run_plot_reparam_weights(all_model_dpca_stim_in, all_model_dpca_choice_out,
         pdf.savefig(fig_violin)
         print(f'Figure saved at plots/{plot_save_dir}/fixed_weight_reparam_weights_violin.pdf')
 
+def run_plot_reparam_lrs(all_model_dpca_stim_in, all_model_dpca_choice_out, 
+                         all_model_kappa_rec_intra, all_model_kappa_inter_ff, all_model_kappa_inter_fb, args):
+    fig_heatmap, axes_heatmap = plt.subplots(1, 1, figsize=(10, 10))
+    fig_violin, axes_violin = plt.subplots(2, 1, figsize=(8, 10))
 
-def run_plot_recurrence(all_model_dpca_stim_in, all_model_dpca_choice_out, args):
-    
-    fig, axes = plt.subplots(2,2, figsize=(9, 6), height_ratios=[1, 2])
+    dpca_dict = [all_model_dpca_stim_in, all_model_dpca_choice_out]
+    kappa_dict = [
+        [[kappa_intra[0] for kappa_intra in all_model_kappa_rec_intra],
+        [kappa_inter_fb[0] for kappa_inter_fb in all_model_kappa_inter_fb]],
+        [[kappa_inter_ff[0] for kappa_inter_ff in all_model_kappa_inter_ff],
+        [kappa_intra[1] for kappa_intra in all_model_kappa_rec_intra]]
+    ]
 
+    plot_reparam_lrs(dpca_dict, kappa_dict, n_components_for_dpca, axes_heatmap, axes_violin)
 
-    plot_recurrence(all_model_dpca_stim_in['encoding_axes'], [rec_intra[0] for rec_intra in all_model_rec_intra], n_components_for_dpca,
-                    axes[:,0], "Stimuli input")
-    plot_recurrence(all_model_dpca_choice_out['encoding_axes'], [rec_intra[1] for rec_intra in all_model_rec_intra], n_components_for_dpca,
-                    axes[:,1], "Choice output")
-    # plot_recurrence(all_model_dpca_choice_in['encoding_axes'], [rec_intra[1] for rec_intra in all_model_rec_intra], n_components_for_dpca,
-    #                 axes[:,2], "Choice input")
-    # plot_recurrence(all_model_dpca_stim_out['encoding_axes'], [rec_intra[0] for rec_intra in all_model_rec_intra], n_components_for_dpca,  
-    #                 axes[:,3], "Stimuli output")
-
-
-    axes[0,0].set_ylabel('Overlap', labelpad=10)
-    axes[1,0].set_ylabel('Reparam\'ed W', labelpad=10)
-
+    total_components = np.sum(list(n_components_for_dpca.values()))
     for j in range(2):
         block_boundaries = np.cumsum(list(n_components_for_dpca.values()))[:-1]
         for i in block_boundaries:
-            axes[1,j].axvline(x=i,color='k',linewidth=0.2)
-            axes[1,j].axhline(y=i,color='k',linewidth=0.2)
-        tick_locs = np.cumsum([0, *n_components_for_dpca.values()])[:-1]+np.array(list(n_components_for_dpca.values()))//2
-        axes[1,j].set_xticks(tick_locs, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'], size=14, rotation=0)
-        axes[1,j].set_yticks(tick_locs, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'], size=16)
-
-    fig.tight_layout()
-
-    with PdfPages(f'plots/{plot_save_dir}/recurrent_transform_overlap.pdf') as pdf:
-        pdf.savefig(fig)
-        print(f'Figure saved at plots/{plot_save_dir}/recurrent_transform_overlap.pdf')
-
-
-def run_plot_interareal_transform_overlap(all_model_dpca_stim_in, all_model_dpca_choice_out, 
-                                          all_model_dpca_choice_in, all_model_dpca_stim_out, args):
+            axes_heatmap.axvline(x=total_components*j+i,color='k',linewidth=0.2)
+            axes_heatmap.axhline(y=total_components*j+i,color='k',linewidth=0.2)
+    axes_heatmap.axvline(x=total_components,color='k',linewidth=0.2)
+    axes_heatmap.axhline(y=total_components,color='k',linewidth=0.2)
     
-    fig, axes = plt.subplots(2, 4, figsize=(18,6), height_ratios=(1,2))
+    tick_locs = np.cumsum([0, *n_components_for_dpca.values()])[:-1]+np.array(list(n_components_for_dpca.values()))//2
+    axes_heatmap.set_xticks(np.concatenate([tick_locs, total_components+tick_locs]), 
+                            [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*2, size=14, rotation=0)
+    axes_heatmap.set_yticks(np.concatenate([tick_locs, total_components+tick_locs]), 
+                            [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*2, size=16)
 
-    plot_ff_fb(all_model_dpca_stim_in, all_model_dpca_choice_out, [rec_inter_ff[0] for rec_inter_ff in all_model_rec_inter_ff],
-            axes[:,0], 'Stimuli feedforward', 'Input', 'Output')
-    plot_ff_fb(all_model_dpca_stim_out, all_model_dpca_choice_out, [rec_inter_ff[0] for rec_inter_ff in all_model_rec_inter_ff],
-            axes[:,1], 'Stimuli feedforward', 'Input', 'Output')
-    plot_ff_fb(all_model_dpca_choice_out, all_model_dpca_stim_in, [rec_inter_fb[0] for rec_inter_fb in all_model_rec_inter_fb],
-            axes[:,2], 'Output feedback', 'Output', 'Input')
-    plot_ff_fb(all_model_dpca_choice_out, all_model_dpca_stim_out, [rec_inter_fb[0] for rec_inter_fb in all_model_rec_inter_fb],
-            axes[:,3], 'Choice feedback', 'Choice', 'Input')
+    axes_violin[0].set_title('Input -> Output')
+    axes_violin[1].set_title('Output -> Input')
 
-    for i in range(4):
-        axes[1,i].set_xticks(np.arange(0,7)+0.5)
-        axes[1,i].set_xticklabels([r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'], fontsize=18)
-        axes[1,i].set_yticks(np.arange(0,7)+0.5)
-        axes[1,i].set_yticklabels([r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'], fontsize=18, rotation=0)
+    fig_heatmap.tight_layout()
+    with PdfPages(f'plots/{plot_save_dir}/learning_rates_reparam_heatmap.pdf') as pdf:
+        pdf.savefig(fig_heatmap)
+        print(f'Figure saved at plots/{plot_save_dir}/learning_rates_reparam_heatmap.pdf')
+    
+    fig_violin.tight_layout()
+    with PdfPages(f'plots/{plot_save_dir}/learning_rates_reparam_violin.pdf') as pdf:
+        pdf.savefig(fig_violin)
+        print(f'Figure saved at plots/{plot_save_dir}/learning_rates_reparam_violin.pdf')
 
-    axes[0,0].set_ylabel('Overlap')
-    # axes[1,0].set_ylabel('Rotated Weights', labelpad=40)
-    fig.tight_layout()
-
-    with PdfPages(f'plots/{plot_save_dir}/interareal_transform_overlap.pdf') as pdf:
-        pdf.savefig(fig)
-        print(f'Figure saved at plots/{plot_save_dir}/interareal_transform_overlap.pdf')
+    
 
 def run_plot_connectivity_by_clusters(all_model_rec, all_model_clusters_pre, all_model_clusters_post, label, axes):
     fig, axes = plt.subplots(1, 3, figsize=(22, 6))
@@ -651,7 +632,7 @@ if __name__ == '__main__':
     all_model_kappa_rec_intra, all_model_kappa_inter_ff, all_model_kappa_inter_fb = get_lrs_by_area(all_models, args)
 
     # plot_weights_lrs_by_area(all_model_rec_intra, all_model_rec_inter_ff, all_model_rec_inter_fb, 
-                            #  all_model_kappa_inter_ff, all_model_kappa_inter_fb, args)
+    #                          all_model_kappa_inter_ff, all_model_kappa_inter_fb, args)
 
     '''get dpca results'''
     global n_components_for_dpca, dim_labels
@@ -661,10 +642,10 @@ if __name__ == '__main__':
         get_all_dpca_results(all_models, task_mdprl, n_components_for_dpca, args)
 
     '''plot psth geometry'''
-    # run_plot_psth_geometry(all_model_dpca_stim_in, all_model_dpca_choice_out, all_model_dpca_stim_out, args)
+    # run_plot_psth_geometry(all_model_dpca_stim_in, all_model_dpca_choice_out, args)
 
     '''plot weight exp vars'''
-    # run_plot_weight_exp_vars(all_model_dpca_stim_in, all_model_dpca_stim_out, args)
+    # run_plot_weight_exp_vars(all_model_dpca_stim_in, all_model_dpca_choice_out, args)
 
     '''plot output choice overlap'''
     # _ = run_plot_output_choice_overlap(all_model_dpca_stim_in, all_model_dpca_stim_out, args)
@@ -680,14 +661,13 @@ if __name__ == '__main__':
     # all_model_selectivity_clusters_stim, all_model_selectivity_clusters_choice = \
     #         run_plot_selectivity_clusters(all_model_dpca_stim_in, all_model_dpca_choice_out, args)
     
-    '''plot recurrence'''
-    # run_plot_recurrence(all_model_dpca_stim_in, all_model_dpca_choice_out, args)
-    run_plot_reparam_weights(all_model_dpca_stim_in, all_model_dpca_choice_out, 
-                             all_model_rec_intra, all_model_rec_inter_ff, all_model_rec_inter_fb, args)
+    '''plot reparameterized weights'''
+    # run_plot_reparam_weights(all_model_dpca_stim_in, all_model_dpca_choice_out, 
+    #                          all_model_rec_intra, all_model_rec_inter_ff, all_model_rec_inter_fb, args)
     
-    '''plot interareal transform overlap'''
-    # run_plot_interareal_transform_overlap(all_model_dpca_stim_in, all_model_dpca_choice_out, 
-    #                                       all_model_dpca_choice_in, all_model_dpca_stim_out, args)
+    '''plot reparameterized learning rates'''
+    run_plot_reparam_lrs(all_model_dpca_stim_in, all_model_dpca_choice_out, 
+                         all_model_kappa_rec_intra, all_model_kappa_inter_ff, all_model_kappa_inter_fb, args)
 
 
 
