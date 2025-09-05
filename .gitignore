@@ -350,7 +350,6 @@ MigrationBackup/
 .ionide/
 
 exp/
-plots/
 settings.json
 .ipynb_checkpoints/
 .DS_Store

@@ -482,12 +482,10 @@ def run_plot_reparam_lrs(all_model_dpca_stim_in, all_model_dpca_choice_out,
     fig_heatmap, axes_heatmap = plt.subplots(1, 1, figsize=(10, 10))
     fig_violin, axes_violin = plt.subplots(2, 1, figsize=(8, 10))
 
-    dpca_dict = [all_model_dpca_stim_in, all_model_dpca_choice_out]
+    dpca_dict = [[all_model_dpca_stim_in, all_model_dpca_choice_out]]
     kappa_dict = [
-        [[kappa_intra[0] for kappa_intra in all_model_kappa_rec_intra],
-        [kappa_inter_fb[0] for kappa_inter_fb in all_model_kappa_inter_fb]],
         [[kappa_inter_ff[0] for kappa_inter_ff in all_model_kappa_inter_ff],
-        [kappa_intra[1] for kappa_intra in all_model_kappa_rec_intra]]
+         [kappa_inter_fb[0] for kappa_inter_fb in all_model_kappa_inter_fb]],
     ]
 
     plot_reparam_lrs(dpca_dict, kappa_dict, n_components_for_dpca, axes_heatmap, axes_violin)
