@@ -622,8 +622,8 @@ if __name__ == '__main__':
     args['plot_save_dir'] = plot_save_dir
     
     '''plot connections and learning rates'''
-    # plot_all_connectivities(all_models, args)
-    # plot_wh_spectrum(all_models, args)
+    plot_all_connectivities(all_models, args)
+    plot_wh_spectrum(all_models, args)
 
     '''get weights and learning rates by area'''
     all_model_rec_intra, all_model_rec_inter_ff, all_model_rec_inter_fb = get_weights_by_area(all_models, args)
@@ -664,8 +664,12 @@ if __name__ == '__main__':
     #                          all_model_rec_intra, all_model_rec_inter_ff, all_model_rec_inter_fb, args)
     
     '''plot reparameterized learning rates'''
-    run_plot_reparam_lrs(all_model_dpca_stim_in, all_model_dpca_choice_out, 
-                         all_model_kappa_rec_intra, all_model_kappa_inter_ff, all_model_kappa_inter_fb, args)
+    # run_plot_reparam_lrs(all_model_dpca_stim_in, all_model_dpca_choice_out, 
+    #                      all_model_kappa_rec_intra, all_model_kappa_inter_ff, all_model_kappa_inter_fb, args)
+
+    '''plot connectivity by clusters'''
+    # run_plot_connectivity_by_clusters(all_model_rec_intra, all_model_selectivity_clusters_in, all_model_selectivity_clusters_out, args)
 
 
-
+    '''plot learning rates by clusters'''
+    # run_plot_learning_rates_by_clusters(all_model_kappa_rec_intra, all_model_selectivity_clusters_in, all_model_selectivity_clusters_out, args)
