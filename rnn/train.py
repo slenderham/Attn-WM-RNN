@@ -41,34 +41,34 @@ def train(model, iters):
             ''' first phase, give nothing '''
             all_x = {
                 'stim': torch.zeros_like(pop_s[i]),
-                # 'action': torch.zeros(args.batch_size, output_size, device=device),
+                'action': torch.zeros(args.batch_size, output_size, device=device),
             }
             _, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_fixation, 
                                             neumann_order=args.neumann_order,
                                             hidden=hidden, w_hidden=w_hidden, 
                                             DAs=None)
-            loss += args.l2r*hs.pow(2).mean()/2
+            loss += args.l2r*hs.pow(2).mean()/3
 
             ''' second phase, give stimuli and no feedback '''
             all_x = {
                 'stim': pop_s[i],
-                # 'action': torch.zeros(args.batch_size, output_size, device=device),
+                'action': torch.zeros(args.batch_size, output_size, device=device),
             }
             output, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_stim, 
                                                 neumann_order=args.neumann_order,
                                                 hidden=hidden, w_hidden=w_hidden, 
                                                 DAs=None)
-            loss += args.l2r*hs.pow(2).mean()/2
+            loss += args.l2r*hs.pow(2).mean()/3
 
             ''' use output to calculate action, reward, and record loss function '''
             if args.task_type=='on_policy_double':
                 if args.decision_space=='action':
-                    action_loc = torch.argmax(output['action'], dim=-1)
+                    action_loc = torch.multinomial(output['action'].softmax(-1), num_samples=1).squeeze(-1)
                     action_stim = index_s[i, action_loc]
                     rwd = rwd_s[i][torch.arange(args.batch_size), action_loc]
                     action = action_loc
                 elif args.decision_space=='good':
-                    action_loc = torch.argmax(output['action'][:,index_s[i]], dim=-1)
+                    action_loc = torch.multinomial(output['action'][:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
                     action_stim = index_s[i, action_loc] # (batch size)
                     rwd = rwd_s[i][torch.arange(args.batch_size), action_loc]
                     action = action_stim
@@ -80,22 +80,25 @@ def train(model, iters):
                 loss += F.cross_entropy(action_logits, target)
                 total_loss += F.cross_entropy(action_logits.detach(), target).detach().item()/len(pop_s)
                 total_acc += (action==target).float().item()/len(pop_s)    
-
-                chosen_obj = output['chosen_obj'].flatten(end_dim=-2) # (batch size, output_size)
-                loss += F.cross_entropy(chosen_obj, action_stim.flatten())
-                total_loss += F.cross_entropy(chosen_obj.detach(), action_stim.flatten()).detach().item()/len(pop_s)
-                
             elif args.task_type == 'value':
                 raise NotImplementedError
             
             if args.task_type=='on_policy_double':
                 '''third phase, give stimuli and choice, and update weights'''
+                all_x = {
+                    'stim': pop_s[i],
+                    'action': F.one_hot(action, num_classes=output_size).float().to(device),
+                }
                 DAs = (2*rwd.float()-1)
-                _, hidden, w_hidden, _ = model(None, steps=0, 
+                output, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_ch, 
                                                 neumann_order=args.neumann_order,
                                                 hidden=hidden, w_hidden=w_hidden, 
                                                 DAs=DAs)
+                chosen_obj = output['chosen_obj'] # (batch size, output_size)
+                loss += F.cross_entropy(chosen_obj.flatten(end_dim=-2), action_stim.flatten())
+                total_loss += F.cross_entropy(chosen_obj.detach().flatten(end_dim=-2), action_stim.flatten()).detach().item()/len(pop_s)
 
+                loss += args.l2r*hs.pow(2).mean()/3
                 loss += args.l2w*w_hidden.pow(2).sum(dim=(-2, -1)).mean()
                 if args.num_areas>1:
                     loss += args.l1w*(model.mask_rec_inter*w_hidden).abs().sum(dim=(-2,-1)).mean()
@@ -158,27 +161,27 @@ def eval(model, epoch):
                     # first phase, give nothing
                     all_x = {
                         'stim': torch.zeros_like(pop_s[i]),
-                        # 'action': torch.zeros(args.batch_size, output_size, device=device),
+                        'action': torch.zeros(args.batch_size, output_size, device=device),
                     }
                     _, hidden, w_hidden, _ = model(all_x, steps=task_mdprl.T_fixation, neumann_order = 0,
                                                 hidden=hidden, w_hidden=w_hidden, DAs=None)
                     # second phase, give stimuli and no feedback
                     all_x = {
                         'stim': pop_s[i],
-                        # 'action': torch.zeros(args.batch_size, output_size, device=device),
+                        'action': torch.zeros(args.batch_size, output_size, device=device),
                     }
                     output, hidden, w_hidden, _ = model(all_x, steps=task_mdprl.T_stim, neumann_order = 0,
                                                 hidden=hidden, w_hidden=w_hidden, DAs=None)
                     if args.task_type=='on_policy_double':
                         # use output to calculate action, reward, and record loss function
                         if args.decision_space=='action':
-                            action_loc = torch.argmax(output['action'], dim=-1)
+                            action_loc = torch.multinomial(output['action'].softmax(-1), num_samples=1).squeeze(-1)
                             action_stim = index_s[i, action_loc]
                             rwd = rwd_s[i][torch.arange(args.batch_size), action_loc]
                             action = action_loc
                             loss.append((action==target_s[i]).float())
                         elif args.decision_space=='good':
-                            action_loc = torch.argmax(output['action'][:,index_s[i]], dim=-1)
+                            action_loc = torch.multinomial(output['action'][:,index_s[i]].softmax(-1), num_samples=1).squeeze(-1)
                             action_stim = index_s[i, action_loc] # (batch size)
                             # assert(action.shape==(args.batch_size,))
                             rwd = rwd_s[i][range(args.batch_size), action_loc]
@@ -190,8 +193,12 @@ def eval(model, epoch):
                     
                     if args.task_type=='on_policy_double':
                         '''third phase, give stimuli and choice, and update weights'''
+                        all_x = {
+                            'stim': pop_s[i],
+                            'action': F.one_hot(action, num_classes=output_size).float().to(device),
+                        }
                         DAs = (2*rwd.float()-1)
-                        _, hidden, w_hidden, _ = model(None, steps=0, neumann_order = 0,
+                        _, hidden, w_hidden, _ = model(all_x, steps=task_mdprl.T_ch, neumann_order = 0,
                                                     hidden=hidden, w_hidden=w_hidden, DAs=DAs)
 
                     elif args.task_type == 'value':
@@ -257,12 +264,12 @@ if __name__ == "__main__":
     
     # experiment timeline [0.75 fixation, 2.5 stimulus, 0.5 action presentation]
     # 2021 paper          [0.5          , 0.7         , 0.3                    ]
-    # here                [0.4          , 0.8         , 0.02                   ]
+    # here                [0.4          , 0.8         , 0.6                    ]
     
     exp_times = {
         'fixation': 0.4,
         'stimulus_presentation': 0.8,
-        'choice_presentation': args.dt,
+        'choice_presentation': 0.6,
         'total_time': 1.8,
         'dt': args.dt}
     log_interval = 100
@@ -297,12 +304,13 @@ if __name__ == "__main__":
 
     input_config = {
         'stim': (input_size, [0]),
-        # 'action': (output_size, [0]),
+        'action': (output_size, [1]),
     }
 
     output_config = {
         'action': (output_size, [1]),
         'chosen_obj': (args.stim_val**args.stim_dim, [0]),
+        # 'inf_dimension': (7, [0,1]),
     }
 
     num_options = 1 if args.task_type=='value' else 2

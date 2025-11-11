@@ -1,7 +1,7 @@
 import numpy as np
 import os
 import pickle
-from scipy.stats import binom
+from scipy.stats import binom, ttest_1samp
 from scipy.signal import convolve
 import pandas as pd
 from matplotlib import pyplot as plt
@@ -209,6 +209,74 @@ def credit_assignment(all_saved_states, task_mdprl, plot_save_dir, end_trial=216
     plt.show()
     plt.close()
     return
+
+def credit_assignment_by_block(all_saved_states, task_mdprl, plot_save_dir, end_trial=432):
+    # find chosen feedback, unchosen feedback
+    # run logistic regression separately for each run (92 runs total)
+    # do not permute features - work directly with perceptual stimuli without permute_mapping
+    # stimuli torch.Size([432, 1, 92, 2])
+    # reward_probs torch.Size([432, 1, 92, 2])
+    # choices torch.Size([432, 1, 92])
+    # rewards torch.Size([432, 1, 92])
+    # choose_better torch.Size([432, 1, 92])
+    num_trials = all_saved_states['rewards'].shape[0]
+    num_subj = all_saved_states['rewards'].shape[2]
+    
+    num_trials_to_fit = np.arange(0, end_trial-1)
+    
+    var_names = ['F0', 'F1', 'F2', 'C0', 'C1', 'C2', 'O']
+    all_var_names = ['_'.join([s, 'R']) for s in var_names] + ['_'.join([s, 'C']) for s in var_names]
+    all_xlabels = [r'$F_{I}$', r'$F_{N1}$', r'$F_{N2}$', r'$C_{I}$', r'$C_{N1}$', r'$C_{N2}$', 'O']
+    
+    # Store results for each run
+    all_run_coeffs = []
+    all_run_ses = []
+    all_run_ps = []
+    all_run_models = []
+    valid_run_indices = []
+    
+    # Process each run separately
+    for idx_subj in range(num_subj):
+        
+        # Work directly with perceptual stimuli - do not use permute_mapping
+        stims_post_perceptual = all_saved_states['stimuli'][num_trials_to_fit+1,0,idx_subj,:] # ntrials X 2
+        stims_pre_chosen_perceptual = all_saved_states['choices'][num_trials_to_fit,0,idx_subj] # ntrials
+        choices_perceptual = all_saved_states['choices'][num_trials_to_fit+1,0,idx_subj]
+        choices = choices_perceptual==stims_post_perceptual[:,1]
+        rwd_pre = 2*all_saved_states['rewards'][num_trials_to_fit,0,idx_subj]-1 # ntrials
+        
+        # Convert to reward schedule space for feature identification (but don't permute/shuffle features)
+        # stims_post = task_mdprl.permute_mapping(stims_post_perceptual, all_saved_states['test_sensory2stim_idx'][idx_subj]) 
+        stims_post = stims_post_perceptual
+        # stims_pre_chosen = task_mdprl.permute_mapping(stims_pre_chosen_perceptual, all_saved_states['test_sensory2stim_idx'][idx_subj]) 
+        stims_pre_chosen = stims_pre_chosen_perceptual
+        
+        stimsFCO_pre_chosen = obj_to_ft_conj(stims_pre_chosen, task_mdprl) # ntrials X 7
+        stimsFCO_post = obj_to_ft_conj(stims_post, task_mdprl) # ntrials X 2 X 7
+        
+        # predictors are inf dim R chosen, inf dim C chosen, noninf dim R chosen, noninf dim C chosen, 
+        subj_Xs = np.concatenate([rwd_pre[:,None]*(stimsFCO_pre_chosen==stimsFCO_post[:,1,:])-
+                                  rwd_pre[:,None]*(stimsFCO_pre_chosen==stimsFCO_post[:,0,:]),\
+                                  1.0*(stimsFCO_pre_chosen==stimsFCO_post[:,1,:])-
+                                  1.0*(stimsFCO_pre_chosen==stimsFCO_post[:,0,:])], axis=-1)
+        
+        # Create dataframe for this run
+        run_data = pd.DataFrame(np.concatenate([subj_Xs, choices[:,None]], axis=1), 
+                               columns=[*all_var_names, 'choice'])
+                
+        # Run logistic regression for this run
+        mdl = smf.glm('choice~'+'+'.join(all_var_names), data=run_data, family=sm.families.Binomial())
+        mdlf = mdl.fit()
+        
+        all_run_models.append(mdlf)
+        all_run_coeffs.append(mdlf.params[1:].to_numpy())
+        # all_run_ses.append(mdlf.bse[1:].to_numpy())
+    
+    # Convert to arrays for easier manipulation
+    all_run_coeffs = np.stack(all_run_coeffs)  # n_runs x n_features
+    # all_run_ses = np.stack(all_run_ses)  # n_runs x n_features
+
+    return all_run_coeffs
 
 def steady_state_choice_logit_analysis(all_saved_states, task_mdprl, plot_save_dir, start_trial=432//2):
     num_trials = all_saved_states['rewards'].shape[0]

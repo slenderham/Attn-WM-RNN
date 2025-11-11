@@ -38,7 +38,7 @@ def plot_all_connectivities(all_models, args):
                                 h2hw=all_models[model_vis_idx].rnn.h2h.effective_weight().detach(),
                                 hb=all_models[model_vis_idx].rnn.h2h.bias.detach(),
                                 h2ow=all_models[model_vis_idx].h2o['action'].effective_weight().detach(),
-                                aux2h=torch.zeros(160, 27),
+                                aux2h=all_models[model_vis_idx].rnn.x2h['action'].effective_weight().detach(),
                                 h2aux=all_models[model_vis_idx].h2o['chosen_obj'].effective_weight().detach(),
                                 kappa_rec=all_models[model_vis_idx].plasticity.effective_lr().detach(),
                                 e_size=int(args['e_prop']*args['hidden_size'])*args['num_areas'], args=args, mdl_idx=model_vis_idx)
@@ -281,15 +281,15 @@ def get_all_dpca_results(all_models, task_mdprl, n_components_for_dpca, args):
         choice_out = model.h2o['action'].effective_weight().detach().numpy().copy()[:,output_weight_inds]
         all_model_choice_out.append(choice_out.T.reshape((args['hidden_size'],3,3,3)))
 
-        # choice_in = model.rnn.x2h['action'].effective_weight().detach().numpy().copy()[output_weight_inds,:]
-        # all_model_choice_in.append(choice_in.reshape((args['hidden_size'],3,3,3)))
+        choice_in = model.rnn.x2h['action'].effective_weight().detach().numpy().copy()[output_weight_inds,:]
+        all_model_choice_in.append(choice_in.reshape((args['hidden_size'],3,3,3)))
         
         stim_out = model.h2o['chosen_obj'].effective_weight().detach().numpy().copy()[:,input_weight_inds]
         all_model_stim_out.append(stim_out.T.reshape((args['hidden_size'],3,3,3)))
 
     all_model_dpca_stim_in = get_dpca_results_by_weights(all_model_stims_in, n_components_for_dpca)
     all_model_dpca_choice_out = get_dpca_results_by_weights(all_model_choice_out, n_components_for_dpca)
-    # all_model_dpca_choice_in = get_dpca_results_by_weights(all_model_choice_in, n_components_for_dpca)
+    all_model_dpca_choice_in = get_dpca_results_by_weights(all_model_choice_in, n_components_for_dpca)
     all_model_dpca_stim_out = get_dpca_results_by_weights(all_model_stim_out, n_components_for_dpca)
 
     # all_model_dpca_stim_in_exc = get_dpca_results_by_weights(all_model_stims_in[:E_SIZE], n_components_for_dpca)
@@ -301,19 +301,20 @@ def get_all_dpca_results(all_models, task_mdprl, n_components_for_dpca, args):
     # this makes each encoding axes the same for all models
     align_dpca_axes(all_model_dpca_stim_out, all_model_dpca_stim_in, n_components_for_dpca, args)
     align_dpca_axes(all_model_dpca_choice_out, all_model_dpca_stim_in, n_components_for_dpca, args)
-    # align_dpca_axes(all_model_dpca_choice_in, all_model_dpca_stim_in, n_components_for_dpca, args)
+    align_dpca_axes(all_model_dpca_choice_in, all_model_dpca_stim_in, n_components_for_dpca, args)
 
-    return all_model_dpca_stim_in, all_model_dpca_choice_out, all_model_dpca_stim_out
+    return all_model_dpca_stim_in, all_model_dpca_choice_out, all_model_dpca_choice_in, all_model_dpca_stim_out
     
 
-def run_plot_psth_geometry(all_model_dpca_stim_in, all_model_dpca_choice_out, args):
+def run_plot_psth_geometry(all_model_dpca_stim_in, all_model_dpca_choice_out, 
+                           all_model_dpca_choice_in, all_model_dpca_stim_out, args):
 
-    fig, axes = plt.subplots(2,2, figsize=(10, 7), height_ratios=(6,1))
+    fig, axes = plt.subplots(2,4, figsize=(20, 7), height_ratios=(6,1))
 
     plot_psth_geometry(all_model_dpca_stim_in, dim_labels, axes[:,0], "Stimuli input")
     plot_psth_geometry(all_model_dpca_choice_out, dim_labels, axes[:,1], "Choice output")
-    # plot_psth_geometry(all_model_dpca_choice_in, dim_labels, axes[:,2], "Choice input")
-    # plot_psth_geometry(all_model_dpca_stim_out, dim_labels, axes[:,3], "Stimuli output")
+    plot_psth_geometry(all_model_dpca_choice_in, dim_labels, axes[:,2], "Choice input")
+    plot_psth_geometry(all_model_dpca_stim_out, dim_labels, axes[:,3], "Stimuli output")
 
     axes[0,0].set_ylabel('Cosine similarity')
     axes[1,0].set_ylabel('Norm')
@@ -326,14 +327,15 @@ def run_plot_psth_geometry(all_model_dpca_stim_in, all_model_dpca_choice_out, ar
         print(f'Figure saved at plots/{plot_save_dir}/weight_psth_geometry.pdf')
 
 
-def run_plot_weight_exp_vars(all_model_dpca_stim_in, all_model_dpca_choice_out, args):
+def run_plot_weight_exp_vars(all_model_dpca_stim_in, all_model_dpca_choice_out, 
+                             all_model_dpca_choice_in, all_model_dpca_stim_out, args):
     
-    fig, axes = plt.subplots(2,1, figsize=(10,5), sharex=True)
+    fig, axes = plt.subplots(4,1, figsize=(10,10), sharex=True)
 
     plot_weight_exp_vars(n_components_for_dpca, all_model_dpca_stim_in, axes[0], "Stimuli input")
     plot_weight_exp_vars(n_components_for_dpca, all_model_dpca_choice_out, axes[1], "Choice output")
-    # plot_weight_exp_vars(n_components_for_dpca, all_model_dpca_choice_in, axes[2], "Choice input")
-    # plot_weight_exp_vars(n_components_for_dpca, all_model_dpca_stim_out, axes[3], "Stimuli output")
+    plot_weight_exp_vars(n_components_for_dpca, all_model_dpca_choice_in, axes[2], "Choice input")
+    plot_weight_exp_vars(n_components_for_dpca, all_model_dpca_stim_out, axes[3], "Stimuli output")
 
     labels = dim_labels
 
@@ -356,12 +358,13 @@ def run_plot_weight_exp_vars(all_model_dpca_stim_in, all_model_dpca_choice_out, 
         print(f'Figure saved at plots/{plot_save_dir}/input_output_weight_variance.pdf')
 
 
-def run_plot_output_choice_overlap(all_model_dpca_stim_in, all_model_dpca_stim_out, args):
+def run_plot_output_choice_overlap(all_model_dpca_stim_in, all_model_dpca_stim_out, 
+                                   all_model_dpca_choice_in, all_model_dpca_choice_out, args):
 
-    fig, axes = plt.subplots(1, 1, figsize=(6, 5))
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
-    stim_ortho_input_axes = plot_input_output_overlap(all_model_dpca_stim_in, all_model_dpca_stim_out, n_components_for_dpca, dim_labels, axes)
-    # stim_ortho_output_axes = plot_input_output_overlap(all_model_dpca_choice_in, all_model_dpca_choice_out, n_components_for_dpca, dim_labels, axes[1])
+    stim_ortho_input_axes = plot_input_output_overlap(all_model_dpca_stim_in, all_model_dpca_stim_out, n_components_for_dpca, dim_labels, axes[0])
+    stim_ortho_output_axes = plot_input_output_overlap(all_model_dpca_choice_in, all_model_dpca_choice_out, n_components_for_dpca, dim_labels, axes[1])
 
     fig.tight_layout()
 
@@ -369,11 +372,12 @@ def run_plot_output_choice_overlap(all_model_dpca_stim_in, all_model_dpca_stim_o
         pdf.savefig(fig)
         print(f'Figure saved at plots/{plot_save_dir}/out_ch_overlap.pdf')
 
-    return stim_ortho_input_axes, #stim_ortho_output_axes
+    return stim_ortho_input_axes, stim_ortho_output_axes
 
 
-def run_plot_dpca_axes_overlap(all_model_dpca_stim_in, all_model_dpca_choice_out, args):
-    fig, axes = plt.subplots(2, 2, height_ratios=(1, 3), figsize=(10, 6))
+def run_plot_dpca_axes_overlap(all_model_dpca_stim_in, all_model_dpca_choice_out, 
+                               all_model_dpca_choice_in, all_model_dpca_stim_out, args):
+    fig, axes = plt.subplots(2, 4, height_ratios=(1, 3), figsize=(20, 6))
     
     all_model_dpca_axes_stim_in = test_dpca_overlap(all_model_dpca_stim_in, n_components_for_dpca, 
                                 1/np.sqrt(args['hidden_size']), 
@@ -381,12 +385,12 @@ def run_plot_dpca_axes_overlap(all_model_dpca_stim_in, all_model_dpca_choice_out
     all_model_dpca_axes_ch_out = test_dpca_overlap(all_model_dpca_choice_out, n_components_for_dpca, 
                                 1/np.sqrt(int(args['hidden_size']*args['e_prop'])), 
                                 "Choice output", axes[:,1])
-    # all_model_dpca_axes_ch_in = test_dpca_overlap(all_model_dpca_choice_in, n_components_for_dpca, 
-    #                             1/np.sqrt(args['hidden_size']), 
-    #                             "Choice input", axes[:,2])
-    # all_model_dpca_axes_stim_out = test_dpca_overlap(all_model_dpca_stim_out, n_components_for_dpca, 
-    #                             1/np.sqrt(args['hidden_size']), 
-    #                             "Stimuli output", axes[:,3])
+    all_model_dpca_axes_ch_in = test_dpca_overlap(all_model_dpca_choice_in, n_components_for_dpca, 
+                                1/np.sqrt(args['hidden_size']), 
+                                "Choice input", axes[:,2])
+    all_model_dpca_axes_stim_out = test_dpca_overlap(all_model_dpca_stim_out, n_components_for_dpca, 
+                                1/np.sqrt(args['hidden_size']), 
+                                "Stimuli output", axes[:,3])
     axes[0,1].set_ylabel(" ")
     axes[1,0].set_ylabel('Overlap', labelpad=20)
 
@@ -399,25 +403,24 @@ def run_plot_dpca_axes_overlap(all_model_dpca_stim_in, all_model_dpca_choice_out
     return all_model_dpca_axes_stim_in, all_model_dpca_axes_ch_out
 
 
-def run_plot_selectivity_clusters(all_model_dpca_stim_in, all_model_dpca_choice_out, args):
+def run_plot_selectivity_clusters(all_model_dpca_stim_in, all_model_dpca_choice_out, 
+                                  all_model_dpca_choice_in, all_model_dpca_stim_out, args):
     
     fig, axes = plt.subplots(2, 2, figsize=(10, 10), height_ratios=(2, 1))
 
-    # ideal_centroids = [np.concatenate([
-    #                         np.concatenate([np.eye(7), np.eye(7)], axis=1)[:6],
-    #                         np.concatenate([np.eye(7), np.zeros((7,7))], axis=1)]), 
-    #                     np.concatenate([
-    #                         np.concatenate([np.eye(7), np.eye(7)], axis=1),
-    #                         np.concatenate([np.zeros((7,7)), np.eye(7)], axis=1)[3:6]]),
-    #                     np.concatenate([np.eye(7), np.zeros((7,7))], axis=1)]
+    ideal_centroids = [np.concatenate([np.eye(7), np.eye(7)], axis=1),
+                        np.concatenate([
+                            np.concatenate([np.eye(7), np.eye(7)], axis=1),
+                            np.concatenate([np.zeros((7,7)), np.eye(7)], axis=1)[3:]]),
+                        np.concatenate([np.eye(7), np.zeros((7,7))], axis=1)]
 
     # cluster units in stim and choice areas based on both the input and output weights
     all_model_selectivity_clusters_stim = \
-                        plot_selectivity_clusters(all_model_dpca_stim_in, ['s','p','c','pc','sc','sp','spc'], 
-                            [np.eye(7), np.eye(7)], E_SIZE, I_SIZE, "Stimuli input", axes[:,0])
+                        plot_selectivity_clusters(all_model_dpca_stim_in, all_model_dpca_stim_out, ['s','p','c','pc','sc','sp','spc'], 
+                            [ideal_centroids[0], ideal_centroids[2]], E_SIZE, I_SIZE, "Stimuli input", axes[:,0])
     all_model_selectivity_clusters_choice = \
-                        plot_selectivity_clusters(all_model_dpca_choice_out, ['s','p','c','pc','sc','sp','spc'], 
-                            [np.eye(7), np.eye(7)], E_SIZE, I_SIZE, "Choice output", axes[:,1])
+                        plot_selectivity_clusters(all_model_dpca_choice_in, all_model_dpca_choice_out, ['s','p','c','pc','sc','sp','spc'], 
+                            [ideal_centroids[0], ideal_centroids[2]], E_SIZE, I_SIZE, "Choice output", axes[:,1])
 
     axes[0,0].set_ylabel('Cluster centroids', labelpad=20)
     axes[1,0].set_ylabel("Rank corr.", labelpad=20)
@@ -430,11 +433,13 @@ def run_plot_selectivity_clusters(all_model_dpca_stim_in, all_model_dpca_choice_
     return all_model_selectivity_clusters_stim, all_model_selectivity_clusters_choice
 
 def run_plot_reparam_weights(all_model_dpca_stim_in, all_model_dpca_choice_out, 
+                             all_model_dpca_choice_in, all_model_dpca_stim_out,
                              all_model_rec_intra, all_model_rec_inter_ff, all_model_rec_inter_fb, args):
     fig_heatmap, axes_heatmap = plt.subplots(1, 1, figsize=(10, 10))
-    fig_violin, axes_violin = plt.subplots(2, 2, figsize=(10, 10))
+    fig_violin, axes_violin = plt.subplots(4, 4, figsize=(10, 10))
 
-    dpca_dict = [all_model_dpca_stim_in, all_model_dpca_choice_out]
+    dpca_dict = [[all_model_dpca_stim_in, all_model_dpca_stim_out], 
+                 [all_model_dpca_choice_in, all_model_dpca_choice_out]]
 
     rec_weight_list = [
         [[rec_intra[0] for rec_intra in all_model_rec_intra], 
@@ -443,23 +448,29 @@ def run_plot_reparam_weights(all_model_dpca_stim_in, all_model_dpca_choice_out,
         [rec_intra[1] for rec_intra in all_model_rec_intra]]
     ]
 
-    plot_reparam_weights(dpca_dict, rec_weight_list, n_components_for_dpca, axes_heatmap, axes_violin)
+    plot_reparam_weights(dpca_dict, rec_weight_list, 
+                        n_components_for_dpca, axes_heatmap, axes_violin)
 
     total_components = np.sum(list(n_components_for_dpca.values()))
 
-    for j in range(2):
+    for j in range(4):
         block_boundaries = np.cumsum(list(n_components_for_dpca.values()))[:-1]
         for i in block_boundaries:
-            axes_heatmap.axvline(x=total_components*j+i,color='k',linewidth=0.2)
-            axes_heatmap.axhline(y=total_components*j+i,color='k',linewidth=0.2)
-    axes_heatmap.axvline(x=total_components,color='k',linewidth=0.2)
-    axes_heatmap.axhline(y=total_components,color='k',linewidth=0.2)
+            axes_heatmap.axvline(x=total_components*j+i,color='lightgrey',linewidth=0.2)
+            axes_heatmap.axhline(y=total_components*j+i,color='lightgrey',linewidth=0.2)
+    axes_heatmap.axvline(x=total_components,color='lightgrey',linewidth=0.4)
+    axes_heatmap.axhline(y=total_components,color='lightgrey',linewidth=0.4)
+    axes_heatmap.axvline(x=total_components*3,color='lightgrey',linewidth=0.4)
+    axes_heatmap.axhline(y=total_components*3,color='lightgrey',linewidth=0.4)
+
+    axes_heatmap.axvline(x=total_components*2,color='black',linewidth=0.4)
+    axes_heatmap.axhline(y=total_components*2,color='black',linewidth=0.4)
     
     tick_locs = np.cumsum([0, *n_components_for_dpca.values()])[:-1]+np.array(list(n_components_for_dpca.values()))//2
-    axes_heatmap.set_xticks(np.concatenate([tick_locs, total_components+tick_locs]), 
-                            [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*2, size=14, rotation=0)
-    axes_heatmap.set_yticks(np.concatenate([tick_locs, total_components+tick_locs]), 
-                            [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*2, size=16)
+    axes_heatmap.set_xticks(np.concatenate([tick_locs, total_components+tick_locs, total_components*2+tick_locs, total_components*3+tick_locs]), 
+                            [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*4, size=14, rotation=0)
+    axes_heatmap.set_yticks(np.concatenate([tick_locs, total_components+tick_locs, total_components*2+tick_locs, total_components*3+tick_locs]), 
+                            [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*4, size=16)
 
     axes_violin[0,0].set_title('Input -> Input')
     axes_violin[0,1].set_title('Input -> Output')
@@ -478,11 +489,14 @@ def run_plot_reparam_weights(all_model_dpca_stim_in, all_model_dpca_choice_out,
         print(f'Figure saved at plots/{plot_save_dir}/fixed_weight_reparam_weights_violin.pdf')
 
 def run_plot_reparam_lrs(all_model_dpca_stim_in, all_model_dpca_choice_out, 
+                         all_model_dpca_choice_in, all_model_dpca_stim_out,
                          all_model_kappa_rec_intra, all_model_kappa_inter_ff, all_model_kappa_inter_fb, args):
     fig_heatmap, axes_heatmap = plt.subplots(1, 1, figsize=(10, 10))
     fig_violin, axes_violin = plt.subplots(2, 1, figsize=(8, 10))
 
-    dpca_dict = [[all_model_dpca_stim_in, all_model_dpca_choice_out]]
+    dpca_dict = [all_model_dpca_stim_in, all_model_dpca_stim_out,
+                 all_model_dpca_choice_in, all_model_dpca_choice_out]
+    
     kappa_dict = [
         [[kappa_inter_ff[0] for kappa_inter_ff in all_model_kappa_inter_ff],
          [kappa_inter_fb[0] for kappa_inter_fb in all_model_kappa_inter_fb]],
@@ -545,9 +559,9 @@ if __name__ == '__main__':
     plot_save_dir = 'fp_approx'
     os.chdir('/dartfs-hpc/rc/home/d/f005d7d/attn-rnn/Attn-WM-RNN')
 
-    # model_array_dir = [f'two_losses_{i}' for i in range(1,9)]
+    model_array_dir = [f'two_losses_{i}' for i in range(1,9)]
 
-    model_array_dir = [f'test{i}' for i in range(1,9)]
+    # model_array_dir = [f'test{i}' for i in range(1,9)]
 
     f = open(os.path.join(exp_dir, model_array_dir[0], 'args.json'), 'r')
     args = json.load(f)
@@ -575,7 +589,7 @@ if __name__ == '__main__':
 
     input_config = {
         'stim': (input_size, [0]),
-        # 'action': (output_size, [1]),
+        'action': (output_size, [1]),
     }
 
     output_config = {
@@ -622,8 +636,8 @@ if __name__ == '__main__':
     args['plot_save_dir'] = plot_save_dir
     
     '''plot connections and learning rates'''
-    plot_all_connectivities(all_models, args)
-    plot_wh_spectrum(all_models, args)
+    # plot_all_connectivities(all_models, args)
+    # plot_wh_spectrum(all_models, args)
 
     '''get weights and learning rates by area'''
     all_model_rec_intra, all_model_rec_inter_ff, all_model_rec_inter_fb = get_weights_by_area(all_models, args)
@@ -636,32 +650,34 @@ if __name__ == '__main__':
     global n_components_for_dpca, dim_labels
     n_components_for_dpca = {'s':2, 'p':2, 'c':2, 'sc':4, 'sp':4, 'pc':4, 'spc': 8}
     dim_labels = [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']
-    all_model_dpca_stim_in, all_model_dpca_choice_out, all_model_dpca_stim_out = \
+    all_model_dpca_stim_in, all_model_dpca_choice_out, all_model_dpca_choice_in, all_model_dpca_stim_out = \
         get_all_dpca_results(all_models, task_mdprl, n_components_for_dpca, args)
 
     '''plot psth geometry'''
-    # run_plot_psth_geometry(all_model_dpca_stim_in, all_model_dpca_choice_out, args)
+    # run_plot_psth_geometry(all_model_dpca_stim_in, all_model_dpca_choice_out, all_model_dpca_choice_in, all_model_dpca_stim_out, args)
 
     '''plot weight exp vars'''
-    # run_plot_weight_exp_vars(all_model_dpca_stim_in, all_model_dpca_choice_out, args)
+    # run_plot_weight_exp_vars(all_model_dpca_stim_in, all_model_dpca_choice_out, all_model_dpca_choice_in, all_model_dpca_stim_out, args)
 
     '''plot output choice overlap'''
-    # _ = run_plot_output_choice_overlap(all_model_dpca_stim_in, all_model_dpca_stim_out, args)
+    # _ = run_plot_output_choice_overlap(all_model_dpca_stim_in, all_model_dpca_stim_out, all_model_dpca_choice_in, all_model_dpca_choice_out, args)
     # all_model_dpca_stim_in['pre_ortho_encoding_axes'] = all_model_dpca_stim_in['encoding_axes']
     # all_model_dpca_stim_in['encoding_axes'] = ortho_stim_input_axes
     # all_model_dpca_choice_in['pre_ortho_encoding_axes'] = all_model_dpca_choice_in['encoding_axes']
     # all_model_dpca_choice_in['encoding_axes'] = ortho_choice_input_axes         
 
     '''plot overlap between dpca axes'''
-    # run_plot_dpca_axes_overlap(all_model_dpca_stim_in, all_model_dpca_choice_out, args)
+    # run_plot_dpca_axes_overlap(all_model_dpca_stim_in, all_model_dpca_choice_out, all_model_dpca_choice_in, all_model_dpca_stim_out, args)
 
     '''plot selectivity clusters'''
     # all_model_selectivity_clusters_stim, all_model_selectivity_clusters_choice = \
-    #         run_plot_selectivity_clusters(all_model_dpca_stim_in, all_model_dpca_choice_out, args)
+            # run_plot_selectivity_clusters(all_model_dpca_stim_in, all_model_dpca_choice_out, 
+                                        #   all_model_dpca_choice_in, all_model_dpca_stim_out, args)
     
     '''plot reparameterized weights'''
-    # run_plot_reparam_weights(all_model_dpca_stim_in, all_model_dpca_choice_out, 
-    #                          all_model_rec_intra, all_model_rec_inter_ff, all_model_rec_inter_fb, args)
+    run_plot_reparam_weights(all_model_dpca_stim_in, all_model_dpca_choice_out, 
+                             all_model_dpca_choice_in, all_model_dpca_stim_out,
+                             all_model_rec_intra, all_model_rec_inter_ff, all_model_rec_inter_fb, args)
     
     '''plot reparameterized learning rates'''
     # run_plot_reparam_lrs(all_model_dpca_stim_in, all_model_dpca_choice_out, 

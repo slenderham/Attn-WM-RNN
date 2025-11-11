@@ -238,9 +238,10 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, h2aux, kappa_re
     PLOT_W = 0.6/hidden_size
     hidden_size = h2hw.shape[0]*PLOT_W
     input_size = x2hw.shape[1]*PLOT_W
+    aux_size =  aux2h.shape[1]*PLOT_W
     output_size = h2ow.shape[0]*PLOT_W
     MARGIN = 0.01
-    LEFT = (1-(input_size+hidden_size+MARGIN*2+PLOT_W))/2
+    LEFT = (1-(input_size+aux_size+hidden_size+MARGIN*3+PLOT_W))/2
     BOTTOM = 0.1
     
     vbound = np.percentile(x2hw.abs(), 97)
@@ -251,8 +252,16 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, h2aux, kappa_re
     ax01.axis('off')
     ax01.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
+    vbound = np.percentile(aux2h.abs(), 97)
+    axaux2h = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+2*output_size+MARGIN*2, aux_size, hidden_size))
+    ims.append(axaux2h.imshow(aux2h[sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
+    axaux2h.set_xticks([])
+    axaux2h.set_yticks([])
+    axaux2h.axis('off')
+    axaux2h.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
+    
     vbound = np.percentile(h2hw.abs(), 97)
-    ax1w = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+2*output_size+MARGIN*2, hidden_size, hidden_size))
+    ax1w = fig.add_axes((LEFT+input_size+aux_size+MARGIN*2, BOTTOM+2*output_size+MARGIN*2, hidden_size, hidden_size))
     ims.append(ax1w.imshow(h2hw[sort_inds][:,sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax1w.set_xticks([])
     ax1w.set_yticks([])
@@ -261,7 +270,7 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, h2aux, kappa_re
     ax1w.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
     vbound = np.percentile(hb.abs(), 97)
-    ax1b = fig.add_axes((LEFT+input_size+hidden_size+MARGIN*2, BOTTOM+2*output_size+MARGIN*2, PLOT_W, hidden_size))
+    ax1b = fig.add_axes((LEFT+input_size+aux_size+hidden_size+MARGIN*3, BOTTOM+2*output_size+MARGIN*2, PLOT_W, hidden_size))
     ims.append(ax1b.imshow(hb[sort_inds].unsqueeze(1), cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     ax1b.set_xticks([])
     ax1b.set_yticks([])
@@ -269,7 +278,7 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, h2aux, kappa_re
     ax1b.axhline(y=e_size-0.5, color='grey', linewidth=0.5)
     
     vbound = np.percentile(h2aux.abs(), 97)
-    axoutputaux = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM+output_size+MARGIN, hidden_size, output_size))
+    axoutputaux = fig.add_axes((LEFT+input_size+aux_size+MARGIN*2, BOTTOM+output_size+MARGIN, hidden_size, output_size))
     ims.append(axoutputaux.imshow(h2aux[:,sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     axoutputaux.set_xticks([])
     axoutputaux.set_yticks([])
@@ -277,7 +286,7 @@ def plot_connectivity_lr(sort_inds, x2hw, h2hw, hb, h2ow, aux2h, h2aux, kappa_re
     axoutputaux.axvline(x=e_size-0.5, color='grey', linewidth=0.5)
 
     vbound = np.percentile(h2ow.abs(), 97)
-    axoutputw = fig.add_axes((LEFT+input_size+MARGIN, BOTTOM, hidden_size, output_size))
+    axoutputw = fig.add_axes((LEFT+input_size+aux_size+MARGIN*2, BOTTOM, hidden_size, output_size))
     ims.append(axoutputw.imshow(h2ow[:,sort_inds], cmap='RdBu_r', vmin=-vbound, vmax=vbound, interpolation='nearest'))
     axoutputw.set_xticks([])
     axoutputw.set_yticks([])
@@ -656,33 +665,33 @@ def test_dpca_overlap(all_dpca_results, n_components_for_dpca, overlap_scale, la
     return
 
 
-def plot_selectivity_clusters(all_dpca_results, keys, ideal_centroids, E_SIZE, I_SIZE, label, axes):
+def plot_selectivity_clusters(all_dpca_results_in, all_dpca_results_out, keys, ideal_centroids, E_SIZE, I_SIZE, label, axes):
     
-    num_models = len(all_dpca_results['unitwise_explained_var'])
+    num_models = len(all_dpca_results_in['unitwise_explained_var'])
     all_mdl_exp_vars = []
 
     # Loop through each model's dPCA results and extract the unitwise explained variance ratios
-    for dpca_unitwise_exp_vars in all_dpca_results['unitwise_explained_var']:
-        curr_mdl_exp_vars = np.stack([np.sum(dpca_unitwise_exp_vars[k], 0) for k in keys])
-        all_mdl_exp_vars.append(curr_mdl_exp_vars)
+    for dpca_unitwise_exp_vars_in, dpca_unitwise_exp_vars_out in zip(all_dpca_results_in['unitwise_explained_var'], all_dpca_results_out['unitwise_explained_var']):
+        curr_mdl_exp_vars_in = np.stack([np.sum(dpca_unitwise_exp_vars_in[k], 0) for k in keys])
+        curr_mdl_exp_vars_out = np.stack([np.sum(dpca_unitwise_exp_vars_out[k], 0) for k in keys])
+        all_mdl_exp_vars.append(np.concatenate([curr_mdl_exp_vars_in, curr_mdl_exp_vars_out]))
 
     # Stack the unitwise explained variance ratios for all models
-    all_mdl_exp_vars = np.stack([exp_vars.T for exp_vars in all_mdl_exp_vars]) # (num_models, num_units, num_keys)
+    all_mdl_exp_vars = np.stack([exp_vars.T for exp_vars in all_mdl_exp_vars]) # (num_models, num_units, 2*num_keys)
     
     # Extract the excitatory unitwise explained variance ratios and cluster them
-    concat_exp_vars_exc = all_mdl_exp_vars[:,:E_SIZE].reshape(-1,len(keys))
+    concat_exp_vars_exc = all_mdl_exp_vars[:,:E_SIZE,:].reshape(-1,len(keys)*2)
     
-    for num_clus_test in range(2, 11):
+    for num_clus_test in range(2, 20):
         kmeans_mdl_exc = SpectralClustering(n_clusters=num_clus_test, assign_labels="kmeans", n_init=20,
-                            affinity='cosine', kernel_params={'gamma': 1/len(keys)}).fit(concat_exp_vars_exc)
+                            affinity='rbf', kernel_params={'gamma': 0.5/len(keys)}).fit(concat_exp_vars_exc)
         print(num_clus_test, np.mean(silhouette_samples(concat_exp_vars_exc, kmeans_mdl_exc.labels_)))
     print("-"*50)
     
     num_clus_exc = len(ideal_centroids[0])
     kmeans_mdl_exc = SpectralClustering(n_clusters=num_clus_exc, assign_labels="kmeans", n_init=20,
-                            affinity='cosine', kernel_params={'gamma': 1/len(keys)}).fit(concat_exp_vars_exc)
+                            affinity='rbf', kernel_params={'gamma': 0.5/len(keys)}).fit(concat_exp_vars_exc)
     
-
     # Compute the centroids of the excitatory clusters and match them to the ideal centroids
     exp_vars_centroids_exc = []
     for clus in range(num_clus_exc):
@@ -705,40 +714,41 @@ def plot_selectivity_clusters(all_dpca_results, keys, ideal_centroids, E_SIZE, I
 
     
     # Extract the inhibitory unitwise explained variance ratios and cluster them
-    concat_exp_vars_inh = all_mdl_exp_vars[:,E_SIZE:].reshape(-1,len(keys))
+    concat_exp_vars_inh = all_mdl_exp_vars[:,E_SIZE:].reshape(-1,len(keys)*2)
     num_clus_inh = len(ideal_centroids[1])
+    concat_exp_vars_inh = np.nan_to_num(concat_exp_vars_inh, 0)
     
-    if not np.isnan(concat_exp_vars_inh).any():
-        for num_clus_test in range(2, 11):
-            kmeans_mdl_inh = SpectralClustering(n_clusters=num_clus_test, assign_labels="kmeans", n_init=20,
-                                affinity='cosine', kernel_params={'gamma': 1/len(keys)}).fit(concat_exp_vars_inh)
-            print(num_clus_test, np.mean(silhouette_samples(concat_exp_vars_inh, kmeans_mdl_inh.labels_)))
-        print("-"*50)
+    for num_clus_test in range(2, 20):
+        kmeans_mdl_inh = SpectralClustering(n_clusters=num_clus_test, assign_labels="kmeans", n_init=20,
+                            affinity='cosine', kernel_params={'gamma': 0.5/len(keys)}).fit(concat_exp_vars_inh)
+        print(num_clus_test, np.mean(silhouette_samples(concat_exp_vars_inh, kmeans_mdl_inh.labels_)))
+    print("-"*50)
 
-        kmeans_mdl_inh = SpectralClustering(n_clusters=num_clus_inh, assign_labels="kmeans", n_init=20,
-                                    affinity='cosine', kernel_params={'gamma': 1/len(keys)}).fit(concat_exp_vars_inh)
-        inh_clusters = kmeans_mdl_inh.labels_
-        exp_vars_centroids_inh = []
-        for clus in range(num_clus_inh):
-            exp_vars_centroids_inh.append(concat_exp_vars_inh[kmeans_mdl_inh.labels_==clus].mean(0))
-        exp_vars_centroids_inh = np.stack(exp_vars_centroids_inh)   
-        
-        # match the inhibitory centroids to the ideal centroids
-        # Compute correlation between each cluster centroid and each ideal centroid
-        corr_matrix = np.zeros((num_clus_inh, num_clus_inh))
-        for i in range(num_clus_inh):
-            for j in range(num_clus_inh):
-                corr_matrix[i, j] = np.corrcoef(ideal_centroids[1][i], exp_vars_centroids_inh[j])[0, 1]
-        _, ideal_to_clus = linear_sum_assignment(-corr_matrix)
-        exp_vars_centroids_inh = exp_vars_centroids_inh[ideal_to_clus]
-        
-        # change the cluster labels to match the ideal centroids
-        clus_to_ideal = np.argsort(ideal_to_clus) # index of inhibitory centroid -> index of ideal centroid
-        inh_clusters = clus_to_ideal[inh_clusters].reshape((num_models, I_SIZE))
-    else:
-        concat_exp_vars_inh = np.nan_to_num(concat_exp_vars_inh)
-        exp_vars_centroids_inh = np.zeros((num_clus_inh, len(keys)))
-        inh_clusters = np.zeros((num_models, I_SIZE))
+    kmeans_mdl_inh = SpectralClustering(n_clusters=num_clus_inh, assign_labels="kmeans", n_init=20,
+                                affinity='cosine', kernel_params={'gamma': 0.5/len(keys)}).fit(concat_exp_vars_inh)
+    inh_clusters = kmeans_mdl_inh.labels_
+    exp_vars_centroids_inh = []
+    for clus in range(num_clus_inh):
+        exp_vars_centroids_inh.append(concat_exp_vars_inh[kmeans_mdl_inh.labels_==clus].mean(0))
+    exp_vars_centroids_inh = np.stack(exp_vars_centroids_inh)   
+    
+    # match the inhibitory centroids to the ideal centroids
+    # Compute correlation between each cluster centroid and each ideal centroid
+    corr_matrix = np.zeros((num_clus_inh, num_clus_inh))
+    for i in range(num_clus_inh):
+        for j in range(num_clus_inh):
+            corr_matrix[i, j] = np.corrcoef(ideal_centroids[1][i], exp_vars_centroids_inh[j])[0, 1]
+    _, ideal_to_clus = linear_sum_assignment(-corr_matrix)
+    exp_vars_centroids_inh = exp_vars_centroids_inh[ideal_to_clus]
+    
+    # change the cluster labels to match the ideal centroids
+    clus_to_ideal = np.argsort(ideal_to_clus) # index of inhibitory centroid -> index of ideal centroid
+    inh_clusters = clus_to_ideal[inh_clusters].reshape((num_models, I_SIZE))
+
+    # else:
+    #     concat_exp_vars_inh = np.nan_to_num(concat_exp_vars_inh)
+    #     exp_vars_centroids_inh = np.zeros((num_clus_inh, len(keys)*2))
+    #     inh_clusters = np.zeros((num_models, I_SIZE))
     
     # concatenate the excitatory and inhibitory centroids
     exp_vars_centroids = np.concatenate([exp_vars_centroids_exc, exp_vars_centroids_inh])
@@ -748,14 +758,14 @@ def plot_selectivity_clusters(all_dpca_results, keys, ideal_centroids, E_SIZE, I
     sns.heatmap(exp_vars_centroids, \
                    cmap='Purples', vmin=0, vmax=cmap_scale, ax=axes[0], 
                     annot_kws={'fontdict':{'fontsize':12}}, cbar_kws={"shrink": 0.8})
-    axes[0].set_xticks(np.arange(7)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'])
+    axes[0].set_xticks(np.arange(len(keys)*2)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*2)
     axes[0].set_yticks(np.arange(num_clus_exc+num_clus_inh)+0.5, 
                        [f'E{i+1}' for i in range(num_clus_exc)]+[f'I{i+1}' for i in range(num_clus_inh)], 
                        rotation=0)
     axes[0].axhline(num_clus_exc, c='k', lw=2)
     
     
-    all_model_exp_var_corr = np.stack([spearmanr(exp_vars, nan_policy='omit').statistic-np.eye(len(keys))
+    all_model_exp_var_corr = np.stack([spearmanr(exp_vars, nan_policy='omit').statistic-np.eye(len(keys)*2)
                                               for exp_vars in all_mdl_exp_vars])
     
     cmap_scale = np.nanmax(np.abs(all_model_exp_var_corr.mean(0)))*1.1
@@ -764,8 +774,8 @@ def plot_selectivity_clusters(all_dpca_results, keys, ideal_centroids, E_SIZE, I
                    cmap='RdBu_r', vmin=-cmap_scale, vmax=cmap_scale, ax=axes[1], 
                     annot_kws={'fontdict':{'fontsize':12}}, cbar_kws={"shrink": 0.8})
     
-    axes[1].set_xticks(np.arange(7)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'])
-    axes[1].set_yticks(np.arange(7)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'], 
+    axes[1].set_xticks(np.arange(len(keys)*2)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*2)
+    axes[1].set_yticks(np.arange(len(keys)*2)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*2, 
                        rotation=0)
 
     axes[0].set_title(label)
@@ -849,27 +859,43 @@ def plot_reparam_weights(all_model_dpca, all_model_rec, n_components_for_dpca, a
     '''
 
     num_models = len(all_model_rec[0][0])
-    num_areas = len(all_model_rec)
+    num_areas = len(all_model_dpca)
 
     all_pos_reparam_weights = [[[] for _ in range(num_areas)] for _ in range(num_areas)] # each weight has shape (component, component)
-    all_pos_within_weights = [[[] for _ in range(num_areas)] for _ in range(num_areas)] # each weight has shape (component,)
-    all_pos_between_weights = [[[] for _ in range(num_areas)] for _ in range(num_areas)] # each weight has shape (component*(component-1))
+    all_pos_within_weights = [[[[] for _ in range(4)] 
+                                    for _ in range(num_areas)] for _ in range(num_areas)] # each weight has shape (component,)
+    all_pos_between_weights = [[[[] for _ in range(4)] 
+                                    for _ in range(num_areas)] for _ in range(num_areas)] # each weight has shape (component*(component-1))
 
     for row_idx in range(num_areas): # area out
         for col_idx in range(num_areas): # area in
-            curr_pos_dpca_axes_in = all_model_dpca[col_idx]['encoding_axes']
-            curr_pos_dpca_axes_out = all_model_dpca[row_idx]['encoding_axes']
+            curr_pos_dpca_axes_in = [all_model_dpca[col_idx][i]['encoding_axes'] for i in range(2)]
+            curr_pos_dpca_axes_out = [all_model_dpca[row_idx][i]['encoding_axes'] for i in range(2)]
             curr_pos_raw_weights = all_model_rec[row_idx][col_idx]
             for mdl_idx in range(num_models):
-                curr_mdl_dpca_axes_in = np.concatenate([curr_pos_dpca_axes_in[mdl_idx][k] for k in n_components_for_dpca.keys()], axis=1)
-                curr_mdl_dpca_axes_out = np.concatenate([curr_pos_dpca_axes_out[mdl_idx][k] for k in n_components_for_dpca.keys()], axis=1)
+                curr_mdl_dpca_axes_in = np.concatenate([curr_pos_dpca_axes_in[i][mdl_idx][k] 
+                                                        for i in range(2) for k in n_components_for_dpca.keys()], axis=1)
+                curr_mdl_dpca_axes_out = np.concatenate([curr_pos_dpca_axes_out[i][mdl_idx][k] 
+                                                        for i in range(2) for k in n_components_for_dpca.keys()], axis=1)
                 num_components = curr_mdl_dpca_axes_in.shape[1]
                 rec_current = curr_pos_raw_weights[mdl_idx].detach().numpy()@curr_mdl_dpca_axes_in
                 # rec_current = rec_current/np.linalg.norm(rec_current, axis=0)
-                curr_mdl_reparam_weights = curr_mdl_dpca_axes_out.T@rec_current
+                curr_mdl_reparam_weights = (curr_mdl_dpca_axes_out.T)@rec_current
                 all_pos_reparam_weights[row_idx][col_idx].append(curr_mdl_reparam_weights)
-                all_pos_within_weights[row_idx][col_idx].append(np.diag(curr_mdl_reparam_weights))
-                all_pos_between_weights[row_idx][col_idx].append(curr_mdl_reparam_weights[np.where(~np.eye(num_components,dtype=bool))])
+
+                for sub_row_idx in range(2):
+                    for sub_col_idx in range(2):
+                        within_mask = np.zeros((2,2))
+                        within_mask[sub_row_idx, sub_col_idx] = 1
+                        within_mask = np.kron(np.eye(num_components), within_mask)
+                        all_pos_within_weights[row_idx][col_idx][sub_row_idx*2+sub_col_idx].append(curr_mdl_reparam_weights[np.where(within_mask)])
+                        between_mask = np.ones((2,2))
+                        between_mask[sub_row_idx, sub_col_idx] = 0
+                        between_mask = np.kron(1-np.eye(num_components), between_mask)
+                        all_pos_between_weights[row_idx][col_idx][sub_row_idx*2+sub_col_idx].append(curr_mdl_reparam_weights[np.where(between_mask)])
+                
+                all_pos_within_weights[row_idx][col_idx] = np.stack(all_pos_within_weights[row_idx][col_idx])
+                all_pos_between_weights[row_idx][col_idx] = np.stack(all_pos_between_weights[row_idx][col_idx])
             
             all_pos_reparam_weights[row_idx][col_idx] = np.stack(all_pos_reparam_weights[row_idx][col_idx]) 
             all_pos_within_weights[row_idx][col_idx] = np.stack(all_pos_within_weights[row_idx][col_idx])
@@ -881,11 +907,10 @@ def plot_reparam_weights(all_model_dpca, all_model_rec, n_components_for_dpca, a
     all_pos_within_weights = np.array(all_pos_within_weights) 
     all_pos_between_weights = np.array(all_pos_between_weights) 
 
-    cmap_scale = concat_reparam_weights.mean(0).max()*0.9
+    cmap_scale = concat_reparam_weights.mean(0).max()*0.8
     sns.heatmap(concat_reparam_weights.mean(0), ax=axes_heatmap, vmin=-cmap_scale, vmax=cmap_scale, cmap='RdBu_r', 
                      square=True, annot_kws={'fontdict':{'fontsize':10}}, cbar_kws={"shrink": 0.8})
 
-    
     violin_xxx = ['Ftr']*(num_models*6)\
                 +['Cnj']*(num_models*12)\
                 +['Obj']*(num_models*8)\
@@ -895,9 +920,9 @@ def plot_reparam_weights(all_model_dpca, all_model_rec, n_components_for_dpca, a
             violin_scale = all_pos_within_weights[row_idx,col_idx].max()*1.1
             sns.violinplot(ax=axes_violin[row_idx][col_idx], 
                            x=violin_xxx, hue=violin_xxx,
-                           y=np.concatenate([all_pos_within_weights[row_idx,col_idx][:,:6].flatten(), 
-                                             all_pos_within_weights[row_idx,col_idx][:,6:18].flatten(), 
-                                             all_pos_within_weights[row_idx,col_idx][:,18:27].flatten(), 
+                           y=np.concatenate([all_pos_within_weights[row_idx,col_idx][:,:12].flatten(), 
+                                             all_pos_within_weights[row_idx,col_idx][:,12:36].flatten(), 
+                                             all_pos_within_weights[row_idx,col_idx][:,36:].flatten(), 
                                              all_pos_between_weights[row_idx,col_idx].flatten()]),
                            palette=sns.color_palette('Purples_r', 4), cut=0, legend=False)
             
