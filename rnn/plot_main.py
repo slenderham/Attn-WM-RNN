@@ -665,22 +665,22 @@ def test_dpca_overlap(all_dpca_results, n_components_for_dpca, overlap_scale, la
     return
 
 
-def plot_selectivity_clusters(all_dpca_results_in, all_dpca_results_out, keys, ideal_centroids, E_SIZE, I_SIZE, label, axes):
+def plot_selectivity_clusters(all_dpca_results, keys, ideal_centroids, E_SIZE, I_SIZE, label, axes):
     
-    num_models = len(all_dpca_results_in['unitwise_explained_var'])
+    num_models = len(all_dpca_results[0]['unitwise_explained_var'])
     all_mdl_exp_vars = []
 
-    # Loop through each model's dPCA results and extract the unitwise explained variance ratios
-    for dpca_unitwise_exp_vars_in, dpca_unitwise_exp_vars_out in zip(all_dpca_results_in['unitwise_explained_var'], all_dpca_results_out['unitwise_explained_var']):
-        curr_mdl_exp_vars_in = np.stack([np.sum(dpca_unitwise_exp_vars_in[k], 0) for k in keys])
-        curr_mdl_exp_vars_out = np.stack([np.sum(dpca_unitwise_exp_vars_out[k], 0) for k in keys])
-        all_mdl_exp_vars.append(np.concatenate([curr_mdl_exp_vars_in, curr_mdl_exp_vars_out]))
+    for mdl_all_dpca_results in zip(*[dpca_results_dict['unitwise_explained_var'] for dpca_results_dict in all_dpca_results]):
+        curr_mdl_exp_vars = []
+        for unitwise_exp_var_dict in mdl_all_dpca_results:
+            curr_mdl_exp_vars.append(np.stack([np.sum(unitwise_exp_var_dict[k], 0) for k in keys]))
+        all_mdl_exp_vars.append(np.concatenate(curr_mdl_exp_vars))
 
-    # Stack the unitwise explained variance ratios for all models
+    # Loop through each model's dPCA results and extract the unitwise explained variance ratios
     all_mdl_exp_vars = np.stack([exp_vars.T for exp_vars in all_mdl_exp_vars]) # (num_models, num_units, 2*num_keys)
     
     # Extract the excitatory unitwise explained variance ratios and cluster them
-    concat_exp_vars_exc = all_mdl_exp_vars[:,:E_SIZE,:].reshape(-1,len(keys)*2)
+    concat_exp_vars_exc = all_mdl_exp_vars[:,:E_SIZE,:].reshape(-1,len(keys))
     
     for num_clus_test in range(2, 20):
         kmeans_mdl_exc = SpectralClustering(n_clusters=num_clus_test, assign_labels="kmeans", n_init=20,
@@ -714,36 +714,41 @@ def plot_selectivity_clusters(all_dpca_results_in, all_dpca_results_out, keys, i
 
     
     # Extract the inhibitory unitwise explained variance ratios and cluster them
-    concat_exp_vars_inh = all_mdl_exp_vars[:,E_SIZE:].reshape(-1,len(keys)*2)
+    concat_exp_vars_inh = all_mdl_exp_vars[:,E_SIZE:].reshape(-1,len(keys))
     num_clus_inh = len(ideal_centroids[1])
-    concat_exp_vars_inh = np.nan_to_num(concat_exp_vars_inh, 0)
-    
-    for num_clus_test in range(2, 20):
-        kmeans_mdl_inh = SpectralClustering(n_clusters=num_clus_test, assign_labels="kmeans", n_init=20,
-                            affinity='cosine', kernel_params={'gamma': 0.5/len(keys)}).fit(concat_exp_vars_inh)
-        print(num_clus_test, np.mean(silhouette_samples(concat_exp_vars_inh, kmeans_mdl_inh.labels_)))
-    print("-"*50)
 
-    kmeans_mdl_inh = SpectralClustering(n_clusters=num_clus_inh, assign_labels="kmeans", n_init=20,
+    if np.all(np.isnan(concat_exp_vars_inh)):
+        inh_clusters = np.zeros((num_models, I_SIZE))
+        exp_vars_centroids_inh = np.zeros((num_clus_inh, len(keys)))
+    else:
+        concat_exp_vars_inh = np.nan_to_num(concat_exp_vars_inh, 0)
+        
+        for num_clus_test in range(2, 20):
+            kmeans_mdl_inh = SpectralClustering(n_clusters=num_clus_test, assign_labels="kmeans", n_init=20,
                                 affinity='cosine', kernel_params={'gamma': 0.5/len(keys)}).fit(concat_exp_vars_inh)
-    inh_clusters = kmeans_mdl_inh.labels_
-    exp_vars_centroids_inh = []
-    for clus in range(num_clus_inh):
-        exp_vars_centroids_inh.append(concat_exp_vars_inh[kmeans_mdl_inh.labels_==clus].mean(0))
-    exp_vars_centroids_inh = np.stack(exp_vars_centroids_inh)   
-    
-    # match the inhibitory centroids to the ideal centroids
-    # Compute correlation between each cluster centroid and each ideal centroid
-    corr_matrix = np.zeros((num_clus_inh, num_clus_inh))
-    for i in range(num_clus_inh):
-        for j in range(num_clus_inh):
-            corr_matrix[i, j] = np.corrcoef(ideal_centroids[1][i], exp_vars_centroids_inh[j])[0, 1]
-    _, ideal_to_clus = linear_sum_assignment(-corr_matrix)
-    exp_vars_centroids_inh = exp_vars_centroids_inh[ideal_to_clus]
-    
-    # change the cluster labels to match the ideal centroids
-    clus_to_ideal = np.argsort(ideal_to_clus) # index of inhibitory centroid -> index of ideal centroid
-    inh_clusters = clus_to_ideal[inh_clusters].reshape((num_models, I_SIZE))
+            print(num_clus_test, np.mean(silhouette_samples(concat_exp_vars_inh, kmeans_mdl_inh.labels_)))
+        print("-"*50)
+
+        kmeans_mdl_inh = SpectralClustering(n_clusters=num_clus_inh, assign_labels="kmeans", n_init=20,
+                                    affinity='cosine', kernel_params={'gamma': 0.5/len(keys)}).fit(concat_exp_vars_inh)
+        inh_clusters = kmeans_mdl_inh.labels_
+        exp_vars_centroids_inh = []
+        for clus in range(num_clus_inh):
+            exp_vars_centroids_inh.append(concat_exp_vars_inh[kmeans_mdl_inh.labels_==clus].mean(0))
+        exp_vars_centroids_inh = np.stack(exp_vars_centroids_inh)   
+        
+        # match the inhibitory centroids to the ideal centroids
+        # Compute correlation between each cluster centroid and each ideal centroid
+        corr_matrix = np.zeros((num_clus_inh, num_clus_inh))
+        for i in range(num_clus_inh):
+            for j in range(num_clus_inh):
+                corr_matrix[i, j] = np.corrcoef(ideal_centroids[1][i], exp_vars_centroids_inh[j])[0, 1]
+        _, ideal_to_clus = linear_sum_assignment(-corr_matrix)
+        exp_vars_centroids_inh = exp_vars_centroids_inh[ideal_to_clus]
+        
+        # change the cluster labels to match the ideal centroids
+        clus_to_ideal = np.argsort(ideal_to_clus) # index of inhibitory centroid -> index of ideal centroid
+        inh_clusters = clus_to_ideal[inh_clusters].reshape((num_models, I_SIZE))
 
     # else:
     #     concat_exp_vars_inh = np.nan_to_num(concat_exp_vars_inh)
@@ -756,26 +761,28 @@ def plot_selectivity_clusters(all_dpca_results_in, all_dpca_results_out, keys, i
     cmap_scale = min(np.nanmax(np.abs(exp_vars_centroids))*0.9,0.4)
     
     sns.heatmap(exp_vars_centroids, \
-                   cmap='Purples', vmin=0, vmax=cmap_scale, ax=axes[0], 
+                   cmap='viridis', vmin=0, vmax=cmap_scale, ax=axes[0], 
                     annot_kws={'fontdict':{'fontsize':12}}, cbar_kws={"shrink": 0.8})
-    axes[0].set_xticks(np.arange(len(keys)*2)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*2)
-    axes[0].set_yticks(np.arange(num_clus_exc+num_clus_inh)+0.5, 
-                       [f'E{i+1}' for i in range(num_clus_exc)]+[f'I{i+1}' for i in range(num_clus_inh)], 
-                       rotation=0)
+    axes[0].set_xticks(np.arange(len(keys))+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'])
+    # axes[0].set_yticks(np.arange(num_clus_exc+num_clus_inh)+0.5, 
+    #                    [f'E{i+1}' for i in range(num_clus_exc)]+[f'I{i+1}' for i in range(num_clus_inh)], 
+    #                    rotation=0)
+    axes[0].set_yticks([])
     axes[0].axhline(num_clus_exc, c='k', lw=2)
     
     
-    all_model_exp_var_corr = np.stack([spearmanr(exp_vars, nan_policy='omit').statistic-np.eye(len(keys)*2)
+    all_model_exp_var_corr = np.stack([spearmanr(exp_vars, nan_policy='omit').statistic-np.eye(len(keys))
                                               for exp_vars in all_mdl_exp_vars])
     
     cmap_scale = np.nanmax(np.abs(all_model_exp_var_corr.mean(0)))*1.1
     
-    sns.heatmap(all_model_exp_var_corr.mean(0).T, \
-                   cmap='RdBu_r', vmin=-cmap_scale, vmax=cmap_scale, ax=axes[1], 
-                    annot_kws={'fontdict':{'fontsize':12}}, cbar_kws={"shrink": 0.8})
-    
-    axes[1].set_xticks(np.arange(len(keys)*2)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*2)
-    axes[1].set_yticks(np.arange(len(keys)*2)+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*2, 
+    # Only plot the lower triangle of the matrix
+    mean_corr = all_model_exp_var_corr.mean(0)
+    sns.heatmap(mean_corr*np.tril(np.ones_like(mean_corr)), 
+                cmap='RdBu_r', vmin=-cmap_scale, vmax=cmap_scale, ax=axes[1], square=True,
+                annot_kws={'fontdict':{'fontsize':12}}, cbar_kws={"shrink": 0.8})
+    axes[1].set_xticks(np.arange(len(keys))+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'])
+    axes[1].set_yticks(np.arange(len(keys))+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'], 
                        rotation=0)
 
     axes[0].set_title(label)
@@ -861,68 +868,66 @@ def plot_reparam_weights(all_model_dpca, all_model_rec, n_components_for_dpca, a
     num_models = len(all_model_rec[0][0])
     num_areas = len(all_model_dpca)
 
-    all_pos_reparam_weights = [[[] for _ in range(num_areas)] for _ in range(num_areas)] # each weight has shape (component, component)
-    all_pos_within_weights = [[[[] for _ in range(4)] 
-                                    for _ in range(num_areas)] for _ in range(num_areas)] # each weight has shape (component,)
-    all_pos_between_weights = [[[[] for _ in range(4)] 
-                                    for _ in range(num_areas)] for _ in range(num_areas)] # each weight has shape (component*(component-1))
+    area_dpca_sizes = [len(all_model_dpca[i]) for i in range(num_areas)] # how many dpca results for each area
+    total_dpca_sizes = sum(area_dpca_sizes)
+
+    all_pos_reparam_weights = [[[] for _ in range(total_dpca_sizes)] for _ in range(total_dpca_sizes)] # each weight has shape (component, component)
+    all_pos_within_weights = [[[] for _ in range(total_dpca_sizes)] for _ in range(total_dpca_sizes)] # each weight has shape (component,)
+    all_pos_between_weights = [[[] for _ in range(total_dpca_sizes)] for _ in range(total_dpca_sizes)] # each weight has shape (component*(component-1))
 
     for row_idx in range(num_areas): # area out
         for col_idx in range(num_areas): # area in
-            curr_pos_dpca_axes_in = [all_model_dpca[col_idx][i]['encoding_axes'] for i in range(2)]
-            curr_pos_dpca_axes_out = [all_model_dpca[row_idx][i]['encoding_axes'] for i in range(2)]
+            # extract the weight based on pre and post areas
+            num_dpca_in = len(all_model_dpca[col_idx])
+            num_dpca_out = len(all_model_dpca[row_idx])
             curr_pos_raw_weights = all_model_rec[row_idx][col_idx]
-            for mdl_idx in range(num_models):
-                curr_mdl_dpca_axes_in = np.concatenate([curr_pos_dpca_axes_in[i][mdl_idx][k] 
-                                                        for i in range(2) for k in n_components_for_dpca.keys()], axis=1)
-                curr_mdl_dpca_axes_out = np.concatenate([curr_pos_dpca_axes_out[i][mdl_idx][k] 
-                                                        for i in range(2) for k in n_components_for_dpca.keys()], axis=1)
-                num_components = curr_mdl_dpca_axes_in.shape[1]
-                rec_current = curr_pos_raw_weights[mdl_idx].detach().numpy()@curr_mdl_dpca_axes_in
-                # rec_current = rec_current/np.linalg.norm(rec_current, axis=0)
-                curr_mdl_reparam_weights = (curr_mdl_dpca_axes_out.T)@rec_current
-                all_pos_reparam_weights[row_idx][col_idx].append(curr_mdl_reparam_weights)
-
-                for sub_row_idx in range(2):
-                    for sub_col_idx in range(2):
-                        within_mask = np.zeros((2,2))
-                        within_mask[sub_row_idx, sub_col_idx] = 1
-                        within_mask = np.kron(np.eye(num_components), within_mask)
-                        all_pos_within_weights[row_idx][col_idx][sub_row_idx*2+sub_col_idx].append(curr_mdl_reparam_weights[np.where(within_mask)])
-                        between_mask = np.ones((2,2))
-                        between_mask[sub_row_idx, sub_col_idx] = 0
-                        between_mask = np.kron(1-np.eye(num_components), between_mask)
-                        all_pos_between_weights[row_idx][col_idx][sub_row_idx*2+sub_col_idx].append(curr_mdl_reparam_weights[np.where(between_mask)])
-                
-                all_pos_within_weights[row_idx][col_idx] = np.stack(all_pos_within_weights[row_idx][col_idx])
-                all_pos_between_weights[row_idx][col_idx] = np.stack(all_pos_between_weights[row_idx][col_idx])
             
-            all_pos_reparam_weights[row_idx][col_idx] = np.stack(all_pos_reparam_weights[row_idx][col_idx]) 
-            all_pos_within_weights[row_idx][col_idx] = np.stack(all_pos_within_weights[row_idx][col_idx])
-            all_pos_between_weights[row_idx][col_idx] = np.stack(all_pos_between_weights[row_idx][col_idx])
+            # extract each dpca result based on the pre and post areas
+            for dpca_in_idx in range(num_dpca_in):
+                for dpca_out_idx in range(num_dpca_out):
 
-    
-    concat_reparam_weights = np.concatenate([np.concatenate(all_pos_reparam_weights[row_idx], axis=2) 
-                                             for row_idx in range(num_areas)], axis=1)
+                    pos_row_idx = sum(area_dpca_sizes[:row_idx])+dpca_out_idx
+                    pos_col_idx = sum(area_dpca_sizes[:col_idx])+dpca_in_idx
+                    curr_pos_dpca_axes_in = all_model_dpca[col_idx][dpca_in_idx]['encoding_axes']
+                    curr_pos_dpca_axes_out = all_model_dpca[row_idx][dpca_out_idx]['encoding_axes']
+                    num_components = sum(list(n_components_for_dpca.values()))
+                    
+                    for mdl_idx in range(num_models):
+                        curr_mdl_dpca_axes_in = np.concatenate([curr_pos_dpca_axes_in[mdl_idx][k] for k in n_components_for_dpca.keys()], axis=1)
+                        curr_mdl_dpca_axes_out = np.concatenate([curr_pos_dpca_axes_out[mdl_idx][k] for k in n_components_for_dpca.keys()], axis=1)
+                        rec_current = curr_pos_raw_weights[mdl_idx].detach().numpy()@curr_mdl_dpca_axes_in
+                        # rec_current = rec_current/np.linalg.norm(rec_current, axis=0)
+                        curr_mdl_reparam_weights = (curr_mdl_dpca_axes_out.T)@rec_current
+                        all_pos_reparam_weights[pos_row_idx][pos_col_idx].append(curr_mdl_reparam_weights)            
+                        all_pos_within_weights[pos_row_idx][pos_col_idx].append(curr_mdl_reparam_weights[np.where(np.eye(num_components))])
+                        all_pos_between_weights[pos_row_idx][pos_col_idx].append(curr_mdl_reparam_weights[np.where(1-np.eye(num_components))])
+            
+            all_pos_reparam_weights[pos_row_idx][pos_col_idx] = np.stack(all_pos_reparam_weights[pos_row_idx][pos_col_idx]) 
+            all_pos_within_weights[pos_row_idx][pos_col_idx] = np.stack(all_pos_within_weights[pos_row_idx][pos_col_idx])
+            all_pos_between_weights[pos_row_idx][pos_col_idx] = np.stack(all_pos_between_weights[pos_row_idx][pos_col_idx])
+
+    concat_reparam_weights = np.array(all_pos_reparam_weights)
     all_pos_within_weights = np.array(all_pos_within_weights) 
     all_pos_between_weights = np.array(all_pos_between_weights) 
-
-    cmap_scale = concat_reparam_weights.mean(0).max()*0.8
-    sns.heatmap(concat_reparam_weights.mean(0), ax=axes_heatmap, vmin=-cmap_scale, vmax=cmap_scale, cmap='RdBu_r', 
-                     square=True, annot_kws={'fontdict':{'fontsize':10}}, cbar_kws={"shrink": 0.8})
 
     violin_xxx = ['Ftr']*(num_models*6)\
                 +['Cnj']*(num_models*12)\
                 +['Obj']*(num_models*8)\
-                +['Btw']*(all_pos_between_weights.size//(num_areas**2))
-    for row_idx in range(num_areas):
-        for col_idx in range(num_areas):
+                +['Btw']*(all_pos_between_weights.size//(total_dpca_sizes**2))
+    
+    for row_idx in range(total_dpca_sizes):
+        for col_idx in range(total_dpca_sizes):
+
+            cmap_scale = concat_reparam_weights[row_idx,col_idx].mean(0).max()*0.8
+            sns.heatmap(concat_reparam_weights[row_idx,col_idx].mean(0), ax=axes_heatmap[row_idx,col_idx], vmin=-cmap_scale, vmax=cmap_scale, cmap='RdBu_r', 
+                     square=True, annot_kws={'fontdict':{'fontsize':10}}, cbar_kws={"shrink": 0.8})
+
             violin_scale = all_pos_within_weights[row_idx,col_idx].max()*1.1
             sns.violinplot(ax=axes_violin[row_idx][col_idx], 
                            x=violin_xxx, hue=violin_xxx,
-                           y=np.concatenate([all_pos_within_weights[row_idx,col_idx][:,:12].flatten(), 
-                                             all_pos_within_weights[row_idx,col_idx][:,12:36].flatten(), 
-                                             all_pos_within_weights[row_idx,col_idx][:,36:].flatten(), 
+                           y=np.concatenate([all_pos_within_weights[row_idx,col_idx][:,:6].flatten(), 
+                                             all_pos_within_weights[row_idx,col_idx][:,6:18].flatten(), 
+                                             all_pos_within_weights[row_idx,col_idx][:,18:].flatten(), 
                                              all_pos_between_weights[row_idx,col_idx].flatten()]),
                            palette=sns.color_palette('Purples_r', 4), cut=0, legend=False)
             
@@ -981,7 +986,7 @@ def plot_reparam_lrs(all_model_dpca, all_model_kappa, n_components_for_dpca, axe
     num_areas = len(all_model_kappa)+1
     num_axis = sum(list(n_components_for_dpca.values()))
 
-    all_pos_reparam_lrs = [[np.zeros((num_models, num_axis, num_axis)) for _ in range(num_areas)] for _ in range(num_areas)] # initialize to zero
+    all_pos_reparam_lrs = [[np.empty((num_models, num_axis, num_axis))*np.nan for _ in range(2)] for _ in range(num_areas-1)] # for each area pair, store ff and fb learning rates
 
     # only inter-area connections are plastic
     all_pos_mem_overlaps = {'same_pre_post': [[[], []] for _ in range(num_areas-1)],  
@@ -1005,10 +1010,7 @@ def plot_reparam_lrs(all_model_dpca, all_model_kappa, n_components_for_dpca, axe
             
             curr_pos_raw_lrs = all_model_kappa[area_idx][ff_fb_idx]
 
-            pos_row_idx = area_idx+1 if ff_fb_idx == 0 else area_idx
-            pos_col_idx = area_idx if ff_fb_idx == 0 else area_idx+1
-
-            for mdl_idx in tqdm.tqdm(range(num_models), desc=f'Calculating reparameterized learning rates for {pos_col_idx} -> {pos_row_idx}'):
+            for mdl_idx in tqdm.tqdm(range(num_models), desc=f'Calculating reparameterized learning rates for area {area_idx} and {area_idx+1}, FF/FB: {ff_fb_idx}'):
                 curr_mdl_dpca_axes_in = np.concatenate([curr_pos_dpca_axes_in[mdl_idx][k] for k in n_components_for_dpca.keys()], axis=1)
                 curr_mdl_dpca_axes_out = np.concatenate([curr_pos_dpca_axes_out[mdl_idx][k] for k in n_components_for_dpca.keys()], axis=1)
                 curr_mdl_raw_lrs = curr_pos_raw_lrs[mdl_idx].detach().numpy()
@@ -1022,7 +1024,7 @@ def plot_reparam_lrs(all_model_dpca, all_model_kappa, n_components_for_dpca, axe
                                 curr_overlap = (curr_mdl_dpca_axes_out[:,k:k+1].T@mem_mat@curr_mdl_dpca_axes_in[:,l:l+1]).squeeze()
                                 if i==k and j==l:
                                     all_pos_mem_overlaps['same_pre_post'][area_idx][ff_fb_idx].append(curr_overlap)
-                                    all_pos_reparam_lrs[pos_row_idx][pos_col_idx][mdl_idx,i,j] = curr_overlap
+                                    all_pos_reparam_lrs[area_idx][ff_fb_idx][mdl_idx,i,j] = curr_overlap
                                 elif j==l:
                                     all_pos_mem_overlaps['same_pre'][area_idx][ff_fb_idx].append(curr_overlap)
                                 elif i==k:
@@ -1035,20 +1037,31 @@ def plot_reparam_lrs(all_model_dpca, all_model_kappa, n_components_for_dpca, axe
             all_pos_mem_overlaps['same_post'][area_idx][ff_fb_idx] = np.array(all_pos_mem_overlaps['same_post'][area_idx][ff_fb_idx])
             all_pos_mem_overlaps['diff'][area_idx][ff_fb_idx] = np.array(all_pos_mem_overlaps['diff'][area_idx][ff_fb_idx])
     
-    all_pos_reparam_lrs = np.concatenate([np.concatenate(all_pos_reparam_lrs[pos_row_idx], axis=2) 
-                                                for pos_row_idx in range(num_areas)], axis=1)
+    all_pos_reparam_lrs = np.array(all_pos_reparam_lrs)
 
     # plot the average reparameterized learning rates
-    cmap_scale_max = all_pos_reparam_lrs.mean(0).max()
-    cmap_scale_min = all_pos_reparam_lrs.mean(0).min()
-
     print('Plotting average reparameterized learning rates')
-    sns.heatmap(all_pos_reparam_lrs.mean(0), ax=axes_heatmap, cmap='RdBu_r', center=0, vmin=cmap_scale_min, vmax=cmap_scale_max,
-                square=True, cbar_kws={"shrink": 0.7})
-    axes_heatmap.set_xlabel("Pre")
-    axes_heatmap.set_ylabel("Post")
-    print('Finished heat map')
 
+    for area_idx in range(num_areas-1):
+        for ff_fb_idx in range(2):
+            if num_areas == 2:
+                curr_ax = axes_heatmap[ff_fb_idx]
+            elif num_areas >= 3:
+                curr_ax = axes_heatmap[area_idx][ff_fb_idx]
+            else:
+                raise ValueError(f'num_areas must be 2 or greater, but got {num_areas}')
+
+            cmap_scale_max = all_pos_reparam_lrs[area_idx][ff_fb_idx].mean(0).max()
+            cmap_scale_min = all_pos_reparam_lrs[area_idx][ff_fb_idx].mean(0).min()
+            sns.heatmap(all_pos_reparam_lrs[area_idx][ff_fb_idx].mean(0), 
+                        ax=curr_ax, cmap='RdBu_r', 
+                        center=0, vmin=cmap_scale_min, vmax=cmap_scale_max,
+                        square=True, cbar_kws={"shrink": 0.8}, annot_kws={'fontdict':{'fontsize':10}})
+            # curr_ax.set_xlabel("Pre")
+            # curr_ax.set_ylabel("Post")
+            # curr_ax.set_title(f"Area {area_idx+1} $\leftarrow$ Area {area_idx+2}")
+
+    print('Finished heat map')
 
     # plot all the memory overlaps in violin plots
     cmap_scale_max = all_pos_reparam_lrs.max()

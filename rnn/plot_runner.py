@@ -377,7 +377,7 @@ def run_plot_output_choice_overlap(all_model_dpca_stim_in, all_model_dpca_stim_o
 
 def run_plot_dpca_axes_overlap(all_model_dpca_stim_in, all_model_dpca_choice_out, 
                                all_model_dpca_choice_in, all_model_dpca_stim_out, args):
-    fig, axes = plt.subplots(2, 4, height_ratios=(1, 3), figsize=(20, 6))
+    fig, axes = plt.subplots(2, 2, height_ratios=(1, 3), figsize=(10, 6))
     
     all_model_dpca_axes_stim_in = test_dpca_overlap(all_model_dpca_stim_in, n_components_for_dpca, 
                                 1/np.sqrt(args['hidden_size']), 
@@ -385,12 +385,12 @@ def run_plot_dpca_axes_overlap(all_model_dpca_stim_in, all_model_dpca_choice_out
     all_model_dpca_axes_ch_out = test_dpca_overlap(all_model_dpca_choice_out, n_components_for_dpca, 
                                 1/np.sqrt(int(args['hidden_size']*args['e_prop'])), 
                                 "Choice output", axes[:,1])
-    all_model_dpca_axes_ch_in = test_dpca_overlap(all_model_dpca_choice_in, n_components_for_dpca, 
-                                1/np.sqrt(args['hidden_size']), 
-                                "Choice input", axes[:,2])
-    all_model_dpca_axes_stim_out = test_dpca_overlap(all_model_dpca_stim_out, n_components_for_dpca, 
-                                1/np.sqrt(args['hidden_size']), 
-                                "Stimuli output", axes[:,3])
+    # all_model_dpca_axes_ch_in = test_dpca_overlap(all_model_dpca_choice_in, n_components_for_dpca, 
+    #                             1/np.sqrt(args['hidden_size']), 
+    #                             "Choice input", axes[:,2])
+    # all_model_dpca_axes_stim_out = test_dpca_overlap(all_model_dpca_stim_out, n_components_for_dpca, 
+    #                             1/np.sqrt(args['hidden_size']), 
+    #                             "Stimuli output", axes[:,3])
     axes[0,1].set_ylabel(" ")
     axes[1,0].set_ylabel('Overlap', labelpad=20)
 
@@ -406,21 +406,22 @@ def run_plot_dpca_axes_overlap(all_model_dpca_stim_in, all_model_dpca_choice_out
 def run_plot_selectivity_clusters(all_model_dpca_stim_in, all_model_dpca_choice_out, 
                                   all_model_dpca_choice_in, all_model_dpca_stim_out, args):
     
-    fig, axes = plt.subplots(2, 2, figsize=(10, 10), height_ratios=(2, 1))
+    fig, axes = plt.subplots(2, 2, figsize=(10, 6), height_ratios=(1, 2))
 
-    ideal_centroids = [np.concatenate([np.eye(7), np.eye(7)], axis=1),
-                        np.concatenate([
-                            np.concatenate([np.eye(7), np.eye(7)], axis=1),
-                            np.concatenate([np.zeros((7,7)), np.eye(7)], axis=1)[3:]]),
-                        np.concatenate([np.eye(7), np.zeros((7,7))], axis=1)]
+    # ideal_centroids = [np.concatenate([np.eye(7), np.eye(7)], axis=1),
+    #                     np.concatenate([
+    #                         np.concatenate([np.eye(7), np.eye(7)], axis=1),
+    #                         np.concatenate([np.zeros((7,7)), np.eye(7)], axis=1)[3:]]),
+    #                     np.concatenate([np.eye(7), np.zeros((7,7))], axis=1)]
+    ideal_centroids = [np.eye(7), np.eye(7), np.eye(7)]
 
     # cluster units in stim and choice areas based on both the input and output weights
     all_model_selectivity_clusters_stim = \
-                        plot_selectivity_clusters(all_model_dpca_stim_in, all_model_dpca_stim_out, ['s','p','c','pc','sc','sp','spc'], 
+                        plot_selectivity_clusters([all_model_dpca_stim_in], ['s','p','c','pc','sc','sp','spc'], 
                             [ideal_centroids[0], ideal_centroids[2]], E_SIZE, I_SIZE, "Stimuli input", axes[:,0])
     all_model_selectivity_clusters_choice = \
-                        plot_selectivity_clusters(all_model_dpca_choice_in, all_model_dpca_choice_out, ['s','p','c','pc','sc','sp','spc'], 
-                            [ideal_centroids[0], ideal_centroids[2]], E_SIZE, I_SIZE, "Choice output", axes[:,1])
+                        plot_selectivity_clusters([all_model_dpca_choice_out], ['s','p','c','pc','sc','sp','spc'], 
+                            [ideal_centroids[1], ideal_centroids[2]], E_SIZE, I_SIZE, "Choice output", axes[:,1])
 
     axes[0,0].set_ylabel('Cluster centroids', labelpad=20)
     axes[1,0].set_ylabel("Rank corr.", labelpad=20)
@@ -435,17 +436,17 @@ def run_plot_selectivity_clusters(all_model_dpca_stim_in, all_model_dpca_choice_
 def run_plot_reparam_weights(all_model_dpca_stim_in, all_model_dpca_choice_out, 
                              all_model_dpca_choice_in, all_model_dpca_stim_out,
                              all_model_rec_intra, all_model_rec_inter_ff, all_model_rec_inter_fb, args):
-    fig_heatmap, axes_heatmap = plt.subplots(1, 1, figsize=(10, 10))
-    fig_violin, axes_violin = plt.subplots(4, 4, figsize=(10, 10))
+    fig_heatmap, axes_heatmap = plt.subplots(4, 4, figsize=(22, 18))
+    fig_violin, axes_violin = plt.subplots(4, 4, figsize=(20, 20))
 
     dpca_dict = [[all_model_dpca_stim_in, all_model_dpca_stim_out], 
                  [all_model_dpca_choice_in, all_model_dpca_choice_out]]
 
     rec_weight_list = [
         [[rec_intra[0] for rec_intra in all_model_rec_intra], 
-        [rec_inter_fb[0] for rec_inter_fb in all_model_rec_inter_fb]], 
+         [rec_inter_fb[0] for rec_inter_fb in all_model_rec_inter_fb]], 
         [[rec_inter_ff[0] for rec_inter_ff in all_model_rec_inter_ff],
-        [rec_intra[1] for rec_intra in all_model_rec_intra]]
+         [rec_intra[1] for rec_intra in all_model_rec_intra]]
     ]
 
     plot_reparam_weights(dpca_dict, rec_weight_list, 
@@ -453,29 +454,23 @@ def run_plot_reparam_weights(all_model_dpca_stim_in, all_model_dpca_choice_out,
 
     total_components = np.sum(list(n_components_for_dpca.values()))
 
-    for j in range(4):
-        block_boundaries = np.cumsum(list(n_components_for_dpca.values()))[:-1]
-        for i in block_boundaries:
-            axes_heatmap.axvline(x=total_components*j+i,color='lightgrey',linewidth=0.2)
-            axes_heatmap.axhline(y=total_components*j+i,color='lightgrey',linewidth=0.2)
-    axes_heatmap.axvline(x=total_components,color='lightgrey',linewidth=0.4)
-    axes_heatmap.axhline(y=total_components,color='lightgrey',linewidth=0.4)
-    axes_heatmap.axvline(x=total_components*3,color='lightgrey',linewidth=0.4)
-    axes_heatmap.axhline(y=total_components*3,color='lightgrey',linewidth=0.4)
+    for row_idx in range(4):
+        for col_idx in range(4):
+            block_boundaries = np.cumsum(list(n_components_for_dpca.values()))[:-1]
+            for i in block_boundaries:
+                axes_heatmap[row_idx,col_idx].axvline(x=i,color='lightgrey',linewidth=0.2)
+                axes_heatmap[row_idx,col_idx].axhline(y=i,color='lightgrey',linewidth=0.2)
 
-    axes_heatmap.axvline(x=total_components*2,color='black',linewidth=0.4)
-    axes_heatmap.axhline(y=total_components*2,color='black',linewidth=0.4)
-    
     tick_locs = np.cumsum([0, *n_components_for_dpca.values()])[:-1]+np.array(list(n_components_for_dpca.values()))//2
-    axes_heatmap.set_xticks(np.concatenate([tick_locs, total_components+tick_locs, total_components*2+tick_locs, total_components*3+tick_locs]), 
-                            [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*4, size=14, rotation=0)
-    axes_heatmap.set_yticks(np.concatenate([tick_locs, total_components+tick_locs, total_components*2+tick_locs, total_components*3+tick_locs]), 
-                            [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*4, size=16)
+    for row_idx in range(4):
+        for col_idx in range(4):
+            axes_heatmap[row_idx,col_idx].set_xticks(tick_locs, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'], size=14, rotation=0)
+            axes_heatmap[row_idx,col_idx].set_yticks(tick_locs, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'], size=16, rotation=0)
 
-    axes_violin[0,0].set_title('Input -> Input')
-    axes_violin[0,1].set_title('Input -> Output')
-    axes_violin[1,0].set_title('Output -> Input')
-    axes_violin[1,1].set_title('Output -> Output')
+    # axes_violin[0,0].set_title('Input -> Input')
+    # axes_violin[0,1].set_title('Input -> Output')
+    # axes_violin[1,0].set_title('Output -> Input')
+    # axes_violin[1,1].set_title('Output -> Output')
     
     fig_heatmap.tight_layout()
     with PdfPages(f'plots/{plot_save_dir}/fixed_weight_reparam_weights.pdf') as pdf:
@@ -491,11 +486,13 @@ def run_plot_reparam_weights(all_model_dpca_stim_in, all_model_dpca_choice_out,
 def run_plot_reparam_lrs(all_model_dpca_stim_in, all_model_dpca_choice_out, 
                          all_model_dpca_choice_in, all_model_dpca_stim_out,
                          all_model_kappa_rec_intra, all_model_kappa_inter_ff, all_model_kappa_inter_fb, args):
-    fig_heatmap, axes_heatmap = plt.subplots(1, 1, figsize=(10, 10))
-    fig_violin, axes_violin = plt.subplots(2, 1, figsize=(8, 10))
+    fig_heatmap, axes_heatmap = plt.subplots(1, 2, figsize=(12, 6))
+    fig_violin, axes_violin = plt.subplots(1, 2, figsize=(10, 4.8))
 
-    dpca_dict = [all_model_dpca_stim_in, all_model_dpca_stim_out,
-                 all_model_dpca_choice_in, all_model_dpca_choice_out]
+    # dpca_dict = [all_model_dpca_stim_in, all_model_dpca_stim_out,
+    #              all_model_dpca_choice_in, all_model_dpca_choice_out]
+
+    dpca_dict = [[all_model_dpca_stim_in, all_model_dpca_choice_out]]
     
     kappa_dict = [
         [[kappa_inter_ff[0] for kappa_inter_ff in all_model_kappa_inter_ff],
@@ -508,19 +505,13 @@ def run_plot_reparam_lrs(all_model_dpca_stim_in, all_model_dpca_choice_out,
     for j in range(2):
         block_boundaries = np.cumsum(list(n_components_for_dpca.values()))[:-1]
         for i in block_boundaries:
-            axes_heatmap.axvline(x=total_components*j+i,color='k',linewidth=0.2)
-            axes_heatmap.axhline(y=total_components*j+i,color='k',linewidth=0.2)
-    axes_heatmap.axvline(x=total_components,color='k',linewidth=0.2)
-    axes_heatmap.axhline(y=total_components,color='k',linewidth=0.2)
-    
-    tick_locs = np.cumsum([0, *n_components_for_dpca.values()])[:-1]+np.array(list(n_components_for_dpca.values()))//2
-    axes_heatmap.set_xticks(np.concatenate([tick_locs, total_components+tick_locs]), 
-                            [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*2, size=14, rotation=0)
-    axes_heatmap.set_yticks(np.concatenate([tick_locs, total_components+tick_locs]), 
-                            [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$']*2, size=16)
+            axes_heatmap[j].axvline(x=i,color='k',linewidth=0.2)
+            axes_heatmap[j].axhline(y=i,color='k',linewidth=0.2)
 
-    axes_violin[0].set_title('Input -> Output')
-    axes_violin[1].set_title('Output -> Input')
+    for j in range(2):
+        tick_locs = np.cumsum([0, *n_components_for_dpca.values()])[:-1]+np.array(list(n_components_for_dpca.values()))//2
+        axes_heatmap[j].set_xticks(tick_locs, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'], size=14, rotation=0)
+        axes_heatmap[j].set_yticks(tick_locs, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'], size=16)
 
     fig_heatmap.tight_layout()
     with PdfPages(f'plots/{plot_save_dir}/learning_rates_reparam_heatmap.pdf') as pdf:
@@ -671,17 +662,17 @@ if __name__ == '__main__':
 
     '''plot selectivity clusters'''
     # all_model_selectivity_clusters_stim, all_model_selectivity_clusters_choice = \
-            # run_plot_selectivity_clusters(all_model_dpca_stim_in, all_model_dpca_choice_out, 
-                                        #   all_model_dpca_choice_in, all_model_dpca_stim_out, args)
+    #         run_plot_selectivity_clusters(all_model_dpca_stim_in, all_model_dpca_choice_out, 
+    #                                       all_model_dpca_choice_in, all_model_dpca_stim_out, args)
     
     '''plot reparameterized weights'''
-    run_plot_reparam_weights(all_model_dpca_stim_in, all_model_dpca_choice_out, 
-                             all_model_dpca_choice_in, all_model_dpca_stim_out,
-                             all_model_rec_intra, all_model_rec_inter_ff, all_model_rec_inter_fb, args)
+    # run_plot_reparam_weights(all_model_dpca_stim_in, all_model_dpca_choice_out, 
+    #                          all_model_dpca_choice_in, all_model_dpca_stim_out,
+    #                          all_model_rec_intra, all_model_rec_inter_ff, all_model_rec_inter_fb, args)
     
     '''plot reparameterized learning rates'''
-    # run_plot_reparam_lrs(all_model_dpca_stim_in, all_model_dpca_choice_out, 
-    #                      all_model_kappa_rec_intra, all_model_kappa_inter_ff, all_model_kappa_inter_fb, args)
+    run_plot_reparam_lrs(all_model_dpca_stim_in, all_model_dpca_choice_out, all_model_dpca_choice_in, all_model_dpca_stim_out,
+                         all_model_kappa_rec_intra, all_model_kappa_inter_ff, all_model_kappa_inter_fb, args)
 
     '''plot connectivity by clusters'''
     # run_plot_connectivity_by_clusters(all_model_rec_intra, all_model_selectivity_clusters_in, all_model_selectivity_clusters_out, args)
