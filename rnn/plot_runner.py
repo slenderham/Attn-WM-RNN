@@ -423,7 +423,7 @@ def run_plot_selectivity_clusters(all_model_dpca_stim_in, all_model_dpca_choice_
                         plot_selectivity_clusters([all_model_dpca_choice_out], ['s','p','c','pc','sc','sp','spc'], 
                             [ideal_centroids[1], ideal_centroids[2]], E_SIZE, I_SIZE, "Choice output", axes[:,1])
 
-    axes[0,0].set_ylabel('Cluster centroids', labelpad=20)
+    axes[0,0].set_ylabel('Centroids', labelpad=20)
     axes[1,0].set_ylabel("Rank corr.", labelpad=20)
 
     fig.tight_layout()

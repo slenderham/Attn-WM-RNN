@@ -7,7 +7,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
 
-@torch.jit.script
 def retanh(x):
     return torch.tanh(F.relu(x))
 
@@ -325,7 +324,7 @@ class HierarchicalPlasticRNN(nn.Module):
 
         # readout
         self.h2o = {}
-        for (output_name, (output_size, output_source)) in self.output_config.items():
+        for (output_name, (output_size, output_source, _)) in self.output_config.items():
             curr_out_mask = torch.zeros(1, self.num_areas)
             curr_out_mask[:,output_source] = 1
             self.h2o[output_name] = EILinear(self.hidden_size*self.num_areas, output_size, remove_diag=False, pos_function='abs',

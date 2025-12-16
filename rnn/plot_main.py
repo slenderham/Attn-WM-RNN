@@ -778,7 +778,7 @@ def plot_selectivity_clusters(all_dpca_results, keys, ideal_centroids, E_SIZE, I
     
     # Only plot the lower triangle of the matrix
     mean_corr = all_model_exp_var_corr.mean(0)
-    sns.heatmap(mean_corr*np.tril(np.ones_like(mean_corr)), 
+    sns.heatmap(mean_corr, mask=np.triu(np.ones_like(mean_corr)),
                 cmap='RdBu_r', vmin=-cmap_scale, vmax=cmap_scale, ax=axes[1], square=True,
                 annot_kws={'fontdict':{'fontsize':12}}, cbar_kws={"shrink": 0.8})
     axes[1].set_xticks(np.arange(len(keys))+0.5, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'])
@@ -989,13 +989,19 @@ def plot_reparam_lrs(all_model_dpca, all_model_kappa, n_components_for_dpca, axe
     all_pos_reparam_lrs = [[np.empty((num_models, num_axis, num_axis))*np.nan for _ in range(2)] for _ in range(num_areas-1)] # for each area pair, store ff and fb learning rates
 
     # only inter-area connections are plastic
-    all_pos_mem_overlaps = {'same_pre_post': [[[], []] for _ in range(num_areas-1)],  
+    # Pre-allocate numpy arrays instead of lists for better performance
+    num_same_pre_post = num_models * num_axis * num_axis
+    num_same_pre = num_models * num_axis * num_axis * (num_axis - 1)
+    num_same_post = num_models * num_axis * num_axis * (num_axis - 1)
+    num_diff = num_models * num_axis * num_axis * (num_axis - 1) * (num_axis - 1)
+    
+    all_pos_mem_overlaps = {'same_pre_post': [[np.empty(num_same_pre_post), np.empty(num_same_pre_post)] for _ in range(num_areas-1)],  
                           # (num_models, num_axis*num_axis)
-                          'same_pre': [[[], []] for _ in range(num_areas-1)], 
+                          'same_pre': [[np.empty(num_same_pre), np.empty(num_same_pre)] for _ in range(num_areas-1)], 
                           # (num_models, num_axis*num_axis*(num_axis-1))
-                          'same_post': [[[], []] for _ in range(num_areas-1)], 
+                          'same_post': [[np.empty(num_same_post), np.empty(num_same_post)] for _ in range(num_areas-1)], 
                           # (num_models, num_axis*num_axis*(num_axis-1))
-                          'diff': [[[], []] for _ in range(num_areas-1)]} 
+                          'diff': [[np.empty(num_diff), np.empty(num_diff)] for _ in range(num_areas-1)]} 
                           # (num_models, num_axis*num_axis*(num_axis-1)*(num_axis-1))}
 
     for area_idx in range(num_areas-1): # area out
@@ -1009,6 +1015,17 @@ def plot_reparam_lrs(all_model_dpca, all_model_kappa, n_components_for_dpca, axe
                 curr_pos_dpca_axes_out = all_model_dpca[area_idx][0]['encoding_axes']
             
             curr_pos_raw_lrs = all_model_kappa[area_idx][ff_fb_idx]
+            
+            # Store references to arrays and initialize index counters for faster access
+            overlaps_same_pre_post = all_pos_mem_overlaps['same_pre_post'][area_idx][ff_fb_idx]
+            overlaps_same_pre = all_pos_mem_overlaps['same_pre'][area_idx][ff_fb_idx]
+            overlaps_same_post = all_pos_mem_overlaps['same_post'][area_idx][ff_fb_idx]
+            overlaps_diff = all_pos_mem_overlaps['diff'][area_idx][ff_fb_idx]
+            
+            idx_same_pre_post = 0
+            idx_same_pre = 0
+            idx_same_post = 0
+            idx_diff = 0
 
             for mdl_idx in tqdm.tqdm(range(num_models), desc=f'Calculating reparameterized learning rates for area {area_idx} and {area_idx+1}, FF/FB: {ff_fb_idx}'):
                 curr_mdl_dpca_axes_in = np.concatenate([curr_pos_dpca_axes_in[mdl_idx][k] for k in n_components_for_dpca.keys()], axis=1)
@@ -1023,19 +1040,18 @@ def plot_reparam_lrs(all_model_dpca, all_model_kappa, n_components_for_dpca, axe
                             for l in range(num_axis):
                                 curr_overlap = (curr_mdl_dpca_axes_out[:,k:k+1].T@mem_mat@curr_mdl_dpca_axes_in[:,l:l+1]).squeeze()
                                 if i==k and j==l:
-                                    all_pos_mem_overlaps['same_pre_post'][area_idx][ff_fb_idx].append(curr_overlap)
+                                    overlaps_same_pre_post[idx_same_pre_post] = curr_overlap
                                     all_pos_reparam_lrs[area_idx][ff_fb_idx][mdl_idx,i,j] = curr_overlap
+                                    idx_same_pre_post += 1
                                 elif j==l:
-                                    all_pos_mem_overlaps['same_pre'][area_idx][ff_fb_idx].append(curr_overlap)
+                                    overlaps_same_pre[idx_same_pre] = curr_overlap
+                                    idx_same_pre += 1
                                 elif i==k:
-                                    all_pos_mem_overlaps['same_post'][area_idx][ff_fb_idx].append(curr_overlap)
+                                    overlaps_same_post[idx_same_post] = curr_overlap
+                                    idx_same_post += 1
                                 else:
-                                    all_pos_mem_overlaps['diff'][area_idx][ff_fb_idx].append(curr_overlap)
-
-            all_pos_mem_overlaps['same_pre_post'][area_idx][ff_fb_idx] = np.array(all_pos_mem_overlaps['same_pre_post'][area_idx][ff_fb_idx])
-            all_pos_mem_overlaps['same_pre'][area_idx][ff_fb_idx] = np.array(all_pos_mem_overlaps['same_pre'][area_idx][ff_fb_idx])
-            all_pos_mem_overlaps['same_post'][area_idx][ff_fb_idx] = np.array(all_pos_mem_overlaps['same_post'][area_idx][ff_fb_idx])
-            all_pos_mem_overlaps['diff'][area_idx][ff_fb_idx] = np.array(all_pos_mem_overlaps['diff'][area_idx][ff_fb_idx])
+                                    overlaps_diff[idx_diff] = curr_overlap
+                                    idx_diff += 1
     
     all_pos_reparam_lrs = np.array(all_pos_reparam_lrs)
 
@@ -1056,7 +1072,7 @@ def plot_reparam_lrs(all_model_dpca, all_model_kappa, n_components_for_dpca, axe
             sns.heatmap(all_pos_reparam_lrs[area_idx][ff_fb_idx].mean(0), 
                         ax=curr_ax, cmap='RdBu_r', 
                         center=0, vmin=cmap_scale_min, vmax=cmap_scale_max,
-                        square=True, cbar_kws={"shrink": 0.8}, annot_kws={'fontdict':{'fontsize':10}})
+                        square=True, cbar_kws={"shrink": 0.6}, annot_kws={'fontdict':{'fontsize':10}})
             # curr_ax.set_xlabel("Pre")
             # curr_ax.set_ylabel("Post")
             # curr_ax.set_title(f"Area {area_idx+1} $\leftarrow$ Area {area_idx+2}")
