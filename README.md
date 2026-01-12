@@ -1,8 +1,9 @@
 # Plastic E-I RNN with Attentional Feedback
 
-- Excitatory-inhibitory RNN
-    - Reward-Modulated Hebbian \& anti-Hebbian plasticity in recurrent synapses
-- Attentional Feedback
+- Ongoing project. For demonstration purpose only.
+- Multi-area excitatory-inhibitory RNN
+    - Reward-Modulated Hebbian plasticity in recurrent synapses
+
 
 $$
 \begin{align*}
