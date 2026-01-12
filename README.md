@@ -3,6 +3,7 @@
 - Excitatory-inhibitory RNN
     - Reward-Modulated Hebbian \& anti-Hebbian plasticity in recurrent synapses
 - Attentional Feedback
+
 $$
 \begin{align*}
 x_t &= (1-\alpha_x)x_{t-1} + \alpha_x((W^f+W^p_{t-1})h_{t-1} + Uz_t + b) + \sqrt{2\alpha_x}\epsilon_t\\
