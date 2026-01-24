@@ -34,8 +34,7 @@ def train(model, iters):
         target_s = target_s.to(device)
         
         loss = 0
-        hidden = None
-        w_hidden = None
+        hidden, w_hidden = model.init_hidden(args.batch_size)
 
         for i in range(len(pop_s)):
             ''' first phase, give nothing '''
@@ -46,7 +45,7 @@ def train(model, iters):
             _, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_fixation, 
                                             neumann_order=args.neumann_order,
                                             hidden=hidden, w_hidden=w_hidden, 
-                                            DAs=None)
+                                            DAs=torch.zeros(args.batch_size, device=device))
             loss += args.l2r*hs.pow(2).mean()/3
 
             ''' second phase, give stimuli and no feedback '''
@@ -57,7 +56,7 @@ def train(model, iters):
             output, hidden, w_hidden, hs = model(all_x, steps=task_mdprl.T_stim, 
                                                 neumann_order=args.neumann_order,
                                                 hidden=hidden, w_hidden=w_hidden, 
-                                                DAs=None)
+                                                DAs=torch.zeros(args.batch_size, device=device))
             loss += args.l2r*hs.pow(2).mean()/3
 
             ''' use output to calculate action, reward, and record loss function '''
@@ -155,8 +154,7 @@ def eval(model, epoch):
                 target_s = target_s.to(device)
                 
                 loss = []
-                hidden = None
-                w_hidden = None
+                hidden, w_hidden = model.init_hidden(args.batch_size)
                 for i in range(len(pop_s)):
                     # first phase, give nothing
                     all_x = {
@@ -164,14 +162,14 @@ def eval(model, epoch):
                         'action': torch.zeros(args.batch_size, output_size, device=device),
                     }
                     _, hidden, w_hidden, _ = model(all_x, steps=task_mdprl.T_fixation, neumann_order = 0,
-                                                hidden=hidden, w_hidden=w_hidden, DAs=None)
+                                                hidden=hidden, w_hidden=w_hidden, DAs=torch.zeros(args.batch_size, device=device))
                     # second phase, give stimuli and no feedback
                     all_x = {
                         'stim': pop_s[i],
                         'action': torch.zeros(args.batch_size, output_size, device=device),
                     }
                     output, hidden, w_hidden, _ = model(all_x, steps=task_mdprl.T_stim, neumann_order = 0,
-                                                hidden=hidden, w_hidden=w_hidden, DAs=None)
+                                                hidden=hidden, w_hidden=w_hidden, DAs=torch.zeros(args.batch_size, device=device))
                     if args.task_type=='on_policy_double':
                         # use output to calculate action, reward, and record loss function
                         if args.decision_space=='action':
@@ -323,6 +321,7 @@ if __name__ == "__main__":
                    'inter_regional_sparsity': (1, 1), 'inter_regional_gain': (1, 1)}
     
     model = HierarchicalPlasticRNN(**model_specs).to(device)
+    model.compile()
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, eps=1e-5)
     print(model)
     for n, p in model.named_parameters():

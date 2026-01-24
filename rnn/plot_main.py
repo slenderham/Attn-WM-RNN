@@ -443,7 +443,7 @@ def plot_learning_curve(args, all_rewards, all_choose_betters, plot_save_dir):
         print(f'Figure saved at plots/{plot_save_dir}/learning_curve.pdf')
 
 
-def plot_psth_geometry(all_model_dpca, dim_labels,axes, title):
+def plot_psth_geometry(all_model_dpca, dim_labels, axes, title):
     """
     Plots the geometry of PSTH (peri-stimulus time histogram) features using dPCA results for all models.
 
@@ -1075,7 +1075,7 @@ def plot_reparam_lrs(all_model_dpca, all_model_kappa, n_components_for_dpca, axe
                         square=True, cbar_kws={"shrink": 0.6}, annot_kws={'fontdict':{'fontsize':10}})
             # curr_ax.set_xlabel("Pre")
             # curr_ax.set_ylabel("Post")
-            # curr_ax.set_title(f"Area {area_idx+1} $\leftarrow$ Area {area_idx+2}")
+            # curr_ax.set_title(f"Area {area_idx+1} $leftarrow$ Area {area_idx+2}")
 
     print('Finished heat map')
 
@@ -1194,7 +1194,7 @@ def plot_conn_lr_by_clusters(all_model_clusters, all_model_rec, axes):
             ax.set_yticklabels([f'C{i+1}' for i in range(n_clus_post)], rotation=0)
             ax.set_xlabel(f'Pre Clusters (Area {area_pre})')
             ax.set_ylabel(f'Post Clusters (Area {area_post})')
-            ax.set_title(f'Area {area_post} $\leftarrow$ Area {area_pre}')
+            ax.set_title(f'Area {area_post} $leftarrow$ Area {area_pre}')
     
     num_clusters_exc_pre = np.unique(all_model_clusters_pre[0])[-1]+1
     if all_model_clusters_pre[1] is not None:

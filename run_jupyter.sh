@@ -27,7 +27,7 @@ http://localhost:${port}/
 "
 
 module load python
-jupyter-notebook --no-browser --ip=${node} --port=${port} --ResourceUseDisplay.track_cpu_percent=True
+jupyter lab --no-browser --ip=${node} --port=${port} --ResourceUseDisplay.track_cpu_percent=True
 
 # keep it alive
 sleep 864000

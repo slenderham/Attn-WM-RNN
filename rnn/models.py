@@ -198,10 +198,11 @@ class PlasticSynapse(nn.Module):
             post: post-synaptic firing rates
             kappa: learning rate
         '''
+        update_mask = torch.logical_not(torch.isclose(R, torch.zeros_like(R)))
         new_w = w + self.alpha_w*(baseline-w) \
             + R*self.effective_lr()*(torch.bmm(post.unsqueeze(2), pre.unsqueeze(1))+self._sigma_w*torch.randn_like(w))
         new_w = torch.clamp(new_w, self.lb, self.ub)
-        return new_w
+        return torch.where(update_mask, new_w, w)
     
 
 class LeakyRNNCell(nn.Module):
@@ -324,7 +325,7 @@ class HierarchicalPlasticRNN(nn.Module):
 
         # readout
         self.h2o = {}
-        for (output_name, (output_size, output_source, _)) in self.output_config.items():
+        for (output_name, (output_size, output_source)) in self.output_config.items():
             curr_out_mask = torch.zeros(1, self.num_areas)
             curr_out_mask[:,output_source] = 1
             self.h2o[output_name] = EILinear(self.hidden_size*self.num_areas, output_size, remove_diag=False, pos_function='abs',
@@ -338,22 +339,17 @@ class HierarchicalPlasticRNN(nn.Module):
         else:
             self.register_buffer("h0", torch.zeros(1, hidden_size*self.num_areas))
 
-    def init_hidden(self, x):
-        batch_size = x[next(iter(x))].shape[0]
-        h_init = self.h0 + self.rnn._sigma_rec * torch.randn(batch_size, self.hidden_size*self.num_areas, device=x[next(iter(x))].device)
+    def init_hidden(self, batch_size):
+        h_init = self.h0 + self.rnn._sigma_rec * torch.randn(batch_size, self.hidden_size*self.num_areas)
         if self.plastic:
             return [h_init, self.rnn.h2h.pos_func(self.rnn.h2h.weight).unsqueeze(0).repeat(batch_size, 1, 1)]
         else:
             return [h_init]
 
-    def forward(self, x, steps, neumann_order=10, 
-                hidden=None, w_hidden=None, DAs=None, 
+    def forward(self, x, steps, 
+                hidden, w_hidden, DAs, 
+                neumann_order=10, 
                 save_all_states=False):
-        # initialize firing rate and fixed weight
-        if hidden is None and w_hidden is None:
-            hidden, w_hidden = self.init_hidden(x)
-        
-
         # fixed point iterations, not keeping gradient
         hs = []
         for _ in range(steps-neumann_order):
