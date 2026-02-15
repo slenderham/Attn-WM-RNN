@@ -9,11 +9,12 @@ def convert_pvalue_to_asterisks(pvalue):
         return "*"
     return ""
 
-def batch_cosine_similarity(a, b, dim=-1):
-    # Normalize a and b along dim, then sum their elementwise product along that dim
-    a_norm = a / np.linalg.norm(a, axis=dim, keepdims=True)
-    b_norm = b / np.linalg.norm(b, axis=dim, keepdims=True)
-    return np.sum(a_norm * b_norm, axis=dim)
+def batch_cosine_similarity(a, b):
+    # a and b are of shape (..., trials, dims)
+    # normalize a and b along dims, then calculate all pairwise cosine similarities of shape (..., trials, trials)
+    a_norm = a / np.linalg.norm(a, axis=-1, keepdims=True)
+    b_norm = b / np.linalg.norm(b, axis=-1, keepdims=True)
+    return a_norm @ np.swapaxes(b_norm, -1, -2) # shape (..., trials, trials)
 
 def get_sub_mats(ws, num_areas, e_hidden_size, i_hidden_size, separate_ei=True):
     trials, timesteps, batch_size, post_dim, pre_dim = ws.shape

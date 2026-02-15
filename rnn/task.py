@@ -6,7 +6,6 @@ import os
 import torch.nn.functional as F
 from scipy.stats import norm
 
-# TODO: Add reversal functionality
 # TODO: support different dimensions and stim values
 
 class MDPRL():
@@ -177,57 +176,63 @@ class MDPRL():
         self.test_stim2sensory_idx = np.stack(self.test_stim2sensory_idx, axis=0)
         self.test_sensory2stim_idx = np.stack(self.test_sensory2stim_idx, axis=0)
         self.test_rwd = np.stack(self.test_rwd, axis=0).transpose(0,2,1)
-
-    def _generate_generalizable_prob(self, gen_level, reward_median_scale=[-1, 1], reward_range_scale=[2, 6]):
-        # different level of gernalizability in terms of nonlinear terms: 0 (all linear), 1 (conjunction of two features), 2 (no regularity)
-        # feat_1,2,3: all linear terms, with 2,1,0 irrelevant features
-        # conj, feat+conj: a conj of two features, with a relevant or irrelevant feature
-        # obj: a conj of all features
-        # assert gen_level in self.gen_levels
+    
+    def _generate_generalizable_prob(self, gen_level, schedule_lb=0.05, schedule_ub=0.95):
+        # 'f': feature-based reward schedule
+        # 'fc': feature-conjunction-based reward schedule
+        # 'o': object-based reward schedule
 
         if gen_level=='f':
-            log_odds = np.random.randn(3,3)
+            # log_odds = np.random.randn(3,3)
+            feature_probs = np.random.rand(3,3)
             weights = np.random.dirichlet(np.ones(3))
             probs = np.empty((3,3,3))*np.nan
             for i in range(3):
                 for j in range(3):
                     for k in range(3):
-                        probs[i,j,k] = (weights[0]*log_odds[0,i]+ \
-                                        weights[1]*log_odds[1,j]+ \
-                                        weights[2]*log_odds[2,k])
+                        probs[i,j,k] = (weights[0]*feature_probs[0,i]+ \
+                                        weights[1]*feature_probs[1,j]+ \
+                                        weights[2]*feature_probs[2,k])
         elif gen_level=='fc':
-            feat_log_odds = np.random.randn(3)
-            conj_log_odds = np.random.randn(9)
+            feature_probs = np.random.rand(3)
+            conjunction_probs = np.random.rand(3,3)
             weights = np.random.dirichlet(np.ones(2))
             ft_dim = np.random.randint(0, 3) # randomly choose one feature to be irrelevant
             probs = np.empty((3,3,3))*np.nan
             for i in range(3):
-                for jpk in range(9):
-                    j = jpk//3
-                    k = jpk%3
-                    if ft_dim==0:
-                        probs[i,j,k] = (weights[0]*feat_log_odds[i]+weights[1]*conj_log_odds[jpk])
-                    elif ft_dim==1:
-                        probs[j,i,k] = (weights[0]*feat_log_odds[i]+weights[1]*conj_log_odds[jpk])
-                    elif ft_dim==2:
-                        probs[j,k,i] = (weights[0]*feat_log_odds[i]+weights[1]*conj_log_odds[jpk])
-                    else:
-                        raise ValueError
+                for j in range(3):
+                    for k in range(3):
+                        if i==0:
+                            probs[i,j,k] = (weights[0]*feature_probs[i]+weights[1]*conjunction_probs[j,k])
+                        elif i==1:
+                            probs[j,i,k] = (weights[0]*feature_probs[i]+weights[1]*conjunction_probs[j,k])
+                        elif i==2:
+                            probs[j,k,i] = (weights[0]*feature_probs[i]+weights[1]*conjunction_probs[j,k])
+                        else:
+                            raise ValueError
         elif gen_level=='o':
-            probs = np.random.randn(3,3,3)
+            probs = np.random.rand(3,3,3)
         else:
             raise RuntimeError
 
-        # independently control the mean and std of reward
-        probs = (probs-np.median(probs))/np.ptp(probs)
-        reward_median = reward_median_scale[0]+np.random.rand()*(reward_median_scale[1]-reward_median_scale[0]) # uniformly between about 0.3-0.7
-        reward_range = reward_range_scale[0]+np.random.rand()*(reward_range_scale[1]-reward_range_scale[0]) # uniformly between about 0.5-1.0
-        probs = probs*reward_range+reward_median
-        
-        # add jitter to break draws
-        probs = 1/(1+np.exp(-probs))
+        probs = schedule_lb+(schedule_ub-schedule_lb)*probs
         probs = probs.reshape(1, 3, 3, 3)
+        
         return probs
+
+    # def generate_test_reward_schedule(self, f_c_weights):
+
+    #     feature_basis = np.array([1.0, 0.5, 0.0])
+    #     feature_basis = feature_basis.reshape(1, 3, 1, 1)
+    #     feature_basis = np.tile(feature_basis, (1, 1, 3, 3))
+    #     conjunction_basis = np.array([[0.75, 0.00, 0.75],
+    #                                   [0.50, 0.50, 0.50],
+    #                                   [0.25, 1.00, 0.25]])
+    #     conjunction_basis = conjunction_basis.reshape(1, 1, 3, 3)
+    #     conjunction_basis = np.tile(conjunction_basis, (1, 3, 1, 1))
+
+    #     rwd_schedule = f_c_weights[0]*feature_basis+f_c_weights[1]*conjunction_basis+f_c_weights[2]*object_basis
+    #     return rwd_schedule
 
     def generateinput(self, batch_size, N_s, num_choices, 
                       gen_level=None, rwd_schedule=None, 

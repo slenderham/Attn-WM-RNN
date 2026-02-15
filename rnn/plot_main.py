@@ -443,7 +443,7 @@ def plot_learning_curve(args, all_rewards, all_choose_betters, plot_save_dir):
         print(f'Figure saved at plots/{plot_save_dir}/learning_curve.pdf')
 
 
-def plot_psth_geometry(all_model_dpca, dim_labels, axes, title):
+def plot_psth_geometry(all_model_dpca, dim_configs, axes, title):
     """
     Plots the geometry of PSTH (peri-stimulus time histogram) features using dPCA results for all models.
 
@@ -456,26 +456,27 @@ def plot_psth_geometry(all_model_dpca, dim_labels, axes, title):
     all_model_dpca_psth = []
     
     # Create a hue mapping for plotting, grouping dimensions by feature type
-    dim_hue = [0]*3+[1]*3+[2]*3+[3]*9+[4]*9+[5]*9+[6]*27
-    dim_hue = np.tile(np.array(dim_hue).reshape(1, 63), len(all_model_dpca['marginalized_psth'])).flatten()
+    keys = dim_configs['dpca_component_keys']
+    psth_dims = dim_configs['component_psth_dims']
+    dim_hue = [i for i, num_dims in enumerate(psth_dims) for _ in range(num_dims)]
+    dim_hue = np.tile(dim_hue, len(all_model_dpca['marginalized_psth'])).flatten()
+    dim_hue[dim_hue==0] = np.max(dim_hue)+1
+    dim_hue -= 1
+    
+    dim_labels = dim_configs['component_labels']
 
     # Loop through each model's dPCA result to extract and concatenate marginalized PSTHs
     for curr_model_psth in all_model_dpca['marginalized_psth']:
         hidden_size = curr_model_psth['s'].shape[0]
-        curr_model_all_psth = np.concatenate([curr_model_psth['s'].squeeze(), 
-                                              curr_model_psth['p'].squeeze(), 
-                                              curr_model_psth['c'].squeeze(), 
-                                              curr_model_psth['pc'].squeeze().reshape((hidden_size, 9)), 
-                                              curr_model_psth['sc'].squeeze().reshape((hidden_size, 9)), 
-                                              curr_model_psth['sp'].squeeze().reshape((hidden_size, 9)), 
-                                              curr_model_psth['spc'].squeeze().reshape((hidden_size, 27))], 
-                                              axis=1)
+        
+        curr_model_all_psth = np.concatenate([curr_model_psth[k].squeeze().reshape((hidden_size, psth_dims[i])) 
+            for i, k in enumerate(keys)], axis=1)
         all_model_dpca_psth.append(curr_model_all_psth.T)
         
     all_model_dpca_psth = np.stack(all_model_dpca_psth)
     
     # Plot cosine similarity heatmap between all features, averaged across models
-    all_model_dpca_psth_similarity = batch_cosine_similarity(all_model_dpca_psth, all_model_dpca_psth).mean(0)-np.eye(63)
+    all_model_dpca_psth_similarity = batch_cosine_similarity(all_model_dpca_psth, all_model_dpca_psth).mean(0)
     cmap_scale = all_model_dpca_psth_similarity.max()*1.1
     
     sns.heatmap(all_model_dpca_psth_similarity, cmap='RdBu_r', vmin=-cmap_scale, vmax=cmap_scale, 
@@ -484,9 +485,8 @@ def plot_psth_geometry(all_model_dpca, dim_labels, axes, title):
     axes[0].set_title(title)
     
     # Define block boundaries and corresponding tick positions for the heatmap
-    block_boundaries = [3, 6, 9, 18, 27, 36]
-    ticks = [1.5, 4.5, 7.5, 13.5, 22.5, 31.5, 49.5]
-    
+    block_boundaries = np.cumsum([0]+psth_dims[:-1])
+    ticks = block_boundaries+np.array(psth_dims)//2+0.5
     
     # Add block boundary and tick label comments for the heatmap
     for bb in block_boundaries:
@@ -497,12 +497,12 @@ def plot_psth_geometry(all_model_dpca, dim_labels, axes, title):
     axes[0].set_yticks(ticks)
     axes[0].set_yticklabels(dim_labels, fontsize=12)
 
-    xxx_for_plot = np.tile(np.arange(63).reshape(1, 63), len(all_model_dpca['marginalized_psth'])).flatten()
+    xxx_for_plot = np.tile(np.arange(sum(psth_dims)).reshape(1, sum(psth_dims)), len(all_model_dpca['marginalized_psth'])).flatten()
 
     sns.stripplot(ax=axes[1], x=xxx_for_plot, y=np.linalg.norm(all_model_dpca_psth, axis=2).flatten(), 
-                  color='k', linewidth=1, size=1, legend=False, alpha=0.2)
+                  color='k', linewidth=1, size=0.5, legend=False, alpha=0.2)
     sns.barplot(ax=axes[1], x=xxx_for_plot, y=np.linalg.norm(all_model_dpca_psth, axis=2).flatten(), 
-                hue=dim_hue, errorbar=None, palette='tab10', legend=False)
+                hue=dim_hue, errorbar=None, palette='tab20', legend=False)
     axes[1].set_xticks(np.array(ticks)-0.5)
     axes[1].set_xticklabels(dim_labels, fontsize=12, rotation=0)
     axes[1].tick_params(axis='y', labelsize=12)
@@ -511,63 +511,65 @@ def plot_psth_geometry(all_model_dpca, dim_labels, axes, title):
     axes[1].spines['top'].set_visible(False)
 
 
-def plot_weight_exp_vars(n_components_for_dpca, all_model_dpca, axes, ylabel):
+def plot_weight_exp_vars(dim_configs, all_model_dpca, axes, ylabel):
     """
     Plots the explained variance for each dPCA component across all models.
 
     Args:
-        n_components_for_dpca (dict): Number of components for each dPCA key.
+        dim_configs (dict): Dictionary of dimension configurations.
         all_model_dpca (list): List of dPCA result objects for each model.
         axes (matplotlib.axes.Axes): Axes to plot on.
         ylabel (str): Y-axis label for the plot.
     """
-    key_plot_order = ['s', 'p', 'c', 'pc', 'sc', 'sp', 'spc']
+    key_plot_order = dim_configs['dpca_component_keys']
+    max_components = np.max(dim_configs['dpca_component_dims'])
+
     
-    # Create x-coordinates for plotting: repeat 0-7 for each model and each key
-    xxx_for_plot = np.tile(np.arange(8).reshape(1,1,8), [len(all_model_dpca['total_explained_var']),7,1])
-    # Create hue values for color coding: repeat 0-6 for each model and each component
-    hue_for_plot = np.tile(np.arange(7).reshape(1,7,1), [len(all_model_dpca['total_explained_var']),1,8])
+    # Create x-coordinates for plotting: [1, ..., num_keys], repeated for each model, stack components for each key
+    xxx_for_plot = np.tile(np.arange(len(key_plot_order))[None,:,None], 
+                            [len(all_model_dpca['total_explained_var']),1]).flatten()
+    # Create hue values for color coding: repeat for each model
+    hue_for_plot = np.tile(np.arange(len(key_plot_order))[None,:,None], 
+                            [len(all_model_dpca['total_explained_var']),1]).flatten()
+    hue_for_plot[hue_for_plot==0] = np.max(hue_for_plot)+1
+    hue_for_plot -= 1 # swap colors so that phase has the last color (grey)
 
     # Initialize list to store explained variance data for all models
-    all_model_dpca_exp_var = []
+    all_model_dpca_exp_var = np.zeros((len(all_model_dpca['total_explained_var']), len(key_plot_order)))
     
     # Loop through each model's dPCA results
-    for curr_model_exp_vars in all_model_dpca['total_explained_var']:
+    for mdl_idx, curr_model_exp_vars in enumerate(all_model_dpca['total_explained_var']):
         # Initialize array to store explained variance ratios for all keys and components
-        all_dpca_exp_var = np.zeros((7, 8))
         for k_idx, k in enumerate(key_plot_order):
             # Extract explained variance ratios for the current key, up to the specified number of components
-            all_dpca_exp_var[k_idx][...,:n_components_for_dpca[k]] = \
-                np.array(curr_model_exp_vars[k])
-        all_model_dpca_exp_var.append(all_dpca_exp_var)
-            
-    all_model_dpca_exp_var = np.stack(all_model_dpca_exp_var)
+            all_model_dpca_exp_var[mdl_idx,k_idx] = np.sum(curr_model_exp_vars[k])
     # Replace very small values (< 1e-6) with NaN to avoid plotting noise
-    all_model_dpca_exp_var[all_model_dpca_exp_var<1e-6] = np.nan
-    
+    # all_model_dpca_exp_var[all_model_dpca_exp_var<1e-6] = np.nan
+    # all_model_dpca_exp_var = np.cumsum(all_model_dpca_exp_var, axis=2)
+
     # Create a strip plot showing individual data points for each model
     sns.stripplot(ax=axes, x=xxx_for_plot.flatten(), y=all_model_dpca_exp_var.flatten(),
-                  hue=hue_for_plot.flatten(), palette='tab10', size=4,
-                  legend=False, linewidth=1, dodge=True, alpha=0.25)
+                  hue=hue_for_plot.flatten(), palette='tab20', size=4,
+                  legend=False, linewidth=1, alpha=0.25)
     # Create a bar plot showing the mean values, overlaid on the strip plot
     bb = sns.barplot(ax=axes, x=xxx_for_plot.flatten(), y=all_model_dpca_exp_var.flatten(),
-                 hue=hue_for_plot.flatten(), palette='tab10', dodge=True, errorbar=None)
+                 hue=hue_for_plot.flatten(), palette='tab20', errorbar=None)
     # Remove the legend from the bar plot to avoid duplication
     bb.legend_.remove()
     
     # Set x-axis ticks and labels
-    axes.set_xticks(np.arange(0,8,1))
+    # axes.set_xticks(np.arange(0,8,1))
     axes.set_xticklabels([])  # No x-axis labels
     axes.set_title(ylabel)
 
 
-def test_dpca_overlap(all_dpca_results, n_components_for_dpca, overlap_scale, label, axes):
+def test_dpca_overlap(all_dpca_results, dim_configs, overlap_scale, label, axes):
     """
     Tests and visualizes the overlap between dPCA axes and low-dimensional hidden states across models.
 
     Args:
         all_dpca_results (list): List of dPCA result objects for each model.
-        n_components_for_dpca (dict): Number of components for each dPCA key.
+        dim_configs (dict): Dictionary of dimension configurations.
         overlap_scale (float): Scale for significance thresholding.
         label (str): Title for the plot.
         axes (list): List of matplotlib axes to plot on.
@@ -575,7 +577,7 @@ def test_dpca_overlap(all_dpca_results, n_components_for_dpca, overlap_scale, la
     Returns:
         np.ndarray: Array of concatenated dPCA axes for all models.
     """
-    keys = list(n_components_for_dpca.keys())
+    keys = dim_configs['dpca_component_keys']
     
     all_model_axes_overlap = []
     all_model_flat_overlap = []
@@ -623,25 +625,25 @@ def test_dpca_overlap(all_dpca_results, n_components_for_dpca, overlap_scale, la
     triu_mask[np.triu_indices(axes_overlap.shape[0], k=0)] = 1
     
     # plot overlap values
-    im = sns.heatmap(all_model_axes_overlap.mean(0)*triu_mask+\
-                   all_model_low_hs_corr_val.mean(0)*tril_mask, \
-                   cmap='RdBu_r', vmin=-1, vmax=1, ax=axes[1], square=True,
-                    annot_kws={'fontdict':{'fontsize':10}}, cbar_kws={"shrink": 0.6})
+    sns.heatmap(all_model_axes_overlap.mean(0)*triu_mask+\
+                all_model_low_hs_corr_val.mean(0)*tril_mask, 
+                cmap='RdBu_r', vmin=-1, vmax=1, ax=axes[1], square=True,
+                annot_kws={'fontdict':{'fontsize':10}}, cbar_kws={"shrink": 0.6})
     
     txs, tys = np.meshgrid(np.arange(axes_overlap.shape[0]),np.arange(axes_overlap.shape[0]))
     txs = txs[(np.abs(all_model_axes_overlap.mean(0))>sig_thresh)]
     tys = tys[(np.abs(all_model_axes_overlap.mean(0))>sig_thresh)]
     
-    block_boundaries = np.cumsum(list(n_components_for_dpca.values()))[:-1]
+    block_boundaries = np.cumsum(dim_configs['dpca_component_dims'])[:-1]
     for i in block_boundaries:
         axes[1].axvline(x=i,color='grey',linewidth=0.2)
         axes[1].axhline(y=i,color='grey',linewidth=0.2)
         
-    tick_locs = np.cumsum([0, *n_components_for_dpca.values()])[:-1]+\
-                np.array(list(n_components_for_dpca.values()))//2-0.5
+    tick_locs = np.cumsum([0, *dim_configs['dpca_component_dims']])[:-1]+\
+                np.array(dim_configs['dpca_component_dims'])//2-0.5
 
-    axes[1].set_xticks(tick_locs, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'], size=15, rotation=0)
-    axes[1].set_yticks(tick_locs, [r'$F_1$', r'$F_2$', r'$F_3$', r'$C_1$', r'$C_2$', r'$C_3$', r'$O$'], size=18)
+    axes[1].set_xticks(tick_locs, dim_configs['component_labels'], size=15, rotation=0)
+    axes[1].set_yticks(tick_locs, dim_configs['component_labels'], size=18)
     
     for (x,y) in zip(txs, tys):
         if x<=y:
@@ -797,70 +799,70 @@ def plot_selectivity_clusters(all_dpca_results, keys, ideal_centroids, E_SIZE, I
 # TODO: plot the connectivity and learning rates by clusters
 
 
-def plot_input_output_overlap(all_model_dpca_in, all_model_dpca_out, n_components_for_dpca, dim_labels,axes):
+# def plot_input_output_overlap(all_model_dpca_in, all_model_dpca_out, n_components_for_dpca, dim_labels,axes):
 
-    '''
-    Plots the overlap between input and output axes. Orthogonalize the input axes from the output axes.
+#     '''
+#     Plots the overlap between input and output axes. Orthogonalize the input axes from the output axes.
 
-    Args:
-    all_model_dpca_in: dict, result of get_all_dpca_results, for the input weights
-    all_model_dpca_out: dict, result of get_all_dpca_results, for the output weights
-    n_components_for_dpca: dict, number of components for each dimension
-    dim_labels: list, labels for each dimension
-    axes: matplotlib axes, axes to plot on
-    '''
+#     Args:
+#     all_model_dpca_in: dict, result of get_all_dpca_results, for the input weights
+#     all_model_dpca_out: dict, result of get_all_dpca_results, for the output weights
+#     n_components_for_dpca: dict, number of components for each dimension
+#     dim_labels: list, labels for each dimension
+#     axes: matplotlib axes, axes to plot on
+#     '''
 
-    all_model_output_choice_overlap = []
+#     all_model_output_choice_overlap = []
 
-    # compute the overlap between input and output axes
-    num_models = len(all_model_dpca_in['encoding_axes'])
-    for idx_model in range(num_models):
-        input_output_overlap = np.nan*np.empty((7,7))
-        for k_out_idx, k_out in enumerate(n_components_for_dpca.keys()):
-            for k_in_idx, k_in in enumerate(n_components_for_dpca.keys()):
-                input_output_overlap[k_out_idx, k_in_idx] = \
-                    np.sum((all_model_dpca_out['encoding_axes'][idx_model][k_out].T@
-                            all_model_dpca_in['encoding_axes'][idx_model][k_in])**2)/\
-                        all_model_dpca_out['encoding_axes'][idx_model][k_out].shape[1]
+#     # compute the overlap between input and output axes
+#     num_models = len(all_model_dpca_in['encoding_axes'])
+#     for idx_model in range(num_models):
+#         input_output_overlap = np.nan*np.empty((7,7))
+#         for k_out_idx, k_out in enumerate(n_components_for_dpca.keys()):
+#             for k_in_idx, k_in in enumerate(n_components_for_dpca.keys()):
+#                 input_output_overlap[k_out_idx, k_in_idx] = \
+#                     np.sum((all_model_dpca_out['encoding_axes'][idx_model][k_out].T@
+#                             all_model_dpca_in['encoding_axes'][idx_model][k_in])**2)/\
+#                         all_model_dpca_out['encoding_axes'][idx_model][k_out].shape[1]
 
-        all_model_output_choice_overlap.append(input_output_overlap)
-    all_model_output_choice_overlap = np.stack(all_model_output_choice_overlap)
+#         all_model_output_choice_overlap.append(input_output_overlap)
+#     all_model_output_choice_overlap = np.stack(all_model_output_choice_overlap)
 
-    cmap_scale = all_model_output_choice_overlap.mean(0).max()
-    sns.heatmap(all_model_output_choice_overlap.mean(0), vmin=0, vmax=cmap_scale, ax=axes, 
-                square=True, cbar_kws={"shrink": 0.8}, cmap='rocket')
-    axes.set_xticks(np.arange(7), dim_labels)
-    axes.set_yticks(np.arange(7), dim_labels)
-    axes.set_xlabel("Input axes")
-    axes.set_ylabel("Output axes")
+#     cmap_scale = all_model_output_choice_overlap.mean(0).max()
+#     sns.heatmap(all_model_output_choice_overlap.mean(0), vmin=0, vmax=cmap_scale, ax=axes, 
+#                 square=True, cbar_kws={"shrink": 0.8}, cmap='rocket')
+#     axes.set_xticks(np.arange(7), dim_labels)
+#     axes.set_yticks(np.arange(7), dim_labels)
+#     axes.set_xlabel("Input axes")
+#     axes.set_ylabel("Output axes")
     
-    # orthogonalize the input axes from the output axes
-    all_model_ortho_input_axes = [] # list of dicts, each dict is a model's ortho input axes
-    for idx_model in range(num_models):
-        curr_mdl_ortho_input_axes = dict()
-        for k_name in n_components_for_dpca.keys():
-            input_axes = all_model_dpca_in['encoding_axes'][idx_model][k_name]
-            output_axes = all_model_dpca_out['encoding_axes'][idx_model][k_name]
-            curr_dim_ortho_input_axes = []
-            for axes_idx in range(input_axes.shape[1]):
-                curr_input_axes = input_axes[:, axes_idx:axes_idx+1]
-                q, _  = np.linalg.qr(np.concatenate([output_axes, curr_input_axes], axis=1))
-                curr_dim_ortho_input_axes.append(q[:, -1])
-            curr_mdl_ortho_input_axes[k_name] = np.stack(curr_dim_ortho_input_axes, axis=1)
+#     # orthogonalize the input axes from the output axes
+#     all_model_ortho_input_axes = [] # list of dicts, each dict is a model's ortho input axes
+#     for idx_model in range(num_models):
+#         curr_mdl_ortho_input_axes = dict()
+#         for k_name in n_components_for_dpca.keys():
+#             input_axes = all_model_dpca_in['encoding_axes'][idx_model][k_name]
+#             output_axes = all_model_dpca_out['encoding_axes'][idx_model][k_name]
+#             curr_dim_ortho_input_axes = []
+#             for axes_idx in range(input_axes.shape[1]):
+#                 curr_input_axes = input_axes[:, axes_idx:axes_idx+1]
+#                 q, _  = np.linalg.qr(np.concatenate([output_axes, curr_input_axes], axis=1))
+#                 curr_dim_ortho_input_axes.append(q[:, -1])
+#             curr_mdl_ortho_input_axes[k_name] = np.stack(curr_dim_ortho_input_axes, axis=1)
                 
-        all_model_ortho_input_axes.append(curr_mdl_ortho_input_axes)
+#         all_model_ortho_input_axes.append(curr_mdl_ortho_input_axes)
 
-    return all_model_ortho_input_axes
+#     return all_model_ortho_input_axes
 
 
-def plot_reparam_weights(all_model_dpca, all_model_rec, n_components_for_dpca, axes_heatmap, axes_violin):
+def plot_reparam_weights(all_model_dpca, all_model_rec, dim_configs, axes_heatmap, axes_violin):
     '''
     Plots the reparameterized weights for each model.
 
     Args:
         all_model_dpca: dict of {dpca_dict_name: dpca_result}, where dpca_dict_name is the name of the dpca dictionary
         all_model_rec: dict of {(area_in, area_out): recurrent weight matrices}
-        n_components_for_dpca: dict, number of components for each dimension
+        dim_configs: dict, dictionary of dimension configurations
         axes_heatmap: matplotlib axes, axes to plot on for the heatmap
         axes_violin: matplotlib axes, axes to plot on for the violin plot
     '''
@@ -868,55 +870,45 @@ def plot_reparam_weights(all_model_dpca, all_model_rec, n_components_for_dpca, a
     num_models = len(all_model_rec[0][0])
     num_areas = len(all_model_dpca)
 
-    area_dpca_sizes = [len(all_model_dpca[i]) for i in range(num_areas)] # how many dpca results for each area
-    total_dpca_sizes = sum(area_dpca_sizes)
-
-    all_pos_reparam_weights = [[[] for _ in range(total_dpca_sizes)] for _ in range(total_dpca_sizes)] # each weight has shape (component, component)
-    all_pos_within_weights = [[[] for _ in range(total_dpca_sizes)] for _ in range(total_dpca_sizes)] # each weight has shape (component,)
-    all_pos_between_weights = [[[] for _ in range(total_dpca_sizes)] for _ in range(total_dpca_sizes)] # each weight has shape (component*(component-1))
+    all_pos_reparam_weights = [[[] for _ in range(num_areas)] for _ in range(num_areas)] # each weight has shape (component, component)
+    all_pos_within_weights = [[[] for _ in range(num_areas)] for _ in range(num_areas)] # each weight has shape (component,)
+    all_pos_between_weights = [[[] for _ in range(num_areas)] for _ in range(num_areas)] # each weight has shape (component*(component-1))
 
     for row_idx in range(num_areas): # area out
         for col_idx in range(num_areas): # area in
             # extract the weight based on pre and post areas
-            num_dpca_in = len(all_model_dpca[col_idx])
-            num_dpca_out = len(all_model_dpca[row_idx])
             curr_pos_raw_weights = all_model_rec[row_idx][col_idx]
             
             # extract each dpca result based on the pre and post areas
-            for dpca_in_idx in range(num_dpca_in):
-                for dpca_out_idx in range(num_dpca_out):
-
-                    pos_row_idx = sum(area_dpca_sizes[:row_idx])+dpca_out_idx
-                    pos_col_idx = sum(area_dpca_sizes[:col_idx])+dpca_in_idx
-                    curr_pos_dpca_axes_in = all_model_dpca[col_idx][dpca_in_idx]['encoding_axes']
-                    curr_pos_dpca_axes_out = all_model_dpca[row_idx][dpca_out_idx]['encoding_axes']
-                    num_components = sum(list(n_components_for_dpca.values()))
-                    
-                    for mdl_idx in range(num_models):
-                        curr_mdl_dpca_axes_in = np.concatenate([curr_pos_dpca_axes_in[mdl_idx][k] for k in n_components_for_dpca.keys()], axis=1)
-                        curr_mdl_dpca_axes_out = np.concatenate([curr_pos_dpca_axes_out[mdl_idx][k] for k in n_components_for_dpca.keys()], axis=1)
-                        rec_current = curr_pos_raw_weights[mdl_idx].detach().numpy()@curr_mdl_dpca_axes_in
-                        # rec_current = rec_current/np.linalg.norm(rec_current, axis=0)
-                        curr_mdl_reparam_weights = (curr_mdl_dpca_axes_out.T)@rec_current
-                        all_pos_reparam_weights[pos_row_idx][pos_col_idx].append(curr_mdl_reparam_weights)            
-                        all_pos_within_weights[pos_row_idx][pos_col_idx].append(curr_mdl_reparam_weights[np.where(np.eye(num_components))])
-                        all_pos_between_weights[pos_row_idx][pos_col_idx].append(curr_mdl_reparam_weights[np.where(1-np.eye(num_components))])
+            curr_pos_dpca_axes_in = all_model_dpca[col_idx]['encoding_axes']
+            curr_pos_dpca_axes_out = all_model_dpca[row_idx]['encoding_axes']
+            num_components = sum(dim_configs['dpca_component_dims'])
             
-            all_pos_reparam_weights[pos_row_idx][pos_col_idx] = np.stack(all_pos_reparam_weights[pos_row_idx][pos_col_idx]) 
-            all_pos_within_weights[pos_row_idx][pos_col_idx] = np.stack(all_pos_within_weights[pos_row_idx][pos_col_idx])
-            all_pos_between_weights[pos_row_idx][pos_col_idx] = np.stack(all_pos_between_weights[pos_row_idx][pos_col_idx])
+            for mdl_idx in range(num_models):
+                curr_mdl_dpca_axes_in = np.concatenate([curr_pos_dpca_axes_in[mdl_idx][k] for k in dim_configs['dpca_component_keys']], axis=1)
+                curr_mdl_dpca_axes_out = np.concatenate([curr_pos_dpca_axes_out[mdl_idx][k] for k in dim_configs['dpca_component_keys']], axis=1)
+                rec_current = curr_pos_raw_weights[mdl_idx].detach().numpy()@curr_mdl_dpca_axes_in
+                # rec_current = rec_current/np.linalg.norm(rec_current, axis=0)
+                curr_mdl_reparam_weights = (curr_mdl_dpca_axes_out.T)@rec_current
+                all_pos_reparam_weights[row_idx][col_idx].append(curr_mdl_reparam_weights)            
+                all_pos_within_weights[row_idx][col_idx].append(curr_mdl_reparam_weights[np.where(np.eye(num_components))])
+                all_pos_between_weights[row_idx][col_idx].append(curr_mdl_reparam_weights[np.where(1-np.eye(num_components))])
+            
+            all_pos_reparam_weights[row_idx][col_idx] = np.stack(all_pos_reparam_weights[row_idx][col_idx]) 
+            all_pos_within_weights[row_idx][col_idx] = np.stack(all_pos_within_weights[row_idx][col_idx])
+            all_pos_between_weights[row_idx][col_idx] = np.stack(all_pos_between_weights[row_idx][col_idx])
 
     concat_reparam_weights = np.array(all_pos_reparam_weights)
     all_pos_within_weights = np.array(all_pos_within_weights) 
     all_pos_between_weights = np.array(all_pos_between_weights) 
 
-    violin_xxx = ['Ftr']*(num_models*6)\
-                +['Cnj']*(num_models*12)\
-                +['Obj']*(num_models*8)\
-                +['Btw']*(all_pos_between_weights.size//(total_dpca_sizes**2))
+    violin_xxx = ['Ftr']*(num_models*12)\
+                +['Cnj']*(num_models*24)\
+                +['Obj']*(num_models*16)\
+                +['Btw']*(all_pos_between_weights.size//(num_areas**2))
     
-    for row_idx in range(total_dpca_sizes):
-        for col_idx in range(total_dpca_sizes):
+    for row_idx in range(num_areas):
+        for col_idx in range(num_areas):
 
             cmap_scale = concat_reparam_weights[row_idx,col_idx].mean(0).max()*0.8
             sns.heatmap(concat_reparam_weights[row_idx,col_idx].mean(0), ax=axes_heatmap[row_idx,col_idx], vmin=-cmap_scale, vmax=cmap_scale, cmap='RdBu_r', 
@@ -925,9 +917,9 @@ def plot_reparam_weights(all_model_dpca, all_model_rec, n_components_for_dpca, a
             violin_scale = all_pos_within_weights[row_idx,col_idx].max()*1.1
             sns.violinplot(ax=axes_violin[row_idx][col_idx], 
                            x=violin_xxx, hue=violin_xxx,
-                           y=np.concatenate([all_pos_within_weights[row_idx,col_idx][:,:6].flatten(), 
-                                             all_pos_within_weights[row_idx,col_idx][:,6:18].flatten(), 
-                                             all_pos_within_weights[row_idx,col_idx][:,18:].flatten(), 
+                           y=np.concatenate([all_pos_within_weights[row_idx,col_idx][:,:12].flatten(), 
+                                             all_pos_within_weights[row_idx,col_idx][:,12:36].flatten(), 
+                                             all_pos_within_weights[row_idx,col_idx][:,36:52].flatten(), 
                                              all_pos_between_weights[row_idx,col_idx].flatten()]),
                            palette=sns.color_palette('Purples_r', 4), cut=0, legend=False)
             
@@ -968,7 +960,7 @@ def plot_reparam_weights(all_model_dpca, all_model_rec, n_components_for_dpca, a
             sns.despine(ax=axes_violin[row_idx][col_idx])
 
 
-def plot_reparam_lrs(all_model_dpca, all_model_kappa, n_components_for_dpca, axes_heatmap, axes_violin):
+def plot_reparam_lrs(all_model_dpca, all_model_kappa, dim_configs, axes_heatmap, axes_violin):
     """
     Plots the overlap between Hebbian memory matrices and dPCA axes for encoding and retrieval phases.
 
@@ -977,14 +969,14 @@ def plot_reparam_lrs(all_model_dpca, all_model_kappa, n_components_for_dpca, axe
                         each element is a dpca result object, separately for the input and output subspaces
         all_model_kappa: list of size (num_areas-1, 2), 
                         each element is a learning rate matrix, separately for the feedforward and feedback learning rates
-        n_components_for_dpca: dict, number of components for each dimension
+        dim_configs: dict, dictionary of dimension configurations
         axes_heatmap: matplotlib axes, axes to plot on for the heatmap
         axes_violin: matplotlib axes, axes to plot on for the violin plot
         title: str, title for the plot
     """
     num_models = len(all_model_dpca[0][0]['encoding_axes'])
     num_areas = len(all_model_kappa)+1
-    num_axis = sum(list(n_components_for_dpca.values()))
+    num_axis = sum(dim_configs['dpca_component_dims'])
 
     all_pos_reparam_lrs = [[np.empty((num_models, num_axis, num_axis))*np.nan for _ in range(2)] for _ in range(num_areas-1)] # for each area pair, store ff and fb learning rates
 
